@@ -6,13 +6,14 @@ import time
 import logging
 from .schemas.models import QueryRequest, QueryAnalysisResult
 from .agents.sql_analyzer import SQLAnalyzerAgent
+from dotenv import load_dotenv
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from dotenv import load_dotenv
-load_dotenv()  # loads backend/.env when running locally (if present) [web:146]
+
+load_dotenv()
 
 # Initialize FastAPI
 app = FastAPI(
@@ -36,30 +37,33 @@ analyzer = SQLAnalyzerAgent()
 # Simple in-memory rate limiter (use Redis for production)
 rate_limit_store = defaultdict(list)
 
+
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     if request.url.path == "/analyze":
-        client_ip = request.client.host
+        client_ip = request.client.host if request.client else "unknown"
         now = time.time()
-        
+
         # Clean old requests (keep last 60 seconds)
         rate_limit_store[client_ip] = [
             t for t in rate_limit_store[client_ip] if now - t < 60
         ]
-        
+
         # Check limit (10 requests per minute per IP)
         if len(rate_limit_store[client_ip]) >= 10:
             raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again in 1 minute.")
-        
+
         rate_limit_store[client_ip].append(now)
-    
+
     response = await call_next(request)
     return response
+
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "service": "SQL Query Analyzer"}
+
 
 @app.get("/capabilities")
 async def capabilities():
@@ -71,11 +75,12 @@ async def capabilities():
         },
     }
 
+
 @app.post("/analyze", response_model=QueryAnalysisResult)
 async def analyze_query(request: QueryRequest):
     """
     Analyze SQL query for optimization opportunities
-    
+
     - Detects performance issues
     - Suggests indexes
     - Provides rewritten optimized query
@@ -83,11 +88,11 @@ async def analyze_query(request: QueryRequest):
     """
     try:
         start_time = time.time()
-        
+
         # Validate query
         if not request.query or len(request.query.strip()) < 5:
             raise HTTPException(status_code=400, detail="Query too short")
-        
+
         logger.info(f"Analyzing query: {request.query[:50]}...")
         logger.info(
             "Analyze: db=%s use_llm=%s provider=%s focus=%s",
@@ -96,19 +101,29 @@ async def analyze_query(request: QueryRequest):
             request.llm_provider,
             request.focus,
         )
-        
+
         # Run analysis
+        db_type_str = (
+            request.db_type.value
+            if hasattr(request.db_type, "value")
+            else str(request.db_type)
+        )
+        llm_provider_str = (
+            request.llm_provider.value
+            if hasattr(request.llm_provider, "value")
+            else str(request.llm_provider)
+        )
         result = await analyzer.analyze(
             query=request.query,
-            db_type=request.db_type.value if hasattr(request.db_type, "value") else str(request.db_type),
+            db_type=db_type_str,
             schema_info=request.schema_info,
             use_llm=request.use_llm,
-            llm_provider=request.llm_provider.value if hasattr(request.llm_provider, "value") else str(request.llm_provider),
+            llm_provider=llm_provider_str,
             focus=request.focus,
         )
-        
+
         analysis_time = (time.time() - start_time) * 1000
-        
+
         return QueryAnalysisResult(
             query=request.query,
             parsed_query=result.get("parsing_result", {}),
@@ -130,10 +145,11 @@ async def analyze_query(request: QueryRequest):
             ai_insights=result.get("ai_insights"),
             ai_error=result.get("ai_error"),
         )
-        
+
     except Exception as e:
         logger.error(f"Analysis error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/docs")
 async def get_documentation():

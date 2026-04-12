@@ -2,9 +2,11 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
+
 class LLMProvider(str, Enum):
     HUGGINGFACE = "huggingface"
     OPENAI = "openai"
+
 
 class DatabaseType(str, Enum):
     POSTGRES = "postgresql"
@@ -12,6 +14,7 @@ class DatabaseType(str, Enum):
     SQLITE = "sqlite"
     SQL_SERVER = "sqlserver"
     ORACLE = "oracle"
+
 
 class QueryRequest(BaseModel):
     query: str = Field(..., description="SQL query to analyze")
@@ -21,6 +24,7 @@ class QueryRequest(BaseModel):
     use_llm: bool = Field(default=False)
     focus: str = Field(default="performance")
 
+
 class Finding(BaseModel):
     type: str                        # e.g. "missing_index", "select_star", "security"
     severity: str                    # "critical" | "high" | "medium" | "low"
@@ -28,9 +32,11 @@ class Finding(BaseModel):
     evidence: Optional[str] = None
     recommendation: Optional[str] = None
 
+
 class PlanArtifact(BaseModel):
     format: str                      # "json" | "xml" | "text"
     raw: Any                         # dict for json, str for xml/text
+
 
 class AnalysisFacts(BaseModel):
     db_type: str
@@ -40,6 +46,7 @@ class AnalysisFacts(BaseModel):
     plan: Optional[PlanArtifact] = None
     warnings: List[str] = Field(default_factory=list)
 
+
 class OptimizationSuggestion(BaseModel):
     type: str
     severity: str
@@ -47,11 +54,13 @@ class OptimizationSuggestion(BaseModel):
     reason: str
     estimated_improvement: str
 
+
 class ExecutionPlan(BaseModel):
     plan_type: str
     operations: List[Dict[str, Any]]
     total_cost: Optional[float] = None
     estimated_rows: Optional[int] = None
+
 
 class QueryAnalysisResult(BaseModel):
     query: str

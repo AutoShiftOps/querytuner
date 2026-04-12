@@ -3,6 +3,7 @@ from app.schemas.models import AnalysisFacts, Finding, PlanArtifact, QueryReques
 import asyncpg
 import os
 
+
 class PostgresCollector(BaseCollector):
     async def collect(self, request: QueryRequest) -> AnalysisFacts:
         dsn = os.getenv("POSTGRES_DSN", "")
