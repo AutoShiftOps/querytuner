@@ -7,6 +7,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.tools.query_parser import QueryParser
 from app.llm.router import run_llm
+from app.tools.execution_planner import collect_facts
+from app.schemas.models import QueryRequest as QR, DatabaseType
+import logging
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -33,6 +37,14 @@ class SQLAnalyzerAgent:
     def __init__(self, config: Optional[AnalyzerConfig] = None):
         self.config = config or AnalyzerConfig.from_env()
         self.parser = QueryParser()
+        DIALECT_RULES = {
+            "postgresql": "Use PostgreSQL syntax and indexing (CREATE INDEX ...). EXPLAIN is available; ANALYZE executes.",
+            "mysql": "Use MySQL 8+ syntax. Use EXPLAIN/EXPLAIN ANALYZE where applicable; avoid PostgreSQL-only syntax.",
+            "sqlite": "Use SQLite syntax. Avoid server-only features; indexes exist but no advanced planner hints.",
+            "sqlserver": "Use T-SQL syntax. Use SQL Server indexing and query patterns; avoid LIMIT (use TOP/OFFSET).",
+            "oracle": "Use Oracle SQL syntax. Use EXPLAIN PLAN FOR and DBMS_XPLAN. Use ROWNUM or FETCH FIRST for pagination.",
+        }
+        self.dialect_rules = DIALECT_RULES
 
     async def analyze(
         self,
@@ -71,8 +83,12 @@ class SQLAnalyzerAgent:
         suggestions = self._heuristic_suggestions(query, parsed, db_type=db_type, focus=focus)
         optimized_query = self._compose_optimized_query(query, suggestions, db_type=db_type)
 
-        ai_insights, ai_model = None, None
+        ai_insights, ai_model, ai_error = None, None, None
+        ai_attempted = False
+        used_ai = False
+
         if use_llm:
+            ai_attempted = True
             prompt = self._build_llm_prompt(
                 query=query,
                 db_type=db_type,
@@ -81,7 +97,28 @@ class SQLAnalyzerAgent:
                 suggestions=suggestions,
                 focus=focus,
             )
-            ai_insights, ai_model = await self._try_llm(llm_provider=llm_provider, prompt=prompt)
+
+            ai_insights, ai_model, ai_error = await self._try_llm(
+                llm_provider=llm_provider,
+                prompt=prompt
+            )
+
+            # "used" means we actually got usable content back
+            used_ai = bool(ai_insights and str(ai_insights).strip())
+        
+        # Build a QueryRequest-compatible object for the collector
+        facts_result = None
+        try:
+            _req = QR(
+                query=query,
+                db_type=db_type if isinstance(db_type, DatabaseType) else DatabaseType(db_type),
+                schema_info=schema_info or None,
+                use_llm=False,  # collector never calls LLM
+            )
+            _facts = await collect_facts(_req)
+            facts_result = _facts.dict()
+        except Exception as _e:
+            facts_result = {"db_type": db_type, "warnings": [f"Plan collection skipped: {str(_e)}"], "findings": []}
 
         return {
             "parsing_result": parsed,
@@ -89,8 +126,13 @@ class SQLAnalyzerAgent:
             "optimized_query": optimized_query,
             "security_issues": security_issues,
             "readability_score": readability_score,
+            "facts": facts_result,            # ← ADD THIS LINE
+            "ai_attempted": ai_attempted,
             "ai_insights": ai_insights,
             "ai_model": ai_model,
+            "ai_provider": llm_provider if use_llm else None,
+            "used_ai": used_ai,
+            "ai_error": ai_error,
         }
 
     # -------------------------
@@ -368,16 +410,26 @@ Tasks:
 Keep it concise and actionable.
 """
 
-    async def _try_llm(self, llm_provider: str, prompt: str) -> Tuple[Optional[str], Optional[str]]:
+    async def _try_llm(
+        self,
+        llm_provider: str,
+        prompt: str
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """
-        Centralized LLM call. If provider not enabled (missing env key),
-        returns (None, None) and heuristics remain the output.
+        Centralized LLM call.
+        Returns: (insights_text, model_name, error_string)
+        Never raises (so /analyze doesn't 500), but never fails silently.
         """
         try:
-            return await run_llm(provider=llm_provider, prompt=prompt)
-        except Exception:
-            # Never fail the overall request due to AI provider issues.
-            return None, None
+            text, model, err = await run_llm(provider=llm_provider, prompt=prompt)
+
+            if not text or not str(text).strip():
+                return None, model, "LLM returned empty response"
+
+            return text, model, err
+        except Exception as e:
+            return None, None, str(e)
+
 
     # -------------------------
     # Utilities

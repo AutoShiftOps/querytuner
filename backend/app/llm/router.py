@@ -1,42 +1,40 @@
 import os
 from typing import Optional, Tuple
 
-
-async def run_llm(provider: str, prompt: str) -> Tuple[Optional[str], Optional[str]]:
+async def run_llm(provider: str, prompt: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
-    Route LLM requests to the specified provider.
-    
-    Returns: (ai_insights, model_name)
-    If provider not configured, returns (None, None)
+    Returns: (ai_insights, model_name, error)
+    error is None when successful.
     """
     provider = (provider or "huggingface").lower().strip()
 
     if provider == "huggingface":
         if not os.getenv("HF_API_KEY", "").strip():
-            return None, None
-        
+            return None, os.getenv("HF_MODEL", "google/gemma-3-27b-it"), "HF_API_KEY not set on server"
         from app.llm.hf_client import HFLLM
         llm = HFLLM()
-        model = os.getenv("HF_MODEL", "google/gemma-2-2b-it")
-        text = await llm.chat([{"role": "user", "content": prompt}])
-        return text, model
+        model = os.getenv("HF_MODEL", "google/gemma-3-27b-it")
+        try:
+            text = await llm.chat([{"role": "user", "content": prompt}])
+        except Exception as e:
+            return None, model, f"HuggingFace error: {e}"
+
+        if not text or not str(text).strip():
+            return None, model, "HuggingFace returned empty response"
+        return text, model, None
 
     if provider == "openai":
-        # Enabled when OPENAI_API_KEY is set on server (Render env vars)
         api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         if not api_key:
-            return None, None
-        
-        # OpenAI async client (server-side only, never expose key to client)
+            return None, model, "OPENAI_API_KEY not set on server"
+
         try:
             from openai import AsyncOpenAI
         except ImportError:
-            # If openai package not installed yet, return None
-            return None, None
-        
+            return None, model, "openai package not installed on server"
+
         client = AsyncOpenAI(api_key=api_key)
-        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-        
         try:
             response = await client.chat.completions.create(
                 model=model,
@@ -45,10 +43,11 @@ async def run_llm(provider: str, prompt: str) -> Tuple[Optional[str], Optional[s
                 max_tokens=800,
                 timeout=30.0,
             )
-            return response.choices[0].message.content, model
+            text = response.choices[0].message.content
+            if not text or not str(text).strip():
+                return None, model, "OpenAI returned empty response"
+            return text, model, None
         except Exception as e:
-            # Log error but don't crash the API
-            print(f"OpenAI API error: {e}")
-            return None, model
+            return None, model, f"OpenAI API error: {e}"
 
-    return None, None
+    return None, None, f"Unknown provider: {provider}"

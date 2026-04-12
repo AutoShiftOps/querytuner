@@ -89,12 +89,22 @@ async def analyze_query(request: QueryRequest):
             raise HTTPException(status_code=400, detail="Query too short")
         
         logger.info(f"Analyzing query: {request.query[:50]}...")
+        logger.info(
+            "Analyze: db=%s use_llm=%s provider=%s focus=%s",
+            request.db_type,
+            request.use_llm,
+            request.llm_provider,
+            request.focus,
+        )
         
         # Run analysis
         result = await analyzer.analyze(
             query=request.query,
-            db_type=request.db_type.value,
-            schema_info=request.schema_info
+            db_type=request.db_type.value if hasattr(request.db_type, "value") else str(request.db_type),
+            schema_info=request.schema_info,
+            use_llm=request.use_llm,
+            llm_provider=request.llm_provider.value if hasattr(request.llm_provider, "value") else str(request.llm_provider),
+            focus=request.focus,
         )
         
         analysis_time = (time.time() - start_time) * 1000
@@ -111,7 +121,14 @@ async def analyze_query(request: QueryRequest):
             },
             security_issues=result.get("security_issues", []),
             readability_score=result.get("readability_score", 0),
-            analysis_time_ms=analysis_time
+            analysis_time_ms=analysis_time,
+            facts=result.get("facts"),
+            # NEW: make AI visibly reflected in output
+            used_ai=bool(result.get("used_ai", False)),
+            ai_provider=result.get("ai_provider"),
+            ai_model=result.get("ai_model"),
+            ai_insights=result.get("ai_insights"),
+            ai_error=result.get("ai_error"),
         )
         
     except Exception as e:

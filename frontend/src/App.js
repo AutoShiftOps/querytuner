@@ -16,14 +16,21 @@ function App() {
   const [error, setError] = useState(null);
 
   const [caps, setCaps] = useState(null);
-  const [llmProvider, setLlmProvider] = useState("huggingface");
-  const [useLlm] = useState(false);
+  const [llmProvider, setLlmProvider] = useState('huggingface');
+
+  // FIX: you must have a setter, otherwise it's always false
+  const [useLlm, setUseLlm] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const r = await axios.get(`${API_BASE_URL}/capabilities`);
-      setCaps(r.data);
-      setLlmProvider(r.data.default_provider || "huggingface");
+      try {
+        const r = await axios.get(`${API_BASE_URL}/capabilities`);
+        setCaps(r.data);
+        setLlmProvider(r.data?.default_provider || 'huggingface');
+      } catch (e) {
+        // Capabilities is optional; don't block the app
+        setCaps(null);
+      }
     })();
   }, []);
 
@@ -31,16 +38,19 @@ function App() {
     try {
       setLoading(true);
       setError(null);
-      
+
       const response = await axios.post(`${API_BASE_URL}/analyze`, {
         query,
         db_type: dbType,
+        schema_info: null, // keep if you don’t support schema yet
         llm_provider: llmProvider,
-        use_llm: useLlm
+        use_llm: useLlm,
+        focus: 'performance',
       });
-      
+
       setResult(response.data);
     } catch (err) {
+      setResult(null);
       setError(err.response?.data?.detail || 'Analysis failed');
     } finally {
       setLoading(false);
@@ -69,6 +79,12 @@ function App() {
               setDbType={setDbType}
               onAnalyze={handleAnalyze}
               loading={loading}
+              // NEW: pass these so the checkbox can control the flag
+              useLlm={useLlm}
+              setUseLlm={setUseLlm}
+              llmProvider={llmProvider}
+              setLlmProvider={setLlmProvider}
+              caps={caps}
             />
 
             {error && (
@@ -85,21 +101,29 @@ function App() {
               <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
                 <p className="text-slate-400 text-sm mb-1">Analysis Time</p>
                 <p className="text-2xl font-bold text-white">
-                  {result.analysis_time_ms.toFixed(2)}ms
+                  {Number(result.analysis_time_ms || 0).toFixed(2)}ms
                 </p>
               </div>
-              
+
               <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
                 <p className="text-slate-400 text-sm mb-1">Readability Score</p>
                 <p className="text-2xl font-bold text-white">
-                  {Math.round(result.readability_score)}%
+                  {Math.round(Number(result.readability_score || 0))}%
                 </p>
               </div>
-              
+
               <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
                 <p className="text-slate-400 text-sm mb-1">Issues Found</p>
                 <p className="text-2xl font-bold text-red-400">
-                  {result.optimization_suggestions.length}
+                  {Array.isArray(result.optimization_suggestions) ? result.optimization_suggestions.length : 0}
+                </p>
+              </div>
+
+              {/* Optional: show whether AI ran */}
+              <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                <p className="text-slate-400 text-sm mb-1">AI Insights</p>
+                <p className="text-sm text-white">
+                  {result.used_ai ? `Enabled (${result.ai_provider || 'provider'}${result.ai_model ? ` / ${result.ai_model}` : ''})` : 'Disabled / not used'}
                 </p>
               </div>
             </div>
@@ -109,8 +133,17 @@ function App() {
         {/* Results */}
         {result && (
           <div className="mt-8 space-y-6">
-            <OptimizationSuggestions suggestions={result.optimization_suggestions} />
-            
+            <OptimizationSuggestions suggestions={result.optimization_suggestions || []} />
+
+            {/* AI panel (shows only when AI returns something or errors) */}
+            {(result.used_ai || result.ai_insights || result.ai_error) && (
+              <ResultsPanel
+                title={`AI Insights${result.ai_provider ? ` (${result.ai_provider}${result.ai_model ? ` / ${result.ai_model}` : ''})` : ''}`}
+                content={result.ai_error ? `AI error: ${result.ai_error}` : (result.ai_insights || 'No AI insights returned.')}
+                icon={Zap}
+              />
+            )}
+
             {result.optimized_query && (
               <ResultsPanel
                 title="Optimized Query"
@@ -118,12 +151,10 @@ function App() {
                 icon={Zap}
               />
             )}
-            
-            {result.execution_plan && (
-              <ExecutionPlan plan={result.execution_plan} />
-            )}
-            
-            {result.security_issues.length > 0 && (
+
+            {result.execution_plan && <ExecutionPlan plan={result.execution_plan} />}
+
+            {Array.isArray(result.security_issues) && result.security_issues.length > 0 && (
               <div className="bg-red-900/20 border border-red-500 rounded-lg p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <Shield className="w-5 h-5 text-red-400" />
