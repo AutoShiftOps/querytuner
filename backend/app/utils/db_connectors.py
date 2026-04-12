@@ -2,6 +2,7 @@ from app.schemas.models import DatabaseType
 from typing import Optional
 import os
 
+
 def get_connection_params(db_type: DatabaseType, dsn: Optional[str] = None) -> dict:
     """
     Returns connection params from env or passed DSN.
