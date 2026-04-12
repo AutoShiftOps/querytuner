@@ -1,5 +1,7 @@
+import asyncio
 import os
 from typing import Optional, Tuple
+
 
 async def run_llm(provider: str, prompt: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
@@ -9,13 +11,16 @@ async def run_llm(provider: str, prompt: str) -> Tuple[Optional[str], Optional[s
     provider = (provider or "huggingface").lower().strip()
 
     if provider == "huggingface":
+        model = os.getenv("HF_MODEL", "google/gemma-3-27b-it")  # set once
         if not os.getenv("HF_API_KEY", "").strip():
-            return None, os.getenv("HF_MODEL", "google/gemma-3-27b-it"), "HF_API_KEY not set on server"
-        from app.llm.hf_client import HFLLM
-        llm = HFLLM()
-        model = os.getenv("HF_MODEL", "google/gemma-3-27b-it")
+            return None, model, "HF_API_KEY not set on server"
+
         try:
-            text = await llm.chat([{"role": "user", "content": prompt}])
+            from app.llm.hf_client import HFLLM
+            llm = HFLLM()
+            text = await asyncio.wait_for(
+                llm.chat([{"role": "user", "content": prompt}]),
+                timeout=30.0)
         except Exception as e:
             return None, model, f"HuggingFace error: {e}"
 

@@ -38,11 +38,26 @@ class SQLAnalyzerAgent:
         self.config = config or AnalyzerConfig.from_env()
         self.parser = QueryParser()
         DIALECT_RULES = {
-            "postgresql": "Use PostgreSQL syntax and indexing (CREATE INDEX ...). EXPLAIN is available; ANALYZE executes.",
-            "mysql": "Use MySQL 8+ syntax. Use EXPLAIN/EXPLAIN ANALYZE where applicable; avoid PostgreSQL-only syntax.",
-            "sqlite": "Use SQLite syntax. Avoid server-only features; indexes exist but no advanced planner hints.",
-            "sqlserver": "Use T-SQL syntax. Use SQL Server indexing and query patterns; avoid LIMIT (use TOP/OFFSET).",
-            "oracle": "Use Oracle SQL syntax. Use EXPLAIN PLAN FOR and DBMS_XPLAN. Use ROWNUM or FETCH FIRST for pagination.",
+            "postgresql": (
+                "Use PostgreSQL syntax and indexing (CREATE INDEX ...). "
+                "EXPLAIN is available; ANALYZE executes."
+            ),
+            "mysql": (
+                "Use MySQL 8+ syntax. Use EXPLAIN/EXPLAIN ANALYZE where applicable; "
+                "avoid PostgreSQL-only syntax."
+            ),
+            "sqlite": (
+                "Use SQLite syntax. Avoid server-only features; indexes exist but "
+                "no advanced planner hints."
+            ),
+            "sqlserver": (
+                "Use T-SQL syntax. Use SQL Server indexing and query patterns; "
+                "avoid LIMIT (use TOP/OFFSET)."
+            ),
+            "oracle": (
+                "Use Oracle SQL syntax. Use EXPLAIN PLAN FOR and DBMS_XPLAN. "
+                "Use ROWNUM or FETCH FIRST for pagination."
+            ),
         }
         self.dialect_rules = DIALECT_RULES
 
@@ -105,7 +120,7 @@ class SQLAnalyzerAgent:
 
             # "used" means we actually got usable content back
             used_ai = bool(ai_insights and str(ai_insights).strip())
-        
+
         # Build a QueryRequest-compatible object for the collector
         facts_result = None
         try:
@@ -164,7 +179,6 @@ class SQLAnalyzerAgent:
         ql = q.lower()
 
         tables = parsed.get("tables") or []
-        joins = parsed.get("joins") or []
         subqueries = parsed.get("subqueries") or 0
         complexity = parsed.get("complexity_score") or 0
 
@@ -193,13 +207,15 @@ class SQLAnalyzerAgent:
                 estimated="Varies",
             ))
 
-
         # 3) LIKE with leading wildcard
         if re.search(r"\blike\s+'%[^']*'\b", ql):
             suggestions.append(self._suggest(
                 type_="like_wildcard",
                 severity="high",
-                suggestion="Leading-wildcard LIKE patterns (e.g., LIKE '%abc') usually cannot use a normal B-tree index",
+                suggestion=(
+                    "Leading-wildcard LIKE patterns (e.g., LIKE '%abc') usually cannot "
+                    "use a normal B-tree index"
+                ),
                 reason="For substring search consider full-text search or trigram indexes (DB-specific)",
                 estimated="Often large",
             ))
@@ -252,7 +268,10 @@ class SQLAnalyzerAgent:
                 suggestions.append(self._suggest(
                     type_="high_complexity",
                     severity="medium",
-                    suggestion="High complexity query: consider splitting into steps, using temp tables, or pre-aggregation",
+                    suggestion=(
+                        "High complexity query: consider splitting into steps, "
+                        "using temp tables, or pre-aggregation"
+                    ),
                     reason="Complex queries are harder to optimize and maintain",
                     estimated="Varies",
                 ))
@@ -429,7 +448,6 @@ Keep it concise and actionable.
             return text, model, err
         except Exception as e:
             return None, None, str(e)
-
 
     # -------------------------
     # Utilities

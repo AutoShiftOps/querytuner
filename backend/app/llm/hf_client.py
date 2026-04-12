@@ -16,7 +16,7 @@ class HFLLM:
             raise ValueError("HF_API_KEY is missing")
 
         self.model = (model or os.getenv("HF_MODEL", "google/gemma-3-27b-it")).strip()
-        self.max_tokens_cap = int(os.getenv("AI_MAX_TOKENS", "300"))
+        self.max_tokens_cap = int(os.getenv("AI_MAX_TOKENS", "800"))
         self.base_url = os.getenv("HF_ROUTER_BASE_URL", "https://router.huggingface.co").rstrip("/")
 
     async def chat(
