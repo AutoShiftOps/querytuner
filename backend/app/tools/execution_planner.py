@@ -1,5 +1,6 @@
 from app.schemas.models import DatabaseType, AnalysisFacts, QueryRequest
 
+
 async def collect_facts(request: QueryRequest) -> AnalysisFacts:
     """
     Routes to the correct DB collector based on db_type.

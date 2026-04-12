@@ -1,10 +1,6 @@
-# backend/app/tools/query_parser.py
-
 from __future__ import annotations
-
 import re
 from typing import Any, Dict, List, Optional, Tuple
-
 import sqlparse
 
 
@@ -74,7 +70,14 @@ def _parse_alias(expr: str) -> Tuple[str, Optional[str]]:
         if alias.lower() not in {"from", "where", "group", "order", "limit", "over", "join"}:
             expr_wo = e[: m2.start()].strip()
             # Accept only if it looks like an expression (reduces false positives)
-            if expr_wo and (("(" in expr_wo) or (" " in expr_wo) or ("+" in expr_wo) or ("-" in expr_wo) or ("/" in expr_wo) or ("*" in expr_wo)):
+            if expr_wo and (
+                ("(" in expr_wo)
+                or (" " in expr_wo)
+                or ("+" in expr_wo)
+                or ("-" in expr_wo)
+                or ("/" in expr_wo)
+                or ("*" in expr_wo)
+            ):
                 return expr_wo, alias
 
     return e, None
@@ -122,7 +125,6 @@ def _extract_clause(sql: str, start_kw: str, end_kws: List[str]) -> str:
     Extract clause body appearing after start_kw up to the earliest of end_kws, all at top-level.
     Example: start_kw=" where ", end_kws=[" group by ", " order by ", " limit ", " fetch "]
     """
-    sl = sql.lower()
     start = _find_top_level_keyword_pos(sql, start_kw, 0)
     if start == -1:
         return ""
@@ -233,7 +235,6 @@ class QueryParser:
 
     def _extract_select_clause_text(self, query: str) -> str:
         q = _strip_trailing_semicolon(query)
-        ql = q.lower()
 
         s_idx = _find_top_level_keyword_pos(q, "select", 0)
         if s_idx == -1:
