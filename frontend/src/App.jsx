@@ -5,6 +5,7 @@ import QueryInput from './components/QueryInput';
 import ResultsPanel from './components/ResultsPanel';
 import OptimizationSuggestions from './components/OptimizationSuggestions';
 import ExecutionPlan from './components/ExecutionPlan';
+import SampleQueries from './components/SampleQueries';
 import axios from 'axios';
 
 // Vite uses import.meta.env.VITE_* (not process.env.REACT_APP_*)
@@ -68,6 +69,12 @@ function App() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column - Input */}
           <div className="lg:col-span-2">
+            <SampleQueries
+              onSelect={(sql, db) => {
+                setQuery(sql);
+                setDbType(db);
+              }}
+            />
             <QueryInput
               query={query}
               setQuery={setQuery}
