@@ -6,7 +6,8 @@ import OptimizationSuggestions from './components/OptimizationSuggestions';
 import ExecutionPlan from './components/ExecutionPlan';
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+// Vite uses import.meta.env.VITE_* (not process.env.REACT_APP_*)
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 function App() {
   const [query, setQuery] = useState('');
@@ -14,11 +15,8 @@ function App() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
   const [caps, setCaps] = useState(null);
   const [llmProvider, setLlmProvider] = useState('huggingface');
-
-  // FIX: you must have a setter, otherwise it's always false
   const [useLlm, setUseLlm] = useState(false);
 
   useEffect(() => {
@@ -27,8 +25,7 @@ function App() {
         const r = await axios.get(`${API_BASE_URL}/capabilities`);
         setCaps(r.data);
         setLlmProvider(r.data?.default_provider || 'huggingface');
-      } catch (e) {
-        // Capabilities is optional; don't block the app
+      } catch {
         setCaps(null);
       }
     })();
@@ -38,16 +35,14 @@ function App() {
     try {
       setLoading(true);
       setError(null);
-
       const response = await axios.post(`${API_BASE_URL}/analyze`, {
         query,
         db_type: dbType,
-        schema_info: null, // keep if you don’t support schema yet
+        schema_info: null,
         llm_provider: llmProvider,
         use_llm: useLlm,
         focus: 'performance',
       });
-
       setResult(response.data);
     } catch (err) {
       setResult(null);
@@ -64,7 +59,7 @@ function App() {
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
             <Zap className="w-8 h-8 text-blue-400" />
-            <h1 className="text-4xl font-bold text-white">SQL Query Analyzer</h1>
+            <h1 className="text-4xl font-bold text-white">QueryTuner</h1>
           </div>
           <p className="text-slate-400">AI-powered SQL optimization and performance analysis</p>
         </div>
@@ -79,14 +74,12 @@ function App() {
               setDbType={setDbType}
               onAnalyze={handleAnalyze}
               loading={loading}
-              // NEW: pass these so the checkbox can control the flag
               useLlm={useLlm}
               setUseLlm={setUseLlm}
               llmProvider={llmProvider}
               setLlmProvider={setLlmProvider}
               caps={caps}
             />
-
             {error && (
               <div className="mt-4 p-4 bg-red-900/20 border border-red-500 rounded-lg flex gap-3">
                 <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
@@ -104,14 +97,12 @@ function App() {
                   {Number(result.analysis_time_ms || 0).toFixed(2)}ms
                 </p>
               </div>
-
               <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
                 <p className="text-slate-400 text-sm mb-1">Readability Score</p>
                 <p className="text-2xl font-bold text-white">
                   {Math.round(Number(result.readability_score || 0))}%
                 </p>
               </div>
-
               <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
                 <p className="text-slate-400 text-sm mb-1">Issues Found</p>
                 <p className="text-2xl font-bold text-red-400">
@@ -120,8 +111,6 @@ function App() {
                     : 0}
                 </p>
               </div>
-
-              {/* Optional: show whether AI ran */}
               <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
                 <p className="text-slate-400 text-sm mb-1">AI Insights</p>
                 <p className="text-sm text-white">
@@ -141,7 +130,6 @@ function App() {
           <div className="mt-8 space-y-6">
             <OptimizationSuggestions suggestions={result.optimization_suggestions || []} />
 
-            {/* AI panel (shows only when AI returns something or errors) */}
             {(result.used_ai || result.ai_insights || result.ai_error) && (
               <ResultsPanel
                 title={`AI Insights${
