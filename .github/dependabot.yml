@@ -1,0 +1,34 @@
+version: 2
+updates:
+
+  # Frontend — only alert on runtime production deps
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    allow:
+      - dependency-type: "production"    # ← ignores devDependencies entirely
+    ignore:
+      # Build-tool-only packages — never run in production
+      - dependency-name: "eslint*"
+      - dependency-name: "@babel/*"
+      - dependency-name: "rollup*"
+      - dependency-name: "@rollup/*"
+      - dependency-name: "vite*"
+      - dependency-name: "@vitejs/*"
+      - dependency-name: "tailwindcss"
+      - dependency-name: "postcss"
+      - dependency-name: "autoprefixer"
+      - dependency-name: "prettier"
+
+  # Backend — all Python deps are production
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
