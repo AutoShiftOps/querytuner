@@ -160,7 +160,24 @@ function App() {
             )}
 
             {result.optimized_query && (
-              <ResultsPanel title="Optimized Query" content={result.optimized_query} icon={Zap} />
+              <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-5 h-5 text-blue-400" />
+                    <h3 className="text-lg font-bold text-white">Optimized Query</h3>
+                  </div>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(result.optimized_query)}
+                    className="text-xs text-slate-400 hover:text-white border border-slate-600
+                              hover:border-slate-400 px-3 py-1 rounded transition-colors"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <pre className="whitespace-pre-wrap text-slate-300 text-sm font-mono leading-relaxed overflow-x-auto">
+                  {result.optimized_query}
+                </pre>
+              </div>
             )}
 
             {result.execution_plan && <ExecutionPlan plan={result.execution_plan} />}
