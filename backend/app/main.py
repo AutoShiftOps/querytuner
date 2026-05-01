@@ -124,6 +124,7 @@ async def analyze_query(request: QueryRequest):
             optimization_suggestions=result.get("optimization_suggestions", []),
             execution_plan=result.get("execution_plan"),
             optimized_query=result.get("optimized_query"),
+            plain_explanation=result.get("plain_explanation"),
             performance_metrics={
                 "complexity_score": result.get("parsing_result", {}).get("complexity_score", 0),
                 "subqueries": result.get("parsing_result", {}).get("subqueries", 0),
