@@ -46,20 +46,17 @@ class SQLAnalyzerAgent:
 
         DIALECT_RULES = {
             "postgresql": (
-                "Use PostgreSQL syntax and indexing (CREATE INDEX ...). " "EXPLAIN is available; ANALYZE executes."
+                "Use PostgreSQL syntax and indexing (CREATE INDEX ...). EXPLAIN is available; ANALYZE executes."
             ),
             "mysql": (
-                "Use MySQL 8+ syntax. Use EXPLAIN/EXPLAIN ANALYZE where applicable; " "avoid PostgreSQL-only syntax."
+                "Use MySQL 8+ syntax. Use EXPLAIN/EXPLAIN ANALYZE where applicable; avoid PostgreSQL-only syntax."
             ),
-            "sqlite": (
-                "Use SQLite syntax. Avoid server-only features; indexes exist but " "no advanced planner hints."
-            ),
+            "sqlite": ("Use SQLite syntax. Avoid server-only features; indexes exist but no advanced planner hints."),
             "sqlserver": (
-                "Use T-SQL syntax. Use SQL Server indexing and query patterns; " "avoid LIMIT (use TOP/OFFSET)."
+                "Use T-SQL syntax. Use SQL Server indexing and query patterns; avoid LIMIT (use TOP/OFFSET)."
             ),
             "oracle": (
-                "Use Oracle SQL syntax. Use EXPLAIN PLAN FOR and DBMS_XPLAN. "
-                "Use ROWNUM or FETCH FIRST for pagination."
+                "Use Oracle SQL syntax. Use EXPLAIN PLAN FOR and DBMS_XPLAN. Use ROWNUM or FETCH FIRST for pagination."
             ),
         }
         self.dialect_rules = DIALECT_RULES
