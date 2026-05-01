@@ -194,7 +194,7 @@ class SQLAnalyzerAgent:
         suggestions: list[dict[str, Any]] = []
 
         # 1) SELECT *
-        if re.search(r"\bselect\s+\*\b", ql):
+        if re.search(r"\bselect\s+\*", ql):
             suggestions.append(
                 self._suggest(
                     type_="column_selection",

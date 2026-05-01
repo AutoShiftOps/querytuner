@@ -1,43 +1,26 @@
-import React, { useState } from "react";
+import ReactMarkdown from 'react-markdown';
 
-export default function ResultsPanel({ title, content, subtitle }) {
-  const [copied, setCopied] = useState(false);
-
-  const text =
-    typeof content === "string" ? content : JSON.stringify(content, null, 2);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    } catch (e) {
-      console.error("Copy failed", e);
-    }
-  };
-
+function ResultsPanel({ title, content, icon: Icon }) {
   return (
-    <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-      <div className="flex items-start justify-between gap-4">
-        <div>
+    <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          {Icon && <Icon className="w-5 h-5 text-blue-400" />}
           <h3 className="text-lg font-bold text-white">{title}</h3>
-          {subtitle ? (
-            <p className="text-slate-400 text-sm mt-1">{subtitle}</p>
-          ) : null}
         </div>
-
         <button
-          onClick={copy}
-          className="text-slate-200 text-sm bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded"
-          type="button"
+          onClick={() => navigator.clipboard.writeText(content)}
+          className="text-xs text-slate-400 hover:text-white border border-slate-600
+                     hover:border-slate-400 px-3 py-1 rounded transition-colors"
         >
-          {copied ? "Copied" : "Copy"}
+          Copy
         </button>
       </div>
-
-      <pre className="mt-4 bg-slate-900 text-slate-100 p-4 rounded overflow-auto text-sm">
-        <code>{text}</code>
-      </pre>
+      <div className="prose prose-invert prose-sm max-w-none text-slate-300">
+        <ReactMarkdown>{content}</ReactMarkdown>
+      </div>
     </div>
   );
 }
+
+export default ResultsPanel;

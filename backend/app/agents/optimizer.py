@@ -124,7 +124,7 @@ class QueryOptimizer:
 
     def _rewrite_select_star(self, q: str):
         """SELECT *  →  SELECT /* TODO: list required columns */"""
-        pattern = r"\bSELECT\s+\*\b"
+        pattern = r"\bSELECT\s+\*"
         new_q, n = re.subn(pattern, "SELECT /* TODO: list required columns */", q, flags=re.IGNORECASE)
         return new_q, n > 0
 
