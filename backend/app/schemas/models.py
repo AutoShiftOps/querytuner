@@ -68,6 +68,7 @@ class QueryAnalysisResult(BaseModel):
     optimization_suggestions: List[OptimizationSuggestion]
     execution_plan: Optional[ExecutionPlan] = None
     optimized_query: Optional[str] = None
+    plain_explanation: Optional[str] = None
     performance_metrics: Dict[str, Any]
     security_issues: List[str]
     readability_score: float
