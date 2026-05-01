@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { BookOpen, AlertCircle, Zap, Shield } from 'lucide-react';
 import QueryInput from './components/QueryInput';
 import ResultsPanel from './components/ResultsPanel';
@@ -128,17 +129,14 @@ function App() {
         {/* Results */}
         {result && (
           <div className="mt-8 space-y-6">
-            {/* Plain English Explanation — always shown when available */}
             {result.plain_explanation && (
               <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <BookOpen className="w-5 h-5 text-blue-400" />
                   <h3 className="text-lg font-bold text-white">Query Diagnosis</h3>
                 </div>
-                <div className="prose prose-invert prose-sm max-w-none">
-                  <pre className="whitespace-pre-wrap text-slate-300 text-sm font-sans leading-relaxed">
-                    {result.plain_explanation}
-                  </pre>
+                <div className="prose prose-invert prose-sm max-w-none text-slate-300">
+                  <ReactMarkdown>{result.plain_explanation}</ReactMarkdown>
                 </div>
               </div>
             )}
