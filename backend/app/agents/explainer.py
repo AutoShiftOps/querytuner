@@ -95,12 +95,17 @@ class QueryExplainer:
         for i, s in enumerate(sorted_suggestions, 1):
             severity = s.get("severity", "low").upper()
             emoji = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🔵"}.get(severity, "⚪")
-            lines.append(f"\n### {i}. {emoji} [{severity}] {s.get('type', '').replace('_', ' ').title()}")
-            lines.append(f"**Issue:** {s.get('suggestion', '')}")
-            lines.append(f"**Why it matters:** {s.get('reason', '')}")
             estimated = s.get("estimated_improvement", "")
-            if estimated:
-                lines.append(f"**Estimated impact:** {estimated}")
+            block_lines = [
+                f"### {i}. {emoji} [{severity}] {s.get('type', '').replace('_', ' ').title()}",
+                "",
+                f"**Issue:** {s.get('suggestion', '')}",
+                "",
+                f"**Why it matters:** {s.get('reason', '')}",
+                "",
+                f"**Estimated impact:** {estimated}",
+            ]
+            lines.extend(block_lines)
 
         return "\n".join(lines)
 
