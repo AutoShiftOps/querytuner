@@ -1,4 +1,4 @@
-from app.schemas.models import DatabaseType, AnalysisFacts, QueryRequest
+from app.schemas.models import AnalysisFacts, DatabaseType, QueryRequest
 
 
 async def collect_facts(request: QueryRequest) -> AnalysisFacts:
@@ -10,24 +10,28 @@ async def collect_facts(request: QueryRequest) -> AnalysisFacts:
 
     if db_type == DatabaseType.POSTGRES:
         from app.tools.collectors.postgres import PostgresCollector
+
         return await PostgresCollector().collect(request)
 
     elif db_type == DatabaseType.MYSQL:
         from app.tools.collectors.mysql import MySQLCollector
+
         return await MySQLCollector().collect(request)
 
     elif db_type == DatabaseType.SQLITE:
         from app.tools.collectors.sqlite import SQLiteCollector
+
         return await SQLiteCollector().collect(request)
 
     elif db_type == DatabaseType.SQL_SERVER:
         from app.tools.collectors.sqlserver import SQLServerCollector
+
         return await SQLServerCollector().collect(request)
 
     elif db_type == DatabaseType.ORACLE:
         from app.tools.collectors.oracle import OracleCollector
+
         return await OracleCollector().collect(request)
 
     else:
-        return AnalysisFacts(db_type=db_type.value,
-                             warnings=["No collector available for this DB type"])
+        return AnalysisFacts(db_type=db_type.value, warnings=["No collector available for this DB type"])

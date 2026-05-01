@@ -1,9 +1,9 @@
-from app.schemas.models import DatabaseType
-from typing import Optional
 import os
 
+from app.schemas.models import DatabaseType
 
-def get_connection_params(db_type: DatabaseType, dsn: Optional[str] = None) -> dict:
+
+def get_connection_params(db_type: DatabaseType, dsn: str | None = None) -> dict:
     """
     Returns connection params from env or passed DSN.
     Used by collectors — not for direct query execution.

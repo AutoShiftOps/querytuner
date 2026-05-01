@@ -1,12 +1,14 @@
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from collections import defaultdict
+import logging
 import os
 import time
-import logging
-from .schemas.models import QueryRequest, QueryAnalysisResult
-from .agents.sql_analyzer import SQLAnalyzerAgent
+from collections import defaultdict
+
 from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+
+from .agents.sql_analyzer import SQLAnalyzerAgent
+from .schemas.models import QueryAnalysisResult, QueryRequest
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +21,7 @@ load_dotenv()
 app = FastAPI(
     title="SQL Query Analyzer",
     description="AI-powered SQL query analysis and optimization tool",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 # CORS middleware
@@ -45,13 +47,11 @@ async def rate_limit_middleware(request: Request, call_next):
         now = time.time()
 
         # Clean old requests (keep last 60 seconds)
-        rate_limit_store[client_ip] = [
-            t for t in rate_limit_store[client_ip] if now - t < 60
-        ]
+        rate_limit_store[client_ip] = [t for t in rate_limit_store[client_ip] if now - t < 60]
 
         # Check limit (10 requests per minute per IP)
         if len(rate_limit_store[client_ip]) >= 10:
-            raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again in 1 minute.")
+            raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again in 1 minute.") from None
 
         rate_limit_store[client_ip].append(now)
 
@@ -103,15 +103,9 @@ async def analyze_query(request: QueryRequest):
         )
 
         # Run analysis
-        db_type_str = (
-            request.db_type.value
-            if hasattr(request.db_type, "value")
-            else str(request.db_type)
-        )
+        db_type_str = request.db_type.value if hasattr(request.db_type, "value") else str(request.db_type)
         llm_provider_str = (
-            request.llm_provider.value
-            if hasattr(request.llm_provider, "value")
-            else str(request.llm_provider)
+            request.llm_provider.value if hasattr(request.llm_provider, "value") else str(request.llm_provider)
         )
         result = await analyzer.analyze(
             query=request.query,
@@ -132,13 +126,12 @@ async def analyze_query(request: QueryRequest):
             optimized_query=result.get("optimized_query"),
             performance_metrics={
                 "complexity_score": result.get("parsing_result", {}).get("complexity_score", 0),
-                "subqueries": result.get("parsing_result", {}).get("subqueries", 0)
+                "subqueries": result.get("parsing_result", {}).get("subqueries", 0),
             },
             security_issues=result.get("security_issues", []),
             readability_score=result.get("readability_score", 0),
             analysis_time_ms=analysis_time,
             facts=result.get("facts"),
-            # NEW: make AI visibly reflected in output
             used_ai=bool(result.get("used_ai", False)),
             ai_provider=result.get("ai_provider"),
             ai_model=result.get("ai_model"),
@@ -148,7 +141,7 @@ async def analyze_query(request: QueryRequest):
 
     except Exception as e:
         logger.error(f"Analysis error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @app.get("/docs")
@@ -160,10 +153,12 @@ async def get_documentation():
         "endpoints": {
             "POST /analyze": "Analyze SQL query",
             "GET /health": "Health check",
-            "GET /docs": "This documentation"
-        }
+            "GET /docs": "This documentation",
+        },
     }
+
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

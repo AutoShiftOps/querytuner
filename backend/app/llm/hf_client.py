@@ -1,5 +1,4 @@
 import os
-from typing import Dict, List, Optional
 
 import httpx
 
@@ -10,7 +9,8 @@ class HFLLM:
 
     Calls: POST https://router.huggingface.co/v1/chat/completions
     """
-    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
+
+    def __init__(self, api_key: str | None = None, model: str | None = None):
         self.api_key = (api_key or os.getenv("HF_API_KEY", "")).strip()
         if not self.api_key:
             raise ValueError("HF_API_KEY is missing")
@@ -21,7 +21,7 @@ class HFLLM:
 
     async def chat(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         *,
         max_tokens: int = 700,
         temperature: float = 0.2,
@@ -50,5 +50,5 @@ class HFLLM:
         data = r.json()
         try:
             return data["choices"][0]["message"]["content"]
-        except Exception:
-            raise RuntimeError(f"Unexpected HF response shape: {data}")
+        except Exception as e:
+            raise RuntimeError(f"Unexpected HF response shape: {data}") from e

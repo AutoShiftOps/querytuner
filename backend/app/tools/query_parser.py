@@ -1,23 +1,25 @@
 from __future__ import annotations
-import re
-from typing import Any, Dict, List, Optional, Tuple
-import sqlparse
 
+import re
+from typing import Any
+
+import sqlparse
 
 # -----------------------------
 # Top-level scanning helpers
 # -----------------------------
 
+
 def _strip_trailing_semicolon(s: str) -> str:
     return (s or "").strip().rstrip(";").strip()
 
 
-def _split_top_level_commas(s: str) -> List[str]:
+def _split_top_level_commas(s: str) -> list[str]:
     """
     Split by commas only when not inside parentheses or quotes.
     """
-    parts: List[str] = []
-    buf: List[str] = []
+    parts: list[str] = []
+    buf: list[str] = []
     depth = 0
     in_sq = False  # '
     in_dq = False  # "
@@ -46,7 +48,7 @@ def _split_top_level_commas(s: str) -> List[str]:
     return parts
 
 
-def _parse_alias(expr: str) -> Tuple[str, Optional[str]]:
+def _parse_alias(expr: str) -> tuple[str, str | None]:
     """
     Returns: (expression_without_alias, alias_or_none)
 
@@ -67,7 +69,15 @@ def _parse_alias(expr: str) -> Tuple[str, Optional[str]]:
     m2 = re.search(r"\s+([A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\")\s*$", e)
     if m2:
         alias = m2.group(1).strip().strip('"')
-        if alias.lower() not in {"from", "where", "group", "order", "limit", "over", "join"}:
+        if alias.lower() not in {
+            "from",
+            "where",
+            "group",
+            "order",
+            "limit",
+            "over",
+            "join",
+        }:
             expr_wo = e[: m2.start()].strip()
             # Accept only if it looks like an expression (reduces false positives)
             if expr_wo and (
@@ -120,7 +130,7 @@ def _find_top_level_keyword_pos(sql: str, keyword: str, start_idx: int = 0) -> i
     return -1
 
 
-def _extract_clause(sql: str, start_kw: str, end_kws: List[str]) -> str:
+def _extract_clause(sql: str, start_kw: str, end_kws: list[str]) -> str:
     """
     Extract clause body appearing after start_kw up to the earliest of end_kws, all at top-level.
     Example: start_kw=" where ", end_kws=[" group by ", " order by ", " limit ", " fetch "]
@@ -144,6 +154,7 @@ def _extract_clause(sql: str, start_kw: str, end_kws: List[str]) -> str:
 # QueryParser
 # -----------------------------
 
+
 class QueryParser:
     """
     JSON-safe SQL parser for common single-statement SELECT queries.
@@ -156,7 +167,7 @@ class QueryParser:
         - select_items: list[{"output","expr","has_alias"}]
     """
 
-    def parse(self, query: str) -> Dict[str, Any]:
+    def parse(self, query: str) -> dict[str, Any]:
         q = (query or "").strip()
         if not q:
             return self._empty()
@@ -180,7 +191,7 @@ class QueryParser:
         }
         return parsed
 
-    def _empty(self) -> Dict[str, Any]:
+    def _empty(self) -> dict[str, Any]:
         return {
             "query_type": "UNKNOWN",
             "tables": [],
@@ -205,22 +216,24 @@ class QueryParser:
     # SELECT items (top-level)
     # -----------------------------
 
-    def _extract_select_items(self, query: str) -> List[Dict[str, Any]]:
+    def _extract_select_items(self, query: str) -> list[dict[str, Any]]:
         select_text = self._extract_select_clause_text(query)
         if not select_text:
             return []
 
         raw_items = _split_top_level_commas(select_text)
-        items: List[Dict[str, Any]] = []
+        items: list[dict[str, Any]] = []
 
         for raw in raw_items:
             expr_wo_alias, alias = _parse_alias(raw)
             output = alias if alias else self._best_output_name(expr_wo_alias)
-            items.append({
-                "output": output,
-                "expr": expr_wo_alias.strip(),
-                "has_alias": bool(alias),
-            })
+            items.append(
+                {
+                    "output": output,
+                    "expr": expr_wo_alias.strip(),
+                    "has_alias": bool(alias),
+                }
+            )
 
         # de-dupe by (output, expr)
         seen = set()
@@ -244,9 +257,9 @@ class QueryParser:
         from_idx = _find_top_level_keyword_pos(q, " from ", s_idx)
         if from_idx == -1:
             # SELECT without FROM; return everything after SELECT
-            return q[s_idx + len("select"):].strip()
+            return q[s_idx + len("select") :].strip()
 
-        return q[s_idx + len("select"):from_idx].strip()
+        return q[s_idx + len("select") : from_idx].strip()
 
     def _best_output_name(self, expr: str) -> str:
         """
@@ -268,7 +281,7 @@ class QueryParser:
     # FROM / tables / joins
     # -----------------------------
 
-    def _extract_tables(self, query: str) -> List[str]:
+    def _extract_tables(self, query: str) -> list[str]:
         """
         Best-effort: grab the first table token after top-level FROM.
         Also includes joined tables from JOIN parsing.
@@ -285,7 +298,14 @@ class QueryParser:
         base = from_body
         # cut at first top-level join keyword
         cut = len(base)
-        for kw in [" join ", " left join ", " right join ", " inner join ", " full join ", " cross join "]:
+        for kw in [
+            " join ",
+            " left join ",
+            " right join ",
+            " inner join ",
+            " full join ",
+            " cross join ",
+        ]:
             p = base.lower().find(kw)
             if p != -1:
                 cut = min(cut, p)
@@ -312,10 +332,14 @@ class QueryParser:
         # handle "schema.table"
         return parts[0].strip().strip('"')
 
-    def _extract_joins(self, query: str) -> List[Dict[str, str]]:
+    def _extract_joins(self, query: str) -> list[dict[str, str]]:
         q = query
         joins = []
-        for m in re.finditer(r"\b(left|right|inner|full|cross)?\s*join\s+([a-zA-Z0-9_.\"]+)", q, flags=re.I):
+        for m in re.finditer(
+            r"\b(left|right|inner|full|cross)?\s*join\s+([a-zA-Z0-9_.\"]+)",
+            q,
+            flags=re.I,
+        ):
             join_type = (m.group(1) or "JOIN").upper()
             table = m.group(2).strip().strip('"')
             joins.append({"type": join_type, "table": table})
@@ -329,14 +353,14 @@ class QueryParser:
         q = _strip_trailing_semicolon(query)
         return _extract_clause(q, " where ", [" group by ", " order by ", " limit ", " fetch "])
 
-    def _extract_group_by(self, query: str) -> List[str]:
+    def _extract_group_by(self, query: str) -> list[str]:
         q = _strip_trailing_semicolon(query)
         body = _extract_clause(q, " group by ", [" order by ", " limit ", " fetch "])
         if not body:
             return []
         return [c.strip() for c in _split_top_level_commas(body) if c.strip()]
 
-    def _extract_order_by(self, query: str) -> List[str]:
+    def _extract_order_by(self, query: str) -> list[str]:
         q = _strip_trailing_semicolon(query)
         body = _extract_clause(q, " order by ", [" limit ", " fetch "])
         if not body:
@@ -366,7 +390,7 @@ class QueryParser:
             score += 5.0
         return float(min(score, 100.0))
 
-    def _dedupe_keep_order(self, xs: List[str]) -> List[str]:
+    def _dedupe_keep_order(self, xs: list[str]) -> list[str]:
         seen = set()
         out = []
         for x in xs:

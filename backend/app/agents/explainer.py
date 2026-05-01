@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 # Severity ordering for sorting findings
 _SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
@@ -23,16 +22,16 @@ class QueryExplainer:
     def explain(
         self,
         query: str,
-        parsed: Dict[str, Any],
-        suggestions: List[Dict[str, Any]],
+        parsed: dict[str, Any],
+        suggestions: list[dict[str, Any]],
         db_type: str,
-        security_issues: Optional[List[str]] = None,
+        security_issues: list[str] | None = None,
     ) -> str:
         """
         Returns a markdown-formatted plain-English explanation of what
         the query does and what problems were found.
         """
-        sections: List[str] = []
+        sections: list[str] = []
 
         # 1 — Query summary
         sections.append(self._summarize_query(query, parsed, db_type))
@@ -58,7 +57,7 @@ class QueryExplainer:
     # Section builders
     # ------------------------------------------------------------------
 
-    def _summarize_query(self, query: str, parsed: Dict[str, Any], db_type: str) -> str:
+    def _summarize_query(self, query: str, parsed: dict[str, Any], db_type: str) -> str:
         tables = parsed.get("tables") or []
         joins = parsed.get("joins") or []
         subqueries = parsed.get("subqueries") or 0
@@ -68,6 +67,7 @@ class QueryExplainer:
         order_by = parsed.get("order_by") or []
 
         lines = [f"## Query Summary ({db_type.upper()})"]
+        lines.append(f"- **Query type:** {query_type}")
 
         if tables:
             lines.append(f"- **Tables accessed:** {', '.join(tables)}")
@@ -82,20 +82,14 @@ class QueryExplainer:
             lines.append(f"- **Nested subqueries:** {subqueries}")
 
         complexity_label = (
-            "Low" if complexity < 30
-            else "Medium" if complexity < 60
-            else "High" if complexity < 80
-            else "Very High"
+            "Low" if complexity < 30 else "Medium" if complexity < 60 else "High" if complexity < 80 else "Very High"
         )
         lines.append(f"- **Complexity score:** {complexity:.0f}/100 ({complexity_label})")
 
         return "\n".join(lines)
 
-    def _format_findings(self, suggestions: List[Dict[str, Any]]) -> str:
-        sorted_suggestions = sorted(
-            suggestions,
-            key=lambda s: _SEVERITY_ORDER.get(s.get("severity", "low"), 99)
-        )
+    def _format_findings(self, suggestions: list[dict[str, Any]]) -> str:
+        sorted_suggestions = sorted(suggestions, key=lambda s: _SEVERITY_ORDER.get(s.get("severity", "low"), 99))
 
         lines = ["## Performance Findings"]
         for i, s in enumerate(sorted_suggestions, 1):
@@ -110,17 +104,19 @@ class QueryExplainer:
 
         return "\n".join(lines)
 
-    def _format_security(self, issues: List[str]) -> str:
+    def _format_security(self, issues: list[str]) -> str:
         lines = ["## 🛡️ Security Observations"]
         for issue in issues:
             lines.append(f"- ⚠️ {issue}")
         return "\n".join(lines)
 
-    def _readability_tip(self, query: str, parsed: Dict[str, Any]) -> Optional[str]:
-        tips: List[str] = []
+    def _readability_tip(self, query: str, parsed: dict[str, Any]) -> str | None:
+        tips: list[str] = []
 
         if query.count("\n") < 2:
-            tips.append("Format your query across multiple lines — it improves readability and diff clarity in code review.")
+            tips.append(
+                "Format your query across multiple lines — it improves readability and diff clarity in code review."
+            )
 
         subqueries = parsed.get("subqueries") or 0
         if subqueries >= 2:

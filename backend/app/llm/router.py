@@ -1,9 +1,8 @@
 import asyncio
 import os
-from typing import Optional, Tuple
 
 
-async def run_llm(provider: str, prompt: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+async def run_llm(provider: str, prompt: str) -> tuple[str | None, str | None, str | None]:
     """
     Returns: (ai_insights, model_name, error)
     error is None when successful.
@@ -17,10 +16,9 @@ async def run_llm(provider: str, prompt: str) -> Tuple[Optional[str], Optional[s
 
         try:
             from app.llm.hf_client import HFLLM
+
             llm = HFLLM()
-            text = await asyncio.wait_for(
-                llm.chat([{"role": "user", "content": prompt}]),
-                timeout=30.0)
+            text = await asyncio.wait_for(llm.chat([{"role": "user", "content": prompt}]), timeout=30.0)
         except Exception as e:
             return None, model, f"HuggingFace error: {e}"
 

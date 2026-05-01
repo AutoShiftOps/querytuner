@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class QueryOptimizer:
@@ -12,13 +12,13 @@ class QueryOptimizer:
     Called by SQLAnalyzerAgent._compose_optimized_query().
     """
 
-    def rewrite(self, query: str, suggestions: List[Dict[str, Any]], db_type: str) -> str:
+    def rewrite(self, query: str, suggestions: list[dict[str, Any]], db_type: str) -> str:
         q = query.strip()
-        header_lines: List[str] = [
+        header_lines: list[str] = [
             "-- QueryTuner: Suggested optimized SQL (review before applying)",
             f"-- DB: {db_type}",
         ]
-        applied: List[str] = []
+        applied: list[str] = []
 
         # --- Rewrite 1: YEAR(col) = N → range condition ---
         # Fixes: function_in_where for YEAR() — enables index seek
@@ -43,7 +43,9 @@ class QueryOptimizer:
 
         # --- Rewrite 5: Add LIMIT hint for ORDER BY without LIMIT ---
         has_order_by = " order by " in f" {q.lower()} "
-        has_limit = " limit " in f" {q.lower()} " or "fetch first" in q.lower() or "rownum" in q.lower() or "top " in q.lower()
+        has_limit = (
+            " limit " in f" {q.lower()} " or "fetch first" in q.lower() or "rownum" in q.lower() or "top " in q.lower()
+        )
         if has_order_by and not has_limit:
             q, changed = self._suggest_limit(q, db_type)
             if changed:
@@ -88,7 +90,20 @@ class QueryOptimizer:
             mo = int(m.group(2).strip())
             mo_str = f"{mo:02d}"
             # last day approximation — safe, reviewer will confirm
-            last_day = {1:31,2:28,3:31,4:30,5:31,6:30,7:31,8:31,9:30,10:31,11:30,12:31}.get(mo, 30)
+            last_day = {
+                1: 31,
+                2: 28,
+                3: 31,
+                4: 30,
+                5: 31,
+                6: 30,
+                7: 31,
+                8: 31,
+                9: 30,
+                10: 31,
+                11: 30,
+                12: 31,
+            }.get(mo, 30)
             return f"{col} BETWEEN 'YYYY-{mo_str}-01' AND 'YYYY-{mo_str}-{last_day}' /* replace YYYY */"
 
         new_q, n = re.subn(pattern, _replace, q, flags=re.IGNORECASE)
@@ -119,7 +134,10 @@ class QueryOptimizer:
         q_stripped = q.rstrip().rstrip(";")
         if db == "sqlserver":
             # For SQL Server, TOP goes after SELECT — too risky to auto-inject; add comment
-            return q_stripped + "\n-- TODO: Add TOP N or OFFSET/FETCH NEXT N ROWS ONLY", True
+            return (
+                q_stripped + "\n-- TODO: Add TOP N or OFFSET/FETCH NEXT N ROWS ONLY",
+                True,
+            )
         elif db == "oracle":
             return q_stripped + "\nFETCH FIRST 100 ROWS ONLY -- TODO: adjust N", True
         else:

@@ -16,3 +16,4 @@ python-multipart==0.0.6
 huggingface_hub
 httpx
 asyncpg
+ruff

@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-from app.tools.query_parser import QueryParser
-from app.llm.router import run_llm
-from app.tools.execution_planner import collect_facts
-from app.schemas.models import QueryRequest as QR, DatabaseType
-from app.agents.optimizer import QueryOptimizer
 from app.agents.explainer import QueryExplainer
-import logging
+from app.agents.optimizer import QueryOptimizer
+from app.llm.router import run_llm
+from app.schemas.models import DatabaseType
+from app.schemas.models import QueryRequest as QR
+from app.tools.execution_planner import collect_facts
+from app.tools.query_parser import QueryParser
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,7 +22,7 @@ class AnalyzerConfig:
     max_query_chars: int = 20000
 
     @staticmethod
-    def from_env() -> "AnalyzerConfig":
+    def from_env() -> AnalyzerConfig:
         return AnalyzerConfig(
             max_query_chars=int(os.getenv("MAX_QUERY_CHARS", "20000")),
         )
@@ -36,28 +38,24 @@ class SQLAnalyzerAgent:
         - openai (later) using OPENAI_API_KEY
     """
 
-    def __init__(self, config: Optional[AnalyzerConfig] = None):
+    def __init__(self, config: AnalyzerConfig | None = None):
         self.config = config or AnalyzerConfig.from_env()
         self.parser = QueryParser()
         self.optimizer = QueryOptimizer()
         self.explainer = QueryExplainer()
-        
+
         DIALECT_RULES = {
             "postgresql": (
-                "Use PostgreSQL syntax and indexing (CREATE INDEX ...). "
-                "EXPLAIN is available; ANALYZE executes."
+                "Use PostgreSQL syntax and indexing (CREATE INDEX ...). " "EXPLAIN is available; ANALYZE executes."
             ),
             "mysql": (
-                "Use MySQL 8+ syntax. Use EXPLAIN/EXPLAIN ANALYZE where applicable; "
-                "avoid PostgreSQL-only syntax."
+                "Use MySQL 8+ syntax. Use EXPLAIN/EXPLAIN ANALYZE where applicable; " "avoid PostgreSQL-only syntax."
             ),
             "sqlite": (
-                "Use SQLite syntax. Avoid server-only features; indexes exist but "
-                "no advanced planner hints."
+                "Use SQLite syntax. Avoid server-only features; indexes exist but " "no advanced planner hints."
             ),
             "sqlserver": (
-                "Use T-SQL syntax. Use SQL Server indexing and query patterns; "
-                "avoid LIMIT (use TOP/OFFSET)."
+                "Use T-SQL syntax. Use SQL Server indexing and query patterns; " "avoid LIMIT (use TOP/OFFSET)."
             ),
             "oracle": (
                 "Use Oracle SQL syntax. Use EXPLAIN PLAN FOR and DBMS_XPLAN. "
@@ -70,11 +68,11 @@ class SQLAnalyzerAgent:
         self,
         query: str,
         db_type: str,
-        schema_info: Optional[str] = None,
+        schema_info: str | None = None,
         use_llm: bool = False,
         llm_provider: str = "huggingface",
         focus: str = "performance",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Returns a dict that your FastAPI layer can map into QueryAnalysisResult:
           - parsing_result
@@ -128,10 +126,7 @@ class SQLAnalyzerAgent:
                 focus=focus,
             )
 
-            ai_insights, ai_model, ai_error = await self._try_llm(
-                llm_provider=llm_provider,
-                prompt=prompt
-            )
+            ai_insights, ai_model, ai_error = await self._try_llm(llm_provider=llm_provider, prompt=prompt)
 
             used_ai = bool(ai_insights and str(ai_insights).strip())
 
@@ -146,7 +141,11 @@ class SQLAnalyzerAgent:
             _facts = await collect_facts(_req)
             facts_result = _facts.dict()
         except Exception as _e:
-            facts_result = {"db_type": db_type, "warnings": [f"Plan collection skipped: {str(_e)}"], "findings": []}
+            facts_result = {
+                "db_type": db_type,
+                "warnings": [f"Plan collection skipped: {str(_e)}"],
+                "findings": [],
+            }
 
         return {
             "parsing_result": parsed,
@@ -168,7 +167,7 @@ class SQLAnalyzerAgent:
     # Parsing / safety
     # -------------------------
 
-    def _safe_parse(self, query: str) -> Dict[str, Any]:
+    def _safe_parse(self, query: str) -> dict[str, Any]:
         try:
             parsed = self.parser.parse(query)
             if not isinstance(parsed, dict):
@@ -184,10 +183,10 @@ class SQLAnalyzerAgent:
     def _heuristic_suggestions(
         self,
         query: str,
-        parsed: Dict[str, Any],
+        parsed: dict[str, Any],
         db_type: str,
         focus: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         q = query.strip()
         ql = q.lower()
 
@@ -195,41 +194,47 @@ class SQLAnalyzerAgent:
         subqueries = parsed.get("subqueries") or 0
         complexity = parsed.get("complexity_score") or 0
 
-        suggestions: List[Dict[str, Any]] = []
+        suggestions: list[dict[str, Any]] = []
 
         # 1) SELECT *
         if re.search(r"\bselect\s+\*\b", ql):
-            suggestions.append(self._suggest(
-                type_="column_selection",
-                severity="medium",
-                suggestion="Avoid SELECT *; specify only needed columns",
-                reason="Reduces I/O and memory usage; can improve planning and network transfer",
-                estimated="5-15% faster (varies)",
-            ))
+            suggestions.append(
+                self._suggest(
+                    type_="column_selection",
+                    severity="medium",
+                    suggestion="Avoid SELECT *; specify only needed columns",
+                    reason="Reduces I/O and memory usage; can improve planning and network transfer",
+                    estimated="5-15% faster (varies)",
+                )
+            )
 
         # 2) Missing WHERE for SELECT (risky)
         has_select = re.search(r"\bselect\b", ql, re.IGNORECASE) is not None
         has_where = re.search(r"\bwhere\b", ql, re.IGNORECASE) is not None
 
         if has_select and not has_where:
-            suggestions.append(self._suggest(
-                type_="full_scan_risk",
-                severity="medium",
-                suggestion="Query has no WHERE clause; ensure this is intentional",
-                reason="May scan entire table(s), especially costly on large datasets",
-                estimated="Varies",
-            ))
+            suggestions.append(
+                self._suggest(
+                    type_="full_scan_risk",
+                    severity="medium",
+                    suggestion="Query has no WHERE clause; ensure this is intentional",
+                    reason="May scan entire table(s), especially costly on large datasets",
+                    estimated="Varies",
+                )
+            )
 
         # 3) LIKE with leading wildcard
         # FIX: removed trailing \b which never matched after closing quote character
         if re.search(r"\blike\s+'%[^']*'", ql):
-            suggestions.append(self._suggest(
-                type_="like_wildcard",
-                severity="high",
-                suggestion="Leading-wildcard LIKE (e.g. LIKE '%abc') cannot use a B-tree index",
-                reason="Consider full-text search or a trigram index (pg_trgm for PostgreSQL, FULLTEXT for MySQL)",
-                estimated="Often large — full index scan avoided",
-            ))
+            suggestions.append(
+                self._suggest(
+                    type_="like_wildcard",
+                    severity="high",
+                    suggestion="Leading-wildcard LIKE (e.g. LIKE '%abc') cannot use a B-tree index",
+                    reason="Consider full-text search or a trigram index (pg_trgm for PostgreSQL, FULLTEXT for MySQL)",
+                    estimated="Often large — full index scan avoided",
+                )
+            )
 
         # 4) Functions on columns in WHERE
         # FIX: expanded function list to include YEAR, MONTH, DAY, DATEPART, EXTRACT,
@@ -246,90 +251,104 @@ class SQLAnalyzerAgent:
             r")\s*\("
         )
         if re.search(_fn_pattern, ql, re.DOTALL | re.IGNORECASE):
-            suggestions.append(self._suggest(
-                type_="function_in_where",
-                severity="high",
-                suggestion="Avoid wrapping filtered columns in functions inside WHERE",
-                reason=(
-                    "Functions on indexed columns prevent index seeks. "
-                    "Rewrite as a range condition (e.g. YEAR(col)=2025 → col BETWEEN '2025-01-01' AND '2025-12-31')"
-                ),
-                estimated="Often large — enables index seek instead of full scan",
-            ))
+            suggestions.append(
+                self._suggest(
+                    type_="function_in_where",
+                    severity="high",
+                    suggestion="Avoid wrapping filtered columns in functions inside WHERE",
+                    reason=(
+                        "Functions on indexed columns prevent index seeks. "
+                        "Rewrite as a range condition (e.g. YEAR(col)=2025 → col BETWEEN '2025-01-01' AND '2025-12-31')"
+                    ),
+                    estimated="Often large — enables index seek instead of full scan",
+                )
+            )
 
         # 5) ORDER BY without LIMIT
         if " order by " in f" {ql} " and " limit " not in f" {ql} " and "fetch first" not in ql:
-            suggestions.append(self._suggest(
-                type_="order_by_no_limit",
-                severity="medium",
-                suggestion="Consider adding LIMIT/FETCH FIRST for user-facing queries with ORDER BY",
-                reason="Sorting large result sets is expensive; limiting reduces sort work",
-                estimated="Varies",
-            ))
+            suggestions.append(
+                self._suggest(
+                    type_="order_by_no_limit",
+                    severity="medium",
+                    suggestion="Consider adding LIMIT/FETCH FIRST for user-facing queries with ORDER BY",
+                    reason="Sorting large result sets is expensive; limiting reduces sort work",
+                    estimated="Varies",
+                )
+            )
 
         # 6) Too many joins
         join_count = ql.count(" join ")
         if join_count >= 4:
-            suggestions.append(self._suggest(
-                type_="join_complexity",
-                severity="high",
-                suggestion=f"Query has {join_count} JOINs; review join order, keys, and filter pushdown",
-                reason="Many joins can amplify row counts and increase planner complexity",
-                estimated="Varies",
-            ))
+            suggestions.append(
+                self._suggest(
+                    type_="join_complexity",
+                    severity="high",
+                    suggestion=f"Query has {join_count} JOINs; review join order, keys, and filter pushdown",
+                    reason="Many joins can amplify row counts and increase planner complexity",
+                    estimated="Varies",
+                )
+            )
 
         # 7) Subquery count
         if isinstance(subqueries, int) and subqueries >= 2:
-            suggestions.append(self._suggest(
-                type_="subquery_refactor",
-                severity="medium",
-                suggestion="Consider refactoring nested subqueries into CTEs (WITH) or JOINs where appropriate",
-                reason="Improves readability; may improve planning depending on the DB and query shape",
-                estimated="Varies",
-            ))
+            suggestions.append(
+                self._suggest(
+                    type_="subquery_refactor",
+                    severity="medium",
+                    suggestion="Consider refactoring nested subqueries into CTEs (WITH) or JOINs where appropriate",
+                    reason="Improves readability; may improve planning depending on the DB and query shape",
+                    estimated="Varies",
+                )
+            )
 
         # 8) Complexity score
         try:
             c = float(complexity)
             if c >= 70:
-                suggestions.append(self._suggest(
-                    type_="high_complexity",
-                    severity="medium",
-                    suggestion=(
-                        "High complexity query: consider splitting into steps, "
-                        "using temp tables, or pre-aggregation"
-                    ),
-                    reason="Complex queries are harder to optimize and maintain",
-                    estimated="Varies",
-                ))
+                suggestions.append(
+                    self._suggest(
+                        type_="high_complexity",
+                        severity="medium",
+                        suggestion=(
+                            "High complexity query: consider splitting into steps, "
+                            "using temp tables, or pre-aggregation"
+                        ),
+                        reason="Complex queries are harder to optimize and maintain",
+                        estimated="Varies",
+                    )
+                )
         except Exception:
             pass
 
         # 9) Index hint (generic — only when WHERE exists)
         if " where " in f" {ql} " and tables:
-            suggestions.append(self._suggest(
-                type_="index_review",
-                severity="high",
-                suggestion="Review indexes on columns used in WHERE, JOIN, GROUP BY, and ORDER BY",
-                reason="Correct indexes are often the biggest performance lever",
-                estimated="Often large",
-            ))
+            suggestions.append(
+                self._suggest(
+                    type_="index_review",
+                    severity="high",
+                    suggestion="Review indexes on columns used in WHERE, JOIN, GROUP BY, and ORDER BY",
+                    reason="Correct indexes are often the biggest performance lever",
+                    estimated="Often large",
+                )
+            )
 
         # 10) Focus-specific
         if focus == "security":
-            suggestions.append(self._suggest(
-                type_="security_best_practice",
-                severity="medium",
-                suggestion="Ensure application uses parameterized queries (no string concatenation)",
-                reason="Reduces SQL injection risk and improves query plan caching",
-                estimated="Risk reduction",
-            ))
+            suggestions.append(
+                self._suggest(
+                    type_="security_best_practice",
+                    severity="medium",
+                    suggestion="Ensure application uses parameterized queries (no string concatenation)",
+                    reason="Reduces SQL injection risk and improves query plan caching",
+                    estimated="Risk reduction",
+                )
+            )
 
         return self._dedupe_suggestions(suggestions)
 
-    def _compose_optimized_query(self, query: str, suggestions: List[Dict[str, Any]], db_type: str) -> str:
+    def _compose_optimized_query(self, query: str, suggestions: list[dict[str, Any]], db_type: str) -> str:
         q = query.strip()
-        out_lines: List[str] = []
+        out_lines: list[str] = []
 
         out_lines.append("-- Suggested optimized SQL (review before using)")
         out_lines.append(f"-- DB: {db_type}")
@@ -379,9 +398,9 @@ class SQLAnalyzerAgent:
     # Security / readability
     # -------------------------
 
-    def _security_checks(self, query: str) -> List[str]:
+    def _security_checks(self, query: str) -> list[str]:
         ql = query.lower()
-        issues: List[str] = []
+        issues: list[str] = []
 
         if ql.count(";") >= 2:
             issues.append("Multiple SQL statements detected; consider restricting to a single statement")
@@ -401,7 +420,7 @@ class SQLAnalyzerAgent:
 
         return issues
 
-    def _readability_score(self, query: str, parsed: Dict[str, Any]) -> float:
+    def _readability_score(self, query: str, parsed: dict[str, Any]) -> float:
         score = 100.0
 
         complexity = parsed.get("complexity_score", 0) or 0
@@ -430,8 +449,8 @@ class SQLAnalyzerAgent:
         query: str,
         db_type: str,
         schema_info: str,
-        parsed: Dict[str, Any],
-        suggestions: List[Dict[str, Any]],
+        parsed: dict[str, Any],
+        suggestions: list[dict[str, Any]],
         focus: str,
     ) -> str:
         schema_trim = (schema_info or "")[:4000]
@@ -471,11 +490,7 @@ Tasks:
 Keep it concise and actionable.
 """
 
-    async def _try_llm(
-        self,
-        llm_provider: str,
-        prompt: str
-    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    async def _try_llm(self, llm_provider: str, prompt: str) -> tuple[str | None, str | None, str | None]:
         try:
             text, model, err = await run_llm(provider=llm_provider, prompt=prompt)
             if not text or not str(text).strip():
@@ -488,7 +503,7 @@ Keep it concise and actionable.
     # Utilities
     # -------------------------
 
-    def _suggest(self, type_: str, severity: str, suggestion: str, reason: str, estimated: str) -> Dict[str, Any]:
+    def _suggest(self, type_: str, severity: str, suggestion: str, reason: str, estimated: str) -> dict[str, Any]:
         return {
             "type": type_,
             "severity": severity,
@@ -497,9 +512,9 @@ Keep it concise and actionable.
             "estimated_improvement": estimated,
         }
 
-    def _dedupe_suggestions(self, suggestions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _dedupe_suggestions(self, suggestions: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen = set()
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for s in suggestions:
             key = (s.get("type"), s.get("suggestion"))
             if key in seen:

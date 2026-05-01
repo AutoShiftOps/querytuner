@@ -21,3 +21,4 @@ frontend/dist
 frontend/build
 *.egg-info
 *.egg
+.ruff_cache

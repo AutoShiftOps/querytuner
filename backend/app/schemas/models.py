@@ -1,14 +1,15 @@
+from enum import StrEnum
+from typing import Any
+
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
-from enum import Enum
 
 
-class LLMProvider(str, Enum):
+class LLMProvider(StrEnum):
     HUGGINGFACE = "huggingface"
     OPENAI = "openai"
 
 
-class DatabaseType(str, Enum):
+class DatabaseType(StrEnum):
     POSTGRES = "postgresql"
     MYSQL = "mysql"
     SQLITE = "sqlite"
@@ -19,32 +20,32 @@ class DatabaseType(str, Enum):
 class QueryRequest(BaseModel):
     query: str = Field(..., description="SQL query to analyze")
     db_type: DatabaseType = Field(default=DatabaseType.POSTGRES)
-    schema_info: Optional[str] = Field(None, description="Schema DDL for better context")
+    schema_info: str | None = Field(None, description="Schema DDL for better context")
     llm_provider: LLMProvider = Field(default=LLMProvider.HUGGINGFACE)
     use_llm: bool = Field(default=False)
     focus: str = Field(default="performance")
 
 
 class Finding(BaseModel):
-    type: str                        # e.g. "missing_index", "select_star", "security"
-    severity: str                    # "critical" | "high" | "medium" | "low"
+    type: str  # e.g. "missing_index", "select_star", "security"
+    severity: str  # "critical" | "high" | "medium" | "low"
     title: str
-    evidence: Optional[str] = None
-    recommendation: Optional[str] = None
+    evidence: str | None = None
+    recommendation: str | None = None
 
 
 class PlanArtifact(BaseModel):
-    format: str                      # "json" | "xml" | "text"
-    raw: Any                         # dict for json, str for xml/text
+    format: str  # "json" | "xml" | "text"
+    raw: Any  # dict for json, str for xml/text
 
 
 class AnalysisFacts(BaseModel):
     db_type: str
-    normalized_query: Optional[str] = None
-    redacted_query: Optional[str] = None
-    findings: List[Finding] = Field(default_factory=list)
-    plan: Optional[PlanArtifact] = None
-    warnings: List[str] = Field(default_factory=list)
+    normalized_query: str | None = None
+    redacted_query: str | None = None
+    findings: list[Finding] = Field(default_factory=list)
+    plan: PlanArtifact | None = None
+    warnings: list[str] = Field(default_factory=list)
 
 
 class OptimizationSuggestion(BaseModel):
@@ -57,26 +58,26 @@ class OptimizationSuggestion(BaseModel):
 
 class ExecutionPlan(BaseModel):
     plan_type: str
-    operations: List[Dict[str, Any]]
-    total_cost: Optional[float] = None
-    estimated_rows: Optional[int] = None
+    operations: list[dict[str, Any]]
+    total_cost: float | None = None
+    estimated_rows: int | None = None
 
 
 class QueryAnalysisResult(BaseModel):
     query: str
-    parsed_query: Dict[str, Any]
-    optimization_suggestions: List[OptimizationSuggestion]
-    execution_plan: Optional[ExecutionPlan] = None
-    optimized_query: Optional[str] = None
-    plain_explanation: Optional[str] = None
-    performance_metrics: Dict[str, Any]
-    security_issues: List[str]
+    parsed_query: dict[str, Any]
+    optimization_suggestions: list[OptimizationSuggestion]
+    execution_plan: ExecutionPlan | None = None
+    optimized_query: str | None = None
+    plain_explanation: str | None = None
+    performance_metrics: dict[str, Any]
+    security_issues: list[str]
     readability_score: float
     analysis_time_ms: float
-    facts: Optional[AnalysisFacts] = None
+    facts: AnalysisFacts | None = None
     ai_attempted: bool = False
     used_ai: bool = False
-    ai_provider: Optional[str] = None
-    ai_model: Optional[str] = None
-    ai_insights: Optional[str] = None
-    ai_error: Optional[str] = None
+    ai_provider: str | None = None
+    ai_model: str | None = None
+    ai_insights: str | None = None
+    ai_error: str | None = None

@@ -1,7 +1,10 @@
-from .base import BaseCollector
-from app.schemas.models import AnalysisFacts, Finding, PlanArtifact, QueryRequest
-import asyncpg
 import os
+
+import asyncpg
+
+from app.schemas.models import AnalysisFacts, Finding, PlanArtifact, QueryRequest
+
+from .base import BaseCollector
 
 
 class PostgresCollector(BaseCollector):
@@ -38,33 +41,39 @@ def _walk_node(node: dict, findings: list):
 
     # Seq scan on large estimated row count
     if node_type == "Seq Scan" and rows > 1000:
-        findings.append(Finding(
-            type="seq_scan",
-            severity="high",
-            title=f"Sequential scan on '{node.get('Relation Name', 'unknown')}'",
-            evidence=f"Estimated {rows} rows, cost {cost}",
-            recommendation="Consider adding an index on the filter column(s)"
-        ))
+        findings.append(
+            Finding(
+                type="seq_scan",
+                severity="high",
+                title=f"Sequential scan on '{node.get('Relation Name', 'unknown')}'",
+                evidence=f"Estimated {rows} rows, cost {cost}",
+                recommendation="Consider adding an index on the filter column(s)",
+            )
+        )
 
     # Nested Loop with high cost
     if node_type == "Nested Loop" and cost > 5000:
-        findings.append(Finding(
-            type="nested_loop",
-            severity="medium",
-            title="Expensive Nested Loop join detected",
-            evidence=f"Total cost: {cost}",
-            recommendation="Check join conditions and ensure join columns are indexed"
-        ))
+        findings.append(
+            Finding(
+                type="nested_loop",
+                severity="medium",
+                title="Expensive Nested Loop join detected",
+                evidence=f"Total cost: {cost}",
+                recommendation="Check join conditions and ensure join columns are indexed",
+            )
+        )
 
     # Hash join (informational)
     if node_type == "Hash Join":
-        findings.append(Finding(
-            type="hash_join",
-            severity="low",
-            title="Hash Join detected",
-            evidence=f"Rows: {rows}, Cost: {cost}",
-            recommendation="Hash joins are generally efficient; ensure adequate work_mem"
-        ))
+        findings.append(
+            Finding(
+                type="hash_join",
+                severity="low",
+                title="Hash Join detected",
+                evidence=f"Rows: {rows}, Cost: {cost}",
+                recommendation="Hash joins are generally efficient; ensure adequate work_mem",
+            )
+        )
 
     # Recurse into child plans
     for child in node.get("Plans", []):

@@ -1,12 +1,17 @@
-import React from "react";
+import React from 'react';
 
 export default function QueryInput({
-  query, setQuery,
-  dbType, setDbType,
-  llmProvider, setLlmProvider,
-  useLlm, setUseLlm,
-  onAnalyze, loading,
-  caps
+  query,
+  setQuery,
+  dbType,
+  setDbType,
+  llmProvider,
+  setLlmProvider,
+  useLlm,
+  setUseLlm,
+  onAnalyze,
+  loading,
+  caps,
 }) {
   const openaiEnabled = !!caps?.providers?.openai;
   const hfEnabled = caps?.providers?.huggingface ?? true; // assume true if server doesn’t report
@@ -51,15 +56,15 @@ export default function QueryInput({
             disabled={!anyAiEnabled}
             className="w-full bg-slate-900 text-white rounded border border-slate-600 p-2 disabled:opacity-50"
           >
-            <option value="huggingface" disabled={!hfEnabled}>Hugging Face (default)</option>
+            <option value="huggingface" disabled={!hfEnabled}>
+              Hugging Face (default)
+            </option>
             <option value="openai" disabled={!openaiEnabled}>
-              OpenAI {openaiEnabled ? "" : "(not enabled on server)"}
+              OpenAI {openaiEnabled ? '' : '(not enabled on server)'}
             </option>
           </select>
           {!anyAiEnabled && (
-            <p className="text-xs text-slate-400 mt-1">
-              AI providers not enabled on server.
-            </p>
+            <p className="text-xs text-slate-400 mt-1">AI providers not enabled on server.</p>
           )}
         </div>
 
@@ -81,7 +86,7 @@ export default function QueryInput({
         disabled={loading || !query.trim()}
         className="mt-4 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white px-6 py-2 rounded font-medium"
       >
-        {loading ? "Analyzing..." : "Analyze"}
+        {loading ? 'Analyzing...' : 'Analyze'}
       </button>
     </div>
   );

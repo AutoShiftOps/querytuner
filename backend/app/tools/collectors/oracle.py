@@ -1,5 +1,6 @@
-from .base import BaseCollector
 from app.schemas.models import AnalysisFacts, QueryRequest
+
+from .base import BaseCollector
 
 
 class OracleCollector(BaseCollector):

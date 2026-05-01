@@ -7,7 +7,6 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^13.5.0",
-    "axios": ">1.15.0",
     "lucide-react": "^0.575.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -18,7 +17,10 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "lint": "eslint src --ext .js,.jsx",
+    "lint:fix": "eslint src --ext .js,.jsx --fix",
+    "format": "prettier --write \"src/**/*.{js,jsx,css}\""
   },
   "eslintConfig": {
     "extends": [
@@ -40,8 +42,13 @@
   },
   "devDependencies": {
     "autoprefixer": "^10.4.24",
+    "axios": "^1.15.0",
+    "eslint-config-prettier": "^10.1.8",
     "postcss": "^8.5.6",
-    "tailwindcss": "^3.4.19",
-    "axios": ">=1.15.0"
+    "prettier": "^3.8.3",
+    "tailwindcss": "^3.4.19"
+  },
+  "overrides": {
+    "follow-redirects": ">=1.15.6"
   }
 }

@@ -115,7 +115,9 @@ function App() {
               <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
                 <p className="text-slate-400 text-sm mb-1">Issues Found</p>
                 <p className="text-2xl font-bold text-red-400">
-                  {Array.isArray(result.optimization_suggestions) ? result.optimization_suggestions.length : 0}
+                  {Array.isArray(result.optimization_suggestions)
+                    ? result.optimization_suggestions.length
+                    : 0}
                 </p>
               </div>
 
@@ -123,7 +125,11 @@ function App() {
               <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
                 <p className="text-slate-400 text-sm mb-1">AI Insights</p>
                 <p className="text-sm text-white">
-                  {result.used_ai ? `Enabled (${result.ai_provider || 'provider'}${result.ai_model ? ` / ${result.ai_model}` : ''})` : 'Disabled / not used'}
+                  {result.used_ai
+                    ? `Enabled (${result.ai_provider || 'provider'}${
+                        result.ai_model ? ` / ${result.ai_model}` : ''
+                      })`
+                    : 'Disabled / not used'}
                 </p>
               </div>
             </div>
@@ -138,18 +144,22 @@ function App() {
             {/* AI panel (shows only when AI returns something or errors) */}
             {(result.used_ai || result.ai_insights || result.ai_error) && (
               <ResultsPanel
-                title={`AI Insights${result.ai_provider ? ` (${result.ai_provider}${result.ai_model ? ` / ${result.ai_model}` : ''})` : ''}`}
-                content={result.ai_error ? `AI error: ${result.ai_error}` : (result.ai_insights || 'No AI insights returned.')}
+                title={`AI Insights${
+                  result.ai_provider
+                    ? ` (${result.ai_provider}${result.ai_model ? ` / ${result.ai_model}` : ''})`
+                    : ''
+                }`}
+                content={
+                  result.ai_error
+                    ? `AI error: ${result.ai_error}`
+                    : result.ai_insights || 'No AI insights returned.'
+                }
                 icon={Zap}
               />
             )}
 
             {result.optimized_query && (
-              <ResultsPanel
-                title="Optimized Query"
-                content={result.optimized_query}
-                icon={Zap}
-              />
+              <ResultsPanel title="Optimized Query" content={result.optimized_query} icon={Zap} />
             )}
 
             {result.execution_plan && <ExecutionPlan plan={result.execution_plan} />}
@@ -162,7 +172,9 @@ function App() {
                 </div>
                 <ul className="space-y-2">
                   {result.security_issues.map((issue, idx) => (
-                    <li key={idx} className="text-red-200">• {issue}</li>
+                    <li key={idx} className="text-red-200">
+                      • {issue}
+                    </li>
                   ))}
                 </ul>
               </div>
