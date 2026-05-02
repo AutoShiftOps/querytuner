@@ -185,6 +185,7 @@ class QueryParser:
             "joins": self._extract_joins(q),
             "where_clause": self._extract_where(q),
             "group_by": self._extract_group_by(q),
+            "having_clause": self._extract_having(q),
             "order_by": self._extract_order_by(q),
             "subqueries": self._count_subqueries(q),
             "complexity_score": self._complexity_score(q),
@@ -200,6 +201,7 @@ class QueryParser:
             "joins": [],
             "where_clause": "",
             "group_by": [],
+            "having_clause": "",
             "order_by": [],
             "subqueries": 0,
             "complexity_score": 0.0,
@@ -340,9 +342,11 @@ class QueryParser:
             q,
             flags=re.I,
         ):
-            join_type = (m.group(1) or "JOIN").upper()
+            raw_type = (m.group(1) or "").strip()
+            join_type = (raw_type if raw_type else "JOIN").upper()
             table = m.group(2).strip().strip('"')
-            joins.append({"type": join_type, "table": table})
+            if table:  # never append empty table name
+                joins.append({"type": join_type, "table": table})
         return joins
 
     # -----------------------------
@@ -355,10 +359,14 @@ class QueryParser:
 
     def _extract_group_by(self, query: str) -> list[str]:
         q = _strip_trailing_semicolon(query)
-        body = _extract_clause(q, " group by ", [" order by ", " limit ", " fetch "])
+        body = _extract_clause(q, " group by ", [" having ", " order by ", " limit ", " fetch "])
         if not body:
             return []
         return [c.strip() for c in _split_top_level_commas(body) if c.strip()]
+
+    def _extract_having(self, query: str) -> str:
+        q = _strip_trailing_semicolon(query)
+        return _extract_clause(q, " having ", [" order by ", " limit ", " fetch "])
 
     def _extract_order_by(self, query: str) -> list[str]:
         q = _strip_trailing_semicolon(query)
