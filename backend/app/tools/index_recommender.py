@@ -116,8 +116,7 @@ def _detect_composite_opportunity(
                         f"all appear in JOIN/WHERE/ORDER BY together"
                     ),
                     "ddl_hint": (
-                        f"CREATE INDEX CONCURRENTLY idx_{alias}_{'_'.join(cols)} "
-                        f"ON <{alias}_table>({', '.join(cols)});"
+                        f"CREATE INDEX CONCURRENTLY idx_{alias}_{'_'.join(cols)} ON <{alias}_table>({', '.join(cols)});"
                     ),
                 }
             )
