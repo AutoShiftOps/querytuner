@@ -89,7 +89,7 @@ class QueryExplainer:
         return "\n".join(lines)
 
     def _format_findings_summary(self, suggestions: list[dict[str, Any]]) -> str:
-        high = sum(1 for s in suggestions if s.get("severity") == "high")
+        high = sum(1 for s in suggestions if s.get("severity") in ("high", "critical"))
         medium = sum(1 for s in suggestions if s.get("severity") == "medium")
         total = len(suggestions)
         return (
