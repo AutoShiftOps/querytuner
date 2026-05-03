@@ -43,7 +43,7 @@ class QueryOptimizer:
 
         # --- Rewrite 5: Add LIMIT hint for ORDER BY without LIMIT ---
         ql = q.lower()
-        has_order_by = bool(re.search(r"\border\s+by\b", ql))
+        has_order_by = bool(re.search(r"\border\s+by\b", ql, re.IGNORECASE))
         has_limit = (
             bool(re.search(r"\blimit\b", ql))
             or bool(re.search(r"\bfetch\s+first\b", ql))
@@ -135,7 +135,7 @@ class QueryOptimizer:
     def _suggest_limit(self, q: str, db_type: str):
         """Append LIMIT / TOP / FETCH FIRST based on dialect at end of query."""
         db = (db_type or "").lower()
-        q_stripped = q.rstrip().rstrip(";")
+        q_stripped = "\n".join(line.rstrip() for line in q.rstrip().rstrip(";").splitlines())
         if db == "sqlserver":
             # For SQL Server, TOP goes after SELECT — too risky to auto-inject; add comment
             return (
@@ -145,7 +145,7 @@ class QueryOptimizer:
         elif db == "oracle":
             return q_stripped + "\nFETCH FIRST 100 ROWS ONLY -- TODO: adjust N", True
         else:
-            return q_stripped + "\nLIMIT 100 -- TODO: adjust N", True
+            return q_stripped + "\nLIMIT 100  -- adjust to your page size", True
 
     def _suggest_cte_for_subquery(self, q: str):
         """If a SELECT appears inside WHERE/FROM at depth > 0, prepend a CTE refactor hint."""

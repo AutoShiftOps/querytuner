@@ -136,6 +136,7 @@ def _extract_clause(sql: str, start_kw: str, end_kws: list[str]) -> str:
     Extract clause body appearing after start_kw up to the earliest of end_kws, all at top-level.
     Example: start_kw=" where ", end_kws=[" group by ", " order by ", " limit ", " fetch "]
     """
+    sql = re.sub(r"\s+", " ", sql).strip()
     start = _find_top_level_keyword_pos(sql, start_kw, 0)
     if start == -1:
         return ""
