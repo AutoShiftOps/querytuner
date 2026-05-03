@@ -291,6 +291,30 @@ class SQLAnalyzerAgent:
                     estimated="Varies",
                 )
             )
+        # 6.5) Cartesian JOIN — JOIN without ON or USING
+        # Finds: JOIN word, then table name/alias, then NOT followed by ON or USING
+        cartesian_joins = re.findall(
+            r"\bJOIN\s+\S+(?:\s+\w+)?\s*(?!ON\b|USING\b)(?=\s+(?:JOIN|WHERE|GROUP|ORDER|LIMIT|FETCH|$)|\s*;|$)",
+            q,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if cartesian_joins:
+            suggestions.append(
+                self._suggest(
+                    type_="cartesian_join",
+                    severity="critical",
+                    suggestion=(
+                        f"Cartesian JOIN detected ({len(cartesian_joins)} occurrence(s)) — "
+                        f"JOIN used without ON or USING clause"
+                    ),
+                    reason=(
+                        "A JOIN without ON/USING produces a cartesian product: every row in the left "
+                        "table is matched with every row in the right table. On tables with 1k rows each "
+                        "this returns 1,000,000 rows. Almost always a bug."
+                    ),
+                    estimated="Query may return exponentially more rows than intended",
+                )
+            )
 
         # 7) Subquery count
         if isinstance(subqueries, int) and subqueries >= 2:

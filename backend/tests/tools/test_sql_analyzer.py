@@ -4,6 +4,7 @@ pytest test suite for IndexRecommender — Issue #23
 Run: pytest tests/tools/test_index_recommender.py -v
 """
 
+import pytest
 from backend.app.tools.index_recommender import IndexRecommender
 from backend.app.tools.query_parser import QueryParser
 
@@ -90,6 +91,31 @@ def test_no_suggestions_for_simple_query():
     sql = "SELECT 1"
     suggestions = analyze(sql)
     assert suggestions == [], "Simple SELECT 1 should produce zero index suggestions"
+
+
+@pytest.fixture
+def cartesian_query():
+    return "SELECT u.id, o.total FROM users u JOIN orders o WHERE u.status = 'active'"
+
+
+def test_cartesian_join_detected(analyzer, cartesian_query):
+    suggestions = analyzer._heuristic_suggestions(
+        cartesian_query,
+        parsed={},
+        db_type="postgresql",
+        focus="performance",
+    )
+    cartesian = [s for s in suggestions if s["type"] == "cartesian_join"]
+    assert len(cartesian) == 1
+    assert cartesian[0]["severity"] == "critical"
+
+
+def test_valid_join_not_flagged(analyzer):
+    query = """SELECT u.id, o.total FROM users u
+               JOIN orders o ON o.user_id = u.id"""
+    suggestions = analyzer._heuristic_suggestions(query, parsed={}, db_type="postgresql", focus="performance")
+    cartesian = [s for s in suggestions if s["type"] == "cartesian_join"]
+    assert len(cartesian) == 0
 
 
 # ── Fixture 7: confirmed=False on all suggestions ────────────────────────────
