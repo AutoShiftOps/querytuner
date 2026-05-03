@@ -12,6 +12,7 @@ from app.llm.router import run_llm
 from app.schemas.models import DatabaseType
 from app.schemas.models import QueryRequest as QR
 from app.tools.execution_planner import collect_facts
+from app.tools.index_recommender import IndexRecommender
 from app.tools.query_parser import QueryParser
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class SQLAnalyzerAgent:
         self.parser = QueryParser()
         self.optimizer = QueryOptimizer()
         self.explainer = QueryExplainer()
+        self.index_recommender = IndexRecommender()
 
         DIALECT_RULES = {
             "postgresql": (
@@ -187,7 +189,7 @@ class SQLAnalyzerAgent:
         q = query.strip()
         ql = q.lower()
 
-        tables = parsed.get("tables") or []
+        # tables = parsed.get("tables") or []
         subqueries = parsed.get("subqueries") or 0
         complexity = parsed.get("complexity_score") or 0
 
@@ -262,7 +264,11 @@ class SQLAnalyzerAgent:
             )
 
         # 5) ORDER BY without LIMIT
-        if " order by " in f" {ql} " and " limit " not in f" {ql} " and "fetch first" not in ql:
+        if (
+            bool(re.search(r"\border\s+by\b", ql))
+            and not bool(re.search(r"\blimit\b", ql))
+            and not bool(re.search(r"\bfetch\s+first\b", ql))
+        ):
             suggestions.append(
                 self._suggest(
                     type_="order_by_no_limit",
@@ -317,17 +323,19 @@ class SQLAnalyzerAgent:
         except Exception:
             pass
 
-        # 9) Index hint (generic — only when WHERE exists)
-        if " where " in f" {ql} " and tables:
-            suggestions.append(
-                self._suggest(
-                    type_="index_review",
-                    severity="high",
-                    suggestion="Review indexes on columns used in WHERE, JOIN, GROUP BY, and ORDER BY",
-                    reason="Correct indexes are often the biggest performance lever",
-                    estimated="Often large",
-                )
-            )
+        # 9) Column-level index recommendations
+        index_suggestions = self.index_recommender.recommend(
+            query=q,
+            parsed=parsed,
+            db_type=db_type,
+        )
+        suggestions.extend(index_suggestions)
+
+        # Boost complexity score based on HIGH index findings
+        high_index_count = sum(1 for s in index_suggestions if s.get("severity") == "high")
+        if high_index_count > 0:
+            base_score = float(parsed.get("complexity_score") or 0)
+            parsed["complexity_score"] = min(100.0, base_score + (high_index_count * 8.0))
 
         # 10) Focus-specific
         if focus == "security":

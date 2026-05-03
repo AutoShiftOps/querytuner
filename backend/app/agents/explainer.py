@@ -38,7 +38,7 @@ class QueryExplainer:
 
         # 2 — Findings
         if suggestions:
-            sections.append(self._format_findings(suggestions))
+            sections.append(self._format_findings_summary(suggestions))
         else:
             sections.append("✅ **No performance issues detected** by heuristic analysis.")
 
@@ -88,26 +88,15 @@ class QueryExplainer:
 
         return "\n".join(lines)
 
-    def _format_findings(self, suggestions: list[dict[str, Any]]) -> str:
-        sorted_suggestions = sorted(suggestions, key=lambda s: _SEVERITY_ORDER.get(s.get("severity", "low"), 99))
-
-        lines = ["## Performance Findings"]
-        for i, s in enumerate(sorted_suggestions, 1):
-            severity = s.get("severity", "low").upper()
-            emoji = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🔵"}.get(severity, "⚪")
-            estimated = s.get("estimated_improvement", "")
-            block_lines = [
-                f"### {i}. {emoji} [{severity}] {s.get('type', '').replace('_', ' ').title()}",
-                "",
-                f"**Issue:** {s.get('suggestion', '')}",
-                "",
-                f"**Why it matters:** {s.get('reason', '')}",
-                "",
-                f"**Estimated impact:** {estimated}",
-            ]
-            lines.extend(block_lines)
-
-        return "\n".join(lines)
+    def _format_findings_summary(self, suggestions: list[dict[str, Any]]) -> str:
+        high = sum(1 for s in suggestions if s.get("severity") == "high")
+        medium = sum(1 for s in suggestions if s.get("severity") == "medium")
+        total = len(suggestions)
+        return (
+            f"## Performance Findings\n"
+            f"**{total} issue(s) detected** — {high} high, {medium} medium severity. "
+            f"See the Suggestions panel for full details and DDL hints."
+        )
 
     def _format_security(self, issues: list[str]) -> str:
         lines = ["## 🛡️ Security Observations"]
