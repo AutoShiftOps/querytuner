@@ -280,3 +280,14 @@ git push origin feat/your-branch
 ```
 
 CI re-runs automatically on every push to the branch.
+
+## Setup Pre-commit Hooks
+
+Before committing, install pre-commit hooks:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+This automatically runs formatting and linting checks before each commit.

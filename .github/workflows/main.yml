@@ -10,12 +10,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install ruff
-        run: pip install ruff
-      - name: Lint backend
-        run: ruff check backend/
-      - name: Format check backend
-        run: ruff format --check backend/
+      - uses: pre-commit/action@v3.0.0
+        with:
+          extra_args: ruff check --fix
+      - name: Auto-commit fixes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'style: auto-format code'
 
   frontend-lint:
     runs-on: ubuntu-latest
