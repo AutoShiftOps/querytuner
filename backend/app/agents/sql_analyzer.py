@@ -264,7 +264,11 @@ class SQLAnalyzerAgent:
             )
 
         # 5) ORDER BY without LIMIT
-        if " order by " in f" {ql} " and " limit " not in f" {ql} " and "fetch first" not in ql:
+        if (
+            bool(re.search(r"\border\s+by\b", ql))
+            and not bool(re.search(r"\blimit\b", ql))
+            and not bool(re.search(r"\bfetch\s+first\b", ql))
+        ):
             suggestions.append(
                 self._suggest(
                     type_="order_by_no_limit",
@@ -319,7 +323,7 @@ class SQLAnalyzerAgent:
         except Exception:
             pass
 
-        # 9) Index recommendations — column-level (replaces generic hint)
+        # 9) Column-level index recommendations
         index_suggestions = self.index_recommender.recommend(
             query=q,
             parsed=parsed,
@@ -327,11 +331,11 @@ class SQLAnalyzerAgent:
         )
         suggestions.extend(index_suggestions)
 
-        # 9b) Complexity score boost — add index weight to score
-        #     Index findings increase complexity score (was underscored before)
-        if index_suggestions:
-            high_count = sum(1 for s in index_suggestions if s.get("severity") == "high")
-            parsed["complexity_score"] = min(100.0, float(parsed.get("complexity_score") or 0) + (high_count * 8.0))
+        # Boost complexity score based on HIGH index findings
+        high_index_count = sum(1 for s in index_suggestions if s.get("severity") == "high")
+        if high_index_count > 0:
+            base_score = float(parsed.get("complexity_score") or 0)
+            parsed["complexity_score"] = min(100.0, base_score + (high_index_count * 8.0))
 
         # 10) Focus-specific
         if focus == "security":

@@ -42,9 +42,13 @@ class QueryOptimizer:
             applied.append("SELECT * replaced with column placeholder — list only required columns")
 
         # --- Rewrite 5: Add LIMIT hint for ORDER BY without LIMIT ---
-        has_order_by = " order by " in f" {q.lower()} "
+        ql = q.lower()
+        has_order_by = bool(re.search(r"\border\s+by\b", ql))
         has_limit = (
-            " limit " in f" {q.lower()} " or "fetch first" in q.lower() or "rownum" in q.lower() or "top " in q.lower()
+            bool(re.search(r"\blimit\b", ql))
+            or bool(re.search(r"\bfetch\s+first\b", ql))
+            or "rownum" in ql
+            or bool(re.search(r"\btop\s+\d", ql))
         )
         if has_order_by and not has_limit:
             q, changed = self._suggest_limit(q, db_type)

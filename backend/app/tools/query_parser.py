@@ -100,8 +100,9 @@ def _find_top_level_keyword_pos(sql: str, keyword: str, start_idx: int = 0) -> i
 
     keyword should be provided in lowercase, e.g. " from " or " order by ".
     """
-    s = sql
-    sl = sql.lower()
+    s_normalised = re.sub(r"\s+", " ", sql)
+    s = s_normalised
+    sl = s_normalised.lower()
     key = keyword.lower()
 
     depth = 0
