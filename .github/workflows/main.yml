@@ -11,7 +11,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff==0.4.4
       - name: Lint backend
         run: ruff check backend/
       - name: Format check backend
