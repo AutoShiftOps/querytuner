@@ -10,7 +10,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - uses: pre-commit/action@v3.0.0
+      - name: Install ruff
+        run: pip install ruff
+      - name: Lint backend
+        run: ruff check backend/
+      - name: Format check backend
+        run: ruff format --check backend/
 
   frontend-lint:
     runs-on: ubuntu-latest
