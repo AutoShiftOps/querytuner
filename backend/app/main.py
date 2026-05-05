@@ -140,6 +140,8 @@ async def analyze_query(request: QueryRequest):
             "ai_model": result.get("ai_model"),
             "ai_insights": result.get("ai_insights"),
             "ai_error": result.get("ai_error"),
+            "db_type": db_type_str,
+            "original_query": request.query,
         }
         # Persist asynchronously — failure never blocks the response
         analysis_id = await save_analysis(response_payload)
@@ -147,6 +149,8 @@ async def analyze_query(request: QueryRequest):
         # Attach the shareable ID (None if Supabase not configured)
         response_payload["analysis_id"] = analysis_id
         response_payload["share_url"] = f"https://querytuner.com/report/{analysis_id}" if analysis_id else None
+        response_payload.pop("original_query", None)
+        response_payload.pop("db_type", None)
 
         return QueryAnalysisResult(**response_payload)
     except Exception as e:
