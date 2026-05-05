@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import ShareButton from './components/ShareButton';
 import { BookOpen, AlertCircle, Zap, Shield } from 'lucide-react';
 import QueryInput from './components/QueryInput';
 import ResultsPanel from './components/ResultsPanel';
@@ -136,6 +137,10 @@ function App() {
         {/* Results */}
         {result && (
           <div className="mt-8 space-y-6">
+            <div className="flex justify-end">
+              <ShareButton analysisId={result.analysis_id} />
+            </div>
+
             {result.plain_explanation && (
               <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
                 <div className="flex items-center gap-2 mb-4">

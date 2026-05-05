@@ -1,19 +1,3 @@
-/**
- * ReportPage.jsx — Shareable read-only analysis report
- * Issue #41: GET /report/:id frontend route
- *
- * Place at: frontend/src/components/ReportPage.jsx
- *
- * Then add to your router in App.js:
- *   import ReportPage from './components/ReportPage';
- *   // inside your Routes:
- *   <Route path="/report/:id" element={<ReportPage />} />
- *
- * If you're not using React Router yet, install it:
- *   npm install react-router-dom
- * And wrap App.js content in <BrowserRouter> if not already done.
- */
-
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
