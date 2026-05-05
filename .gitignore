@@ -22,3 +22,4 @@ frontend/build
 *.egg-info
 *.egg
 .ruff_cache
+.pytest_cache

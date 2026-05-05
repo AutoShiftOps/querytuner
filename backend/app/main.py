@@ -6,9 +6,11 @@ from collections import defaultdict
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .agents.sql_analyzer import SQLAnalyzerAgent
 from .schemas.models import QueryAnalysisResult, QueryRequest
+from .utils.database import get_analysis, save_analysis
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -118,31 +120,77 @@ async def analyze_query(request: QueryRequest):
 
         analysis_time = (time.time() - start_time) * 1000
 
-        return QueryAnalysisResult(
-            query=request.query,
-            parsed_query=result.get("parsing_result", {}),
-            optimization_suggestions=result.get("optimization_suggestions", []),
-            execution_plan=result.get("execution_plan"),
-            optimized_query=result.get("optimized_query"),
-            plain_explanation=result.get("plain_explanation"),
-            performance_metrics={
+        response_payload = {
+            "query": request.query,
+            "parsed_query": result.get("parsing_result", {}),
+            "optimization_suggestions": result.get("optimization_suggestions", []),
+            "execution_plan": result.get("execution_plan"),
+            "optimized_query": result.get("optimized_query"),
+            "plain_explanation": result.get("plain_explanation"),
+            "performance_metrics": {
                 "complexity_score": result.get("parsing_result", {}).get("complexity_score", 0),
                 "subqueries": result.get("parsing_result", {}).get("subqueries", 0),
             },
-            security_issues=result.get("security_issues", []),
-            readability_score=result.get("readability_score", 0),
-            analysis_time_ms=analysis_time,
-            facts=result.get("facts"),
-            used_ai=bool(result.get("used_ai", False)),
-            ai_provider=result.get("ai_provider"),
-            ai_model=result.get("ai_model"),
-            ai_insights=result.get("ai_insights"),
-            ai_error=result.get("ai_error"),
-        )
+            "security_issues": result.get("security_issues", []),
+            "readability_score": result.get("readability_score", 0),
+            "analysis_time_ms": analysis_time,
+            "facts": result.get("facts"),
+            "used_ai": bool(result.get("used_ai", False)),
+            "ai_provider": result.get("ai_provider"),
+            "ai_model": result.get("ai_model"),
+            "ai_insights": result.get("ai_insights"),
+            "ai_error": result.get("ai_error"),
+        }
+        # Persist asynchronously — failure never blocks the response
+        analysis_id = await save_analysis(response_payload)
 
+        # Attach the shareable ID (None if Supabase not configured)
+        response_payload["analysis_id"] = analysis_id
+        response_payload["share_url"] = f"https://querytuner.com/report/{analysis_id}" if analysis_id else None
+
+        return QueryAnalysisResult(**response_payload)
     except Exception as e:
         logger.error(f"Analysis error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) from None
+
+
+@app.get("/report/{analysis_id}", tags=["Reports"])
+async def get_report(analysis_id: str):
+    """
+    GET /report/{analysis_id}
+
+    Returns a stored analysis by UUID.
+    Used by the shareable report page on the frontend.
+
+    Issue #41: Shareable report URL
+    """
+    if not analysis_id or len(analysis_id) < 10:
+        raise HTTPException(status_code=400, detail="Invalid analysis ID")
+
+    record = await get_analysis(analysis_id)
+
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail="Analysis not found. It may have expired or the link is incorrect.",
+        )
+
+    return JSONResponse(
+        content={
+            "id": record["id"],
+            "db_type": record["db_type"],
+            "original_query": record["original_query"],
+            "optimization_suggestions": record["findings"],
+            "severity": record["severity"],
+            "optimized_query": record.get("optimized_query"),
+            "readability_score": record.get("readability_score"),
+            "analysis_time_ms": record.get("analysis_time_ms"),
+            "used_ai": record.get("used_ai", False),
+            "ai_model": record.get("ai_model"),
+            "created_at": record["created_at"],
+            "share_url": f"https://querytuner.com/report/{record['id']}",
+        }
+    )
 
 
 @app.get("/docs")
