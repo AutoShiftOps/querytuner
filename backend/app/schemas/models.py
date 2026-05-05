@@ -81,3 +81,5 @@ class QueryAnalysisResult(BaseModel):
     ai_model: str | None = None
     ai_insights: str | None = None
     ai_error: str | None = None
+    analysis_id: str | None = None
+    share_url: str | None = None
