@@ -1,3 +1,5 @@
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 export default function Header() {
   return (
     <>
@@ -83,7 +85,7 @@ export default function Header() {
 
         <nav className="qt-header-nav">
           <a
-            href="https://sql-query-analyzer-ekbk.onrender.com/docs"
+            href={`${API_BASE_URL}/docs`}
             target="_blank"
             rel="noopener noreferrer"
             className="qt-header-link qt-header-hide-mobile"

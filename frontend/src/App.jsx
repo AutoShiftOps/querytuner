@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
 import ShareButton from './components/ShareButton';
-import { BookOpen, AlertCircle, Zap, Shield } from 'lucide-react';
+import QueryDiagnosis from './components/QueryDiagnosis';
+import { AlertCircle, Zap, Shield } from 'lucide-react';
 import QueryInput from './components/QueryInput';
 import ResultsPanel from './components/ResultsPanel';
 import OptimizationSuggestions from './components/OptimizationSuggestions';
@@ -12,6 +12,8 @@ import Hero from './components/Hero';
 import Footer from './components/Footer';
 import { ToastContainer, useToast } from './components/Toast';
 import axios from 'axios';
+
+// AppLayout import removed — layout is handled inline below
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -189,44 +191,49 @@ function App() {
                 />
               </div>
 
-              {/* Query Diagnosis */}
-              {result.plain_explanation && (
-                <div
-                  className="rounded-xl p-5"
-                  style={{ background: '#1e293b', border: '1px solid #2d3f55' }}
-                >
-                  <div className="flex items-center gap-2 mb-3">
-                    <BookOpen className="w-4 h-4 text-blue-400" />
-                    <h3 className="font-semibold text-white text-sm">Query Diagnosis</h3>
-                  </div>
-                  <div className="prose prose-invert prose-sm max-w-none text-slate-300">
-                    <ReactMarkdown>{result.plain_explanation}</ReactMarkdown>
-                  </div>
-                </div>
-              )}
+              {/* Query Diagnosis — structured dark renderer, no prose plugin needed */}
+              {result.plain_explanation && <QueryDiagnosis content={result.plain_explanation} />}
 
               {/* Optimization findings */}
               <OptimizationSuggestions suggestions={result.optimization_suggestions || []} />
 
-              {/* AI Insights */}
-              {(result.used_ai || result.ai_insights || result.ai_error) && (
+              {/* AI Insights — only show when AI was actually used and returned content */}
+              {result.used_ai && result.ai_insights && !result.ai_error && (
                 <ResultsPanel
                   title={`AI Insights${
                     result.ai_provider
                       ? ` (${result.ai_provider}${result.ai_model ? ` / ${result.ai_model}` : ''})`
                       : ''
                   }`}
-                  content={
-                    result.ai_error
-                      ? `AI error: ${result.ai_error}`
-                      : result.ai_insights || 'No AI insights returned.'
-                  }
+                  content={result.ai_insights}
                   icon={Zap}
                   onShare={() => {
                     navigator.clipboard.writeText(result.ai_insights || '');
                     showToast('AI insights copied to clipboard', 'success');
                   }}
                 />
+              )}
+
+              {/* AI error — graceful fallback, no raw error strings shown to user */}
+              {result.ai_error && (
+                <div
+                  className="rounded-xl p-4 flex gap-3 items-start"
+                  style={{
+                    background: 'rgba(251,191,36,0.06)',
+                    border: '1px solid rgba(251,191,36,0.2)',
+                  }}
+                >
+                  <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#fbbf24' }} />
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: '#fbbf24' }}>
+                      AI insights unavailable
+                    </p>
+                    <p className="text-xs mt-1" style={{ color: '#7fa3c4' }}>
+                      The AI model is warming up (free tier cold start). Heuristic analysis above is
+                      complete. Toggle AI off and re-analyze, or try again in 30 seconds.
+                    </p>
+                  </div>
+                </div>
               )}
 
               {/* Optimized Query */}
