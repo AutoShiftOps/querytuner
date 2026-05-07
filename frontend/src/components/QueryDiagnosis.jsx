@@ -26,7 +26,7 @@ const SECTION_MARKERS = [
 function isSectionHeader(line) {
   const stripped = line
     .replace(/^#{1,3}\s*/, '')
-    .replace(/[📖🔍⚠️✅❌]/gu, '')
+    .replace(/📖|🔍|⚠️|✅|❌/gu, '')
     .trim();
   return SECTION_MARKERS.some((m) => stripped.startsWith(m));
 }
