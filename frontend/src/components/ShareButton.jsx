@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-export default function ShareButton({ analysisId }) {
+export default function ShareButton({ analysisId, onShare }) {
   const [state, setState] = useState('idle'); // "idle" | "copied" | "unavailable"
 
   if (!analysisId) return null; // Don't render if Supabase isn't configured yet
@@ -11,6 +11,7 @@ export default function ShareButton({ analysisId }) {
     try {
       await navigator.clipboard.writeText(shareUrl);
       setState('copied');
+      if (onShare) onShare();
       setTimeout(() => setState('idle'), 2500);
     } catch {
       setState('unavailable');

@@ -39,6 +39,12 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (useLlm) {
+      showToast('AI insights enabled', 'info');
+    }
+  }, [useLlm, showToast]);
+
+  useEffect(() => {
     (async () => {
       try {
         const r = await axios.get(`${API_BASE_URL}/capabilities`);
@@ -74,17 +80,11 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <Zap className="w-8 h-8 text-blue-400" />
-            <h1 className="text-4xl font-bold text-white">QueryTuner</h1>
-          </div>
-          <p className="text-slate-400">AI-powered SQL optimization and performance analysis</p>
-        </div>
-
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      <Header />
+      <Hero />
+      <div className="container mx-auto px-4 py-8 flex-grow">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column - Input */}
           <div className="lg:col-span-2">
@@ -156,7 +156,10 @@ function App() {
         {result && (
           <div className="mt-8 space-y-6">
             <div className="flex justify-end">
-              <ShareButton analysisId={result.analysis_id} />
+              <ShareButton
+                analysisId={result.analysis_id}
+                onShare={() => showToast('Share link copied to clipboard', 'success')}
+              />
             </div>
 
             {result.plain_explanation && (
@@ -186,6 +189,10 @@ function App() {
                     : result.ai_insights || 'No AI insights returned.'
                 }
                 icon={Zap}
+                onShare={() => {
+                  navigator.clipboard.writeText(result.ai_insights || 'No AI insights returned.');
+                  showToast('Share link copied to clipboard', 'success');
+                }}
               />
             )}
 
@@ -230,6 +237,7 @@ function App() {
           </div>
         )}
       </div>
+      <Footer />
     </div>
   );
 }
