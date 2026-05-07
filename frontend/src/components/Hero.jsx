@@ -1,0 +1,84 @@
+export default function Hero() {
+  return (
+    <>
+      <style>{`
+        .qt-hero {
+          padding: 28px 20px 22px;
+          text-align: center;
+          border-bottom: 1px solid #1a2e45;
+          font-family: 'IBM Plex Sans', system-ui, sans-serif;
+          background: #0f172a;
+          background-image: radial-gradient(
+            ellipse 70% 60% at 50% -10%,
+            rgba(56,189,248,0.06) 0%,
+            transparent 60%
+          );
+        }
+        .qt-hero-eyebrow {
+          display: flex; align-items: center; justify-content: center;
+          gap: 8px; margin-bottom: 12px;
+          font-size: 10px; font-weight: 600;
+          letter-spacing: 0.1em; text-transform: uppercase;
+          color: #38bdf8;
+        }
+        .qt-hero-eyebrow-line {
+          width: 28px; height: 1px; background: rgba(56,189,248,0.4);
+        }
+        .qt-hero-title {
+          font-size: 26px; font-weight: 600;
+          color: #e2e8f0; letter-spacing: -0.025em;
+          line-height: 1.25; margin-bottom: 10px;
+        }
+        .qt-hero-title-accent { color: #38bdf8; }
+        .qt-hero-sub {
+          font-size: 13px; color: #7fa3c4;
+          max-width: 520px; margin: 0 auto 16px;
+          line-height: 1.65;
+        }
+        .qt-hero-pills {
+          display: flex; align-items: center;
+          justify-content: center; gap: 6px; flex-wrap: wrap;
+        }
+        .qt-hero-pill {
+          font-size: 11px; font-weight: 500;
+          padding: 4px 12px; border-radius: 20px;
+          background: rgba(56,189,248,0.07);
+          color: #38bdf8;
+          border: 1px solid rgba(56,189,248,0.15);
+        }
+        @media (max-width: 600px) {
+          .qt-hero-title { font-size: 20px; }
+          .qt-hero { padding: 20px 16px 18px; }
+        }
+      `}</style>
+
+      <div className="qt-hero">
+        <div className="qt-hero-eyebrow">
+          <div className="qt-hero-eyebrow-line" />
+          AI-powered SQL diagnostics
+          <div className="qt-hero-eyebrow-line" />
+        </div>
+
+        <h1 className="qt-hero-title">
+          Paste any query.
+          <br />
+          Get a <span className="qt-hero-title-accent">consultant-grade</span> diagnosis.
+        </h1>
+
+        <p className="qt-hero-sub">
+          Heuristic engine + LLM rewrite across PostgreSQL, MySQL, Oracle, SQL Server, and SQLite.
+          No database connection required.
+        </p>
+
+        <div className="qt-hero-pills">
+          <span className="qt-hero-pill">Sub-5ms heuristics</span>
+          <span className="qt-hero-pill">Severity ranking</span>
+          <span className="qt-hero-pill">Rewritten SQL</span>
+          <span className="qt-hero-pill">Security scan</span>
+          <span className="qt-hero-pill">Shareable report</span>
+          <span className="qt-hero-pill">REST API</span>
+        </div>
+      </div>
+    </>
+  );
+}

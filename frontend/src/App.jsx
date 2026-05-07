@@ -7,6 +7,10 @@ import ResultsPanel from './components/ResultsPanel';
 import OptimizationSuggestions from './components/OptimizationSuggestions';
 import ExecutionPlan from './components/ExecutionPlan';
 import SampleQueries from './components/SampleQueries';
+import Header from './components/Header';
+import Hero from './components/Hero';
+import Footer from './components/Footer';
+import { ToastContainer, useToast } from './components/Toast';
 import axios from 'axios';
 
 // Vite uses import.meta.env.VITE_* (not process.env.REACT_APP_*)
@@ -21,6 +25,18 @@ function App() {
   const [caps, setCaps] = useState(null);
   const [llmProvider, setLlmProvider] = useState('huggingface');
   const [useLlm, setUseLlm] = useState(false);
+  const { toasts, showToast, dismissToast } = useToast();
+
+  useEffect(() => {
+    const handleKeydown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleAnalyze();
+      }
+    };
+    document.addEventListener('keydown', handleKeydown);
+    return () => document.removeEventListener('keydown', handleKeydown);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -47,9 +63,11 @@ function App() {
         focus: 'performance',
       });
       setResult(response.data);
+      showToast('Analysis complete · share link ready', 'success');
     } catch (err) {
       setResult(null);
       setError(err.response?.data?.detail || 'Analysis failed');
+      showToast('Analysis failed — please check your query', 'error');
     } finally {
       setLoading(false);
     }
