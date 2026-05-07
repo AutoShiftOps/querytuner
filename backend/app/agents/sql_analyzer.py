@@ -8,7 +8,7 @@ from typing import Any
 
 from app.agents.explainer import QueryExplainer
 from app.agents.optimizer import QueryOptimizer
-from app.llm.router import run_llm
+from app.llm.router import call_llm
 from app.schemas.models import DatabaseType
 from app.schemas.models import QueryRequest as QR
 from app.tools.execution_planner import collect_facts
@@ -521,7 +521,7 @@ Keep it concise and actionable.
 
     async def _try_llm(self, llm_provider: str, prompt: str) -> tuple[str | None, str | None, str | None]:
         try:
-            text, model, err = await run_llm(provider=llm_provider, prompt=prompt)
+            text, model, err = await call_llm(provider=llm_provider, prompt=prompt)
             if not text or not str(text).strip():
                 return None, model, "LLM returned empty response"
             return text, model, err
