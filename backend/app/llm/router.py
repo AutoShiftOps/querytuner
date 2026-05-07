@@ -99,7 +99,9 @@ async def _call_openai(prompt: str, max_tokens: int) -> dict:
             temperature=0.1,
         )
 
-        text = response.choices[0].message.content.strip()
+        text = response.choices[0].message.content
+        if text is not None:
+            text = text.strip()
         return {
             "text": text,
             "error": None,
