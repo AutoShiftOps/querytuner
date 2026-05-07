@@ -1,7 +1,13 @@
 import ReactMarkdown from 'react-markdown';
-import { ToastContainer, useToast } from './components/Toast';
 
-function ResultsPanel({ title, content, icon: Icon }) {
+function ResultsPanel({ title, content, icon: Icon, onShare }) {
+  const handleCopy = () => {
+    navigator.clipboard.writeText(content);
+    if (onShare) {
+      onShare();
+    }
+  };
+
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
       <div className="flex items-center justify-between mb-4">
@@ -10,7 +16,7 @@ function ResultsPanel({ title, content, icon: Icon }) {
           <h3 className="text-lg font-bold text-white">{title}</h3>
         </div>
         <button
-          onClick={() => navigator.clipboard.writeText(content)}
+          onClick={handleCopy}
           className="text-xs text-slate-400 hover:text-white border border-slate-600
                      hover:border-slate-400 px-3 py-1 rounded transition-colors"
         >
