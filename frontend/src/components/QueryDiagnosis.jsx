@@ -45,9 +45,9 @@ function parseKV(line) {
   return null;
 }
 
-function isBoldLine(line) {
-  return /^\*\*[^*]+\*\*\s*[—–-]/.test(line.trim()) || /^\*\*[^*]+\*\*$/.test(line.trim());
-}
+// function isBoldLine(line) {
+//   return /^\*\*[^*]+\*\*\s*[—–-]/.test(line.trim()) || /^\*\*[^*]+\*\*$/.test(line.trim());
+// }
 
 function parseBold(line) {
   // Returns array of { text, bold } segments
@@ -65,7 +65,7 @@ function parseBold(line) {
 }
 
 function stripEmoji(str) {
-  return str.replace(/[📖🔍⚠️✅❌🧩💡]/gu, '').trim();
+  return str.replace(/⚠️|[📖🔍✅❌🧩💡]/gu, '').trim();
 }
 
 // ── Main component ────────────────────────────────────────────────────────
