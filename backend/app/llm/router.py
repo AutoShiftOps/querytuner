@@ -1,56 +1,122 @@
-import asyncio
-import os
+import logging
+
+from app.llm.hf_client import call_hf, safe_parse_json
+from app.utils.config import settings
+
+logger = logging.getLogger(__name__)
 
 
-async def run_llm(provider: str, prompt: str) -> tuple[str | None, str | None, str | None]:
+# ── Public entry point ────────────────────────────────────────────────────────
+
+
+async def call_llm(
+    prompt: str,
+    provider: str | None = None,
+    max_tokens: int = 600,
+) -> dict:
     """
-    Returns: (ai_insights, model_name, error)
-    error is None when successful.
+    Call the configured LLM provider.
+
+    Returns:
+        {
+            "text":     str | None,    # LLM output
+            "error":    str | None,    # User-friendly error message
+            "provider": str,           # "huggingface" or "openai"
+            "model":    str | None,    # Model used
+        }
     """
-    provider = (provider or "huggingface").lower().strip()
+    resolved_provider = provider or settings.default_llm_provider or "huggingface"
 
-    if provider == "huggingface":
-        model = os.getenv("HF_MODEL", "google/gemma-3-27b-it")  # set once
-        if not os.getenv("HF_API_KEY", "").strip():
-            return None, model, "HF_API_KEY not set on server"
+    if resolved_provider == "openai":
+        return await _call_openai(prompt, max_tokens)
+    else:
+        return await _call_hf(prompt, max_tokens)
 
-        try:
-            from app.llm.hf_client import HFLLM
 
-            llm = HFLLM()
-            text = await asyncio.wait_for(llm.chat([{"role": "user", "content": prompt}]), timeout=30.0)
-        except Exception as e:
-            return None, model, f"HuggingFace error: {e}"
+# ── HuggingFace ───────────────────────────────────────────────────────────────
 
-        if not text or not str(text).strip():
-            return None, model, "HuggingFace returned empty response"
-        return text, model, None
 
-    if provider == "openai":
-        api_key = os.getenv("OPENAI_API_KEY", "").strip()
-        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-        if not api_key:
-            return None, model, "OPENAI_API_KEY not set on server"
+async def _call_hf(prompt: str, max_tokens: int) -> dict:
+    try:
+        text = await call_hf(prompt, max_tokens=max_tokens)
+        return {
+            "text": text,
+            "error": None,
+            "provider": "huggingface",
+            "model": settings.hf_model or "Qwen/Qwen2.5-Coder",
+        }
+    except RuntimeError as e:
+        # RuntimeError = user-visible message already formatted in hf_client
+        logger.warning("HF LLM failed: %s", e)
+        return {
+            "text": None,
+            "error": str(e),
+            "provider": "huggingface",
+            "model": None,
+        }
+    except Exception as e:
+        logger.error("HF LLM unexpected error: %s", e, exc_info=True)
+        return {
+            "text": None,
+            "error": "AI model unavailable — heuristic analysis is complete above.",
+            "provider": "huggingface",
+            "model": None,
+        }
 
-        try:
-            from openai import AsyncOpenAI
-        except ImportError:
-            return None, model, "openai package not installed on server"
 
-        client = AsyncOpenAI(api_key=api_key)
-        try:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-                max_tokens=800,
-                timeout=30.0,
-            )
-            text = response.choices[0].message.content
-            if not text or not str(text).strip():
-                return None, model, "OpenAI returned empty response"
-            return text, model, None
-        except Exception as e:
-            return None, model, f"OpenAI API error: {e}"
+# ── OpenAI ────────────────────────────────────────────────────────────────────
 
-    return None, None, f"Unknown provider: {provider}"
+
+async def _call_openai(prompt: str, max_tokens: int) -> dict:
+    if not settings.openai_api_key:
+        return {
+            "text": None,
+            "error": "OpenAI API key not configured on this server.",
+            "provider": "openai",
+            "model": None,
+        }
+
+    try:
+        import openai  # lazy import — openai package optional
+
+        client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
+        model = settings.openai_model or "gpt-4o-mini"
+
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a senior database performance engineer. "
+                        "Respond only with valid JSON as instructed. "
+                        "No markdown fences, no extra text."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=max_tokens,
+            temperature=0.1,
+        )
+
+        text = response.choices[0].message.content.strip()
+        return {
+            "text": text,
+            "error": None,
+            "provider": "openai",
+            "model": model,
+        }
+
+    except Exception as e:
+        logger.error("OpenAI LLM error: %s", e, exc_info=True)
+        return {
+            "text": None,
+            "error": "OpenAI request failed — check API key and quota.",
+            "provider": "openai",
+            "model": None,
+        }
+
+
+# ── JSON extraction helper (re-exported for use in agents) ───────────────────
+
+__all__ = ["call_llm", "safe_parse_json"]
