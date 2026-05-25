@@ -208,17 +208,17 @@ export function trackAiInsightsCopied() {
 
 function _lengthBucket(chars) {
   if (!chars) return 'unknown';
-  if (chars < 50)   return 'tiny (<50)';
-  if (chars < 200)  return 'small (50-200)';
-  if (chars < 500)  return 'medium (200-500)';
+  if (chars < 50) return 'tiny (<50)';
+  if (chars < 200) return 'small (50-200)';
+  if (chars < 500) return 'medium (200-500)';
   if (chars < 2000) return 'large (500-2000)';
   return 'xlarge (2000+)';
 }
 
 function _timeBucket(ms) {
   if (!ms) return 'unknown';
-  if (ms < 10)   return 'fast (<10ms)';
-  if (ms < 50)   return 'normal (10-50ms)';
-  if (ms < 200)  return 'slow (50-200ms)';
+  if (ms < 10) return 'fast (<10ms)';
+  if (ms < 50) return 'normal (10-50ms)';
+  if (ms < 200) return 'slow (50-200ms)';
   return 'very_slow (200ms+)';
 }
