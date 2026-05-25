@@ -43,6 +43,36 @@
 
 ---
 
+## ➕ Phase 1.5 — Supabase setup + persistence (Week 2-3, May 7–10)
+
+**Goal:** Sharable report link..
+**Exit criteria:** Generated report links are accessible and functional.
+
+| Issue | Task | Priority |
+|---|---|---|
+| #68 | Add Supabase persistence to /analyze endpoint | 🔴 High |
+| #69 | Add shareable /report/:id route and ReportPage | 🔴 High |
+| #70 | Add ShareButton with clipboard copy to ResultsPanel | 🔴 High |
+
+---
+
+## ➕ Phase 1.6 — UI Shell (Week 3-4, May 19–21)
+
+**Goal:** App shell matches enterprise-grade visual standard before schema work begins.
+**Exit criteria:** Consistent font, two-column layout, sticky nav, toast feedback.
+
+| Issue | Task | Priority |
+|---|---|---|
+| #86 | Set IBM Plex Sans as global font via tailwind.config.js + index.html | 🔴 High |
+| #87 | Add sticky Header with nav links and GitHub star CTA | 🔴 High |
+| #88 | Add Hero value proposition strip above query tool | 🟡 Medium |
+| #89 | Add Toast notification system — wire to analyze + share actions | 🔴 High |
+| #90 | Add Footer with API Docs, GitHub, Roadmap, license links | 🟢 Low |
+| #91 | Implement two-column AppLayout — results panel on right | 🔴 High |
+| #92 | add GA4 event tracking via centralized analytics.js utility | 🔴 High |
+
+---
+
 ## 🗓️ Phase 2 — Schema-Aware Analysis (Week 4–5, May 19–30)
 
 **Goal:** Users can paste DDL and get column-specific advice instead of generic warnings.
@@ -118,6 +148,8 @@
 | Phase | Timeline | Key Deliverable |
 |---|---|---|
 | ✅ Phase 0 — MVP | Apr 2026 | Live product at querytuner.com |
+| ✅ Phase 1.5 — MVP | May 2026 | Supabase setup + persistence |
+| ✅ Phase 1.6 — MVP | May 19-21 | UI Shell |
 | 🔄 Phase 1 — Engine | May 5–16 | 8 heuristics, 20 pytest fixtures, CI green |
 | Phase 2 — Schema | May 19–30 | Column-specific index suggestions |
 | Phase 3 — Agents | Jun 2–20 | LangGraph pipeline + LangSmith traces |

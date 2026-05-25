@@ -1,18 +1,53 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#0f172a" />
+
+  <!-- SEO -->
   <meta name="description"
-    content="QueryTuner — AI-powered SQL query diagnostics across PostgreSQL, MySQL, Oracle, SQL Server and SQLite" />
+    content="AI-powered SQL query diagnostics across PostgreSQL, MySQL, Oracle, SQL Server and SQLite. Paste your query, get instant performance analysis and an optimized rewrite." />
+  <meta name="theme-color" content="#0f172a" />
+
+  <!-- Open Graph (for shareable links) -->
+  <meta property="og:title" content="QueryTuner — AI SQL Query Diagnostics" />
+  <meta property="og:description"
+    content="Paste any SQL query. Get severity-ranked findings, index recommendations, and rewritten SQL. No database connection needed." />
+  <meta property="og:url" content="https://querytuner.com" />
+  <meta property="og:type" content="website" />
+
+  <!-- Fonts — MUST load before React renders to prevent flash -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
+
   <title>QueryTuner — SQL Query Analyzer</title>
+
+  <!--
+      Google Analytics 4
+      SETUP: Replace G-XXXXXXXXXX with your real Measurement ID.
+      Get it from: analytics.google.com → Admin → Data Streams → your stream → Measurement ID
+      Then add to Vercel: Settings → Environment Variables → VITE_GA_MEASUREMENT_ID=G-XXXXXXXXXX
+    -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-5M0RSC3B6H"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+    gtag('config', 'G-5M0RSC3B6H', {
+      page_location: window.location.href,
+      page_title: document.title,
+      send_page_view: true,
+      cookie_flags: 'SameSite=None;Secure',
+    });
+  </script>
 </head>
 
 <body>
-  <noscript>You need to enable JavaScript to run QueryTuner.</noscript>
   <div id="root"></div>
   <script type="module" src="/src/main.jsx"></script>
 </body>

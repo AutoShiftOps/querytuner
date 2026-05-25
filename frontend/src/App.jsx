@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import ShareButton from './components/ShareButton';
 import QueryDiagnosis from './components/QueryDiagnosis';
 import { AlertCircle, Zap, Shield } from 'lucide-react';
@@ -11,9 +11,18 @@ import Header from './components/Header';
 import Hero from './components/Hero';
 import Footer from './components/Footer';
 import { ToastContainer, useToast } from './components/Toast';
+import {
+  trackAnalysisRun,
+  trackAnalysisSuccess,
+  trackAnalysisError,
+  trackSampleQuerySelected,
+  trackDbTypeChanged,
+  trackAiToggle,
+  trackShareClicked,
+  trackOptimizedQueryCopied,
+  trackAiInsightsCopied,
+} from './utils/analytics';
 import axios from 'axios';
-
-// AppLayout import removed — layout is handled inline below
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -28,6 +37,53 @@ function App() {
   const [useLlm, setUseLlm] = useState(false);
   const { toasts, showToast, dismissToast } = useToast();
 
+  // ── Analyze — defined first so useEffects below can reference it ────────
+  const handleAnalyze = useCallback(async () => {
+    // Track intent before the API call
+    trackAnalysisRun({
+      db_type: dbType,
+      use_llm: useLlm,
+      llm_provider: llmProvider,
+      query_length: query.length,
+    });
+
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await axios.post(`${API_BASE_URL}/analyze`, {
+        query,
+        db_type: dbType,
+        schema_info: null,
+        llm_provider: llmProvider,
+        use_llm: useLlm,
+        focus: 'performance',
+      });
+
+      const data = response.data;
+      setResult(data);
+      showToast('Analysis complete · share link ready', 'success');
+
+      // Track successful result with outcome metrics
+      trackAnalysisSuccess({
+        db_type: dbType,
+        issue_count: data.optimization_suggestions?.length ?? 0,
+        severity: data.severity,
+        analysis_time_ms: data.analysis_time_ms,
+        has_optimized_query: !!data.optimized_query,
+        has_ai_insights: !!data.ai_insights,
+        analysis_id: data.analysis_id,
+      });
+    } catch (err) {
+      setResult(null);
+      const detail = err.response?.data?.detail || 'Analysis failed';
+      setError(detail);
+      showToast('Analysis failed — please check your query', 'error');
+      trackAnalysisError(err.response ? 'backend' : 'network', dbType);
+    } finally {
+      setLoading(false);
+    }
+  }, [query, dbType, llmProvider, useLlm, showToast]);
+
   // ── Cmd/Ctrl + Enter shortcut ───────────────────────────────────────────
   useEffect(() => {
     const handleKeydown = (e) => {
@@ -38,12 +94,15 @@ function App() {
     };
     document.addEventListener('keydown', handleKeydown);
     return () => document.removeEventListener('keydown', handleKeydown);
-  }, []);
+  }, [handleAnalyze]);
 
-  // ── AI toggle toast ─────────────────────────────────────────────────────
+  // ── AI toggle toast + analytics ─────────────────────────────────────────
   useEffect(() => {
-    if (useLlm) showToast('AI insights enabled', 'info');
-  }, [useLlm]);
+    if (useLlm) {
+      showToast('AI insights enabled', 'info');
+      trackAiToggle(true, llmProvider);
+    }
+  }, [useLlm, showToast, llmProvider]);
 
   // ── Fetch backend capabilities ──────────────────────────────────────────
   useEffect(() => {
@@ -57,30 +116,6 @@ function App() {
       }
     })();
   }, []);
-
-  // ── Analyze ─────────────────────────────────────────────────────────────
-  const handleAnalyze = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await axios.post(`${API_BASE_URL}/analyze`, {
-        query,
-        db_type: dbType,
-        schema_info: null,
-        llm_provider: llmProvider,
-        use_llm: useLlm,
-        focus: 'performance',
-      });
-      setResult(response.data);
-      showToast('Analysis complete · share link ready', 'success');
-    } catch (err) {
-      setResult(null);
-      setError(err.response?.data?.detail || 'Analysis failed');
-      showToast('Analysis failed — please check your query', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // ── Derived values ───────────────────────────────────────────────────────
   const issueCount = Array.isArray(result?.optimization_suggestions)
@@ -112,13 +147,17 @@ function App() {
               onSelect={(sql, db) => {
                 setQuery(sql);
                 setDbType(db);
+                trackSampleQuerySelected(sql.slice(0, 40), db);
               }}
             />
             <QueryInput
               query={query}
               setQuery={setQuery}
               dbType={dbType}
-              setDbType={setDbType}
+              setDbType={(newDb) => {
+                setDbType(newDb);
+                trackDbTypeChanged(newDb);
+              }}
               onAnalyze={handleAnalyze}
               loading={loading}
               useLlm={useLlm}
@@ -187,7 +226,10 @@ function App() {
               <div className="flex justify-end">
                 <ShareButton
                   analysisId={result.analysis_id}
-                  onShare={() => showToast('Share link copied to clipboard', 'success')}
+                  onShare={() => {
+                    showToast('Share link copied to clipboard', 'success');
+                    trackShareClicked(result.analysis_id);
+                  }}
                 />
               </div>
 
@@ -210,6 +252,7 @@ function App() {
                   onShare={() => {
                     navigator.clipboard.writeText(result.ai_insights || '');
                     showToast('AI insights copied to clipboard', 'success');
+                    trackAiInsightsCopied();
                   }}
                 />
               )}
@@ -265,6 +308,7 @@ function App() {
                         onClick={() => {
                           navigator.clipboard.writeText(result.optimized_query);
                           showToast('Optimized query copied', 'success');
+                          trackOptimizedQueryCopied();
                         }}
                         className="text-xs text-slate-400 hover:text-white border border-slate-600
                                    hover:border-slate-400 px-3 py-1 rounded transition-colors"

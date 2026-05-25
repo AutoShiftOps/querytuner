@@ -1,12 +1,21 @@
+/**
+ * ReportPage.jsx — Enterprise-grade shareable analysis report
+ * Issue #41 (redesign): Dark theme, matching QueryTuner's #0f172a palette
+ *
+ * Drop-in replacement for frontend/src/components/ReportPage.jsx
+ * All logic is identical — only the visual layer has changed.
+ *
+ * Fonts loaded via <link> injected on mount:
+ *   - IBM Plex Sans (UI text — technical, professional)
+ *   - JetBrains Mono (code blocks — developer-native)
+ */
+
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
+import { trackPageView, trackReportViewed } from '../utils/analytics';
 
-const API_URL =
-  import.meta.env.VITE_API_URL ||
-  (typeof window !== 'undefined' && window.location.hostname === 'localhost'
-    ? 'http://localhost:8000'
-    : '/api');
+const API_URL = import.meta.env.VITE_API_URL || 'https://sql-query-analyzer-ekbk.onrender.com';
 
 // ── Design tokens (mirror #0f172a main app palette) ─────────────────────────
 const T = {
@@ -266,7 +275,11 @@ export default function ReportPage() {
       try {
         const { data } = await axios.get(`${API_URL}/report/${id}`);
         setReport(data);
-        document.title = `QueryTuner — ${data.db_type?.toUpperCase()} Analysis Report`;
+        trackPageView(
+          `/report/${id}`,
+          `QueryTuner — ${data.db_type?.toUpperCase()} Analysis Report`
+        );
+        trackReportViewed(id, data.db_type);
         setMetaTag('og:title', document.title);
         setMetaTag(
           'og:description',
