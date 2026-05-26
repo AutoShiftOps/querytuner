@@ -15,7 +15,11 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { trackPageView, trackReportViewed } from '../utils/analytics';
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://sql-query-analyzer-ekbk.onrender.com';
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  (typeof window !== 'undefined' && window.location.hostname === 'localhost'
+    ? 'http://localhost:8000'
+    : '/api');
 
 // ── Design tokens (mirror #0f172a main app palette) ─────────────────────────
 const T = {
