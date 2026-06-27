@@ -5,6 +5,7 @@ import re
 import httpx
 
 from app.utils.config import settings
+from app.utils.dialect_config import get_llm_context
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ LEGACY_URL = "https://api-inference.huggingface.co/models/{model}"
 # ── Public entry point ────────────────────────────────────────────────────────
 
 
-async def call_hf(prompt: str, max_tokens: int = 600) -> str:
+async def call_hf(prompt: str, max_tokens: int = 600, db_type: str = "postgresql") -> str:
     """
     Call HuggingFace LLM. Returns the model's text response.
     Raises RuntimeError with a user-friendly message on failure.
@@ -36,8 +37,8 @@ async def call_hf(prompt: str, max_tokens: int = 600) -> str:
     # Try router first (faster, supports chat format)
     for model in ROUTER_MODELS:
         try:
-            text = await _call_router(prompt, model, token, max_tokens)
-            logger.info("HF router success: model=%s", model)
+            text = await _call_router(prompt, model, token, max_tokens, db_type)
+            logger.info("HF router success: model=%s", model, db_type)
             return text
         except _RouterError as e:
             logger.warning("HF router failed for %s: %s — trying next", model, e)
@@ -49,7 +50,7 @@ async def call_hf(prompt: str, max_tokens: int = 600) -> str:
     # All router models failed — fall back to legacy inference API
     logger.info("All router models failed, falling back to legacy inference API")
     primary_model = settings.hf_model or ROUTER_MODELS[1]
-    return await _call_legacy(prompt, primary_model, token, max_tokens)
+    return await _call_legacy(prompt, primary_model, token, max_tokens, db_type)
 
 
 # ── Router implementation ─────────────────────────────────────────────────────
@@ -64,28 +65,28 @@ async def _call_router(
     model: str,
     token: str,
     max_tokens: int,
+    db_type: str,
 ) -> str:
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
 
+    # Issue #74: dialect-specific system message replaces the generic one.
+    # get_llm_context() returns e.g. "You are analyzing a PostgreSQL query.
+    # Reference VACUUM ANALYZE, CONCURRENTLY index creation..." etc.
+    dialect_system = (
+        f"{get_llm_context(db_type)}\n\n"
+        "Respond only with valid JSON as instructed. "
+        "No markdown fences, no explanatory text outside the JSON."
+    )
+
     # OpenAI-compatible format — use max_tokens NOT max_new_tokens
     payload = {
         "model": model,
         "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a senior database performance engineer. "
-                    "Respond only with valid JSON as instructed. "
-                    "No markdown fences, no explanatory text outside the JSON."
-                ),
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
+            {"role": "system", "content": dialect_system},
+            {"role": "user", "content": prompt},
         ],
         "max_tokens": max_tokens,  # OpenAI format — NOT max_new_tokens
         "temperature": 0.1,
@@ -125,6 +126,7 @@ async def _call_legacy(
     model: str,
     token: str,
     max_tokens: int,
+    db_type: str,
 ) -> str:
     """
     Fall back to the standard HF inference endpoint.
@@ -138,7 +140,7 @@ async def _call_legacy(
 
     # HF native format — uses max_new_tokens, not max_tokens
     payload = {
-        "inputs": _build_instruct_prompt(prompt),
+        "inputs": _build_instruct_prompt(prompt, db_type),  # Issue #74: pass db_type
         "parameters": {
             "max_new_tokens": max_tokens,
             "temperature": 0.1,
@@ -178,7 +180,7 @@ async def _call_legacy(
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _build_instruct_prompt(user_prompt: str) -> str:
+def _build_instruct_prompt(user_prompt: str, db_type: str = "postgresql") -> str:
     """
     Wrap prompt in Mistral/Qwen instruct format for the legacy endpoint.
     Both Qwen2.5-Coder and Mistral use [INST]...[/INST] delimiters.

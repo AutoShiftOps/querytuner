@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-# Severity ordering for sorting findings
+# Issue #74 + #75: dialect-aware LLM context and maintenance commands
+from app.utils.dialect_config import get_dialect
+
 _SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
@@ -10,13 +12,12 @@ class QueryExplainer:
     """
     Plain-English explanation layer.
 
-    Takes the structured output from heuristic analysis and produces
-    a human-readable, severity-ranked diagnosis — independently of the LLM.
-    This runs always (fast, free) and feeds into the LLM prompt as context.
+    Takes structured heuristic output and produces a human-readable,
+    severity-ranked diagnosis — independently of the LLM.
+    Runs always (fast, free) and feeds into the LLM prompt as context.
 
-    Usage:
-        explainer = QueryExplainer()
-        explanation = explainer.explain(query, parsed, suggestions, db_type)
+    Issue #74: db_type is now passed through to LLM context (via sql_analyzer)
+    Issue #75: adds dialect-specific maintenance commands section
     """
 
     def explain(
@@ -27,10 +28,6 @@ class QueryExplainer:
         db_type: str,
         security_issues: list[str] | None = None,
     ) -> str:
-        """
-        Returns a markdown-formatted plain-English explanation of what
-        the query does and what problems were found.
-        """
         sections: list[str] = []
 
         # 1 — Query summary
@@ -51,6 +48,11 @@ class QueryExplainer:
         if readability_tip:
             sections.append(readability_tip)
 
+        # 5 — Issue #75: dialect-specific maintenance commands
+        maintenance = self._format_maintenance(suggestions, db_type, parsed)
+        if maintenance:
+            sections.append(maintenance)
+
         return "\n\n".join(sections)
 
     # ------------------------------------------------------------------
@@ -66,7 +68,9 @@ class QueryExplainer:
         group_by = parsed.get("group_by") or []
         order_by = parsed.get("order_by") or []
 
-        lines = [f"## Query Summary ({db_type.upper()})"]
+        # Issue #74: show dialect display name (e.g. "PostgreSQL" not "postgresql")
+        cfg = get_dialect(db_type)
+        lines = [f"## Query Summary ({cfg.display})"]
         lines.append(f"- **Query type:** {query_type}")
 
         if tables:
@@ -99,9 +103,9 @@ class QueryExplainer:
         )
 
     def _format_security(self, issues: list[str]) -> str:
-        lines = ["## 🛡️ Security Observations"]
+        lines = ["## Security Observations"]
         for issue in issues:
-            lines.append(f"- ⚠️ {issue}")
+            lines.append(f"- {issue}")
         return "\n".join(lines)
 
     def _readability_tip(self, query: str, parsed: dict[str, Any]) -> str | None:
@@ -109,14 +113,15 @@ class QueryExplainer:
 
         if query.count("\n") < 2:
             tips.append(
-                "Format your query across multiple lines — it improves readability and diff clarity in code review."
+                "Format your query across multiple lines — " "improves readability and diff clarity in code review."
             )
 
         subqueries = parsed.get("subqueries") or 0
         if subqueries >= 2:
             tips.append(
                 "This query has multiple nested subqueries. "
-                "Consider extracting them into CTEs (`WITH` clauses) for clarity and potential planner benefits."
+                "Consider extracting them into CTEs (`WITH` clauses) "
+                "for clarity and potential planner benefits."
             )
 
         complexity = parsed.get("complexity_score") or 0
@@ -129,7 +134,64 @@ class QueryExplainer:
         if not tips:
             return None
 
-        lines = ["## 📖 Readability Tips"]
+        lines = ["## Readability Tips"]
         for t in tips:
             lines.append(f"- {t}")
         return "\n".join(lines)
+
+    def _format_maintenance(
+        self,
+        suggestions: list[dict[str, Any]],
+        db_type: str,
+        parsed: dict[str, Any],
+    ) -> str | None:
+        """
+        Issue #75: Append dialect-specific maintenance commands when
+        relevant findings exist (index recommendations, full scans, etc.).
+        """
+        index_types = {
+            "index_review_join_key",
+            "index_review_where_filter",
+            "index_review_composite_index",
+            "index_review_order_by_index",
+            "index_review_group_by_index",
+            "index_review_partial_index_candidate",
+            "sequential_scan",
+            "full_table_scan",
+            "full_table_access",
+        }
+
+        has_index_finding = any(s.get("type", "") in index_types for s in suggestions)
+        if not has_index_finding:
+            return None
+
+        cfg = get_dialect(db_type)
+        tables = parsed.get("tables") or ["<table>"]
+        table = tables[0] if tables else "<table>"
+
+        lines = [f"## {cfg.display} Maintenance Commands"]
+        lines.append("After adding indexes, update statistics so the planner uses them:")
+        lines.append(f"```sql\n{cfg.update_stats.format(table=table)}\n```")
+        lines.append("Verify with EXPLAIN:")
+        explain_example = cfg.explain_cmd.replace("{query}", "-- your query here")
+        lines.append(f"```sql\n{explain_example}\n```")
+
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Issue #74: LLM context string — used by sql_analyzer when building
+    # the LLM prompt. Call this to get the dialect-specific system context.
+    # ------------------------------------------------------------------
+
+    def get_llm_context(self, db_type: str) -> str:
+        """
+        Returns the dialect-specific context string to prepend to any
+        LLM prompt for this analysis. Call from sql_analyzer.py when
+        building the prompt passed to call_llm().
+
+        Usage in sql_analyzer.py:
+            explainer = QueryExplainer()
+            dialect_ctx = explainer.get_llm_context(db_type)
+            prompt = f"{dialect_ctx}\n\n{your_existing_prompt}"
+        """
+        return get_dialect(db_type).llm_context

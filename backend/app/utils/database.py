@@ -1,39 +1,3 @@
-"""
-database.py — Supabase persistence layer for QueryTuner
-Issue #68: Supabase free tier setup + wire POST /analyze to INSERT
-
-Place this file at: backend/app/utils/database.py
-
-Required env vars (add to Render + .env.example):
-  SUPABASE_URL=https://your-project.supabase.co
-  SUPABASE_ANON_KEY=your-anon-key
-
-Supabase SQL to run once in the Supabase dashboard SQL editor:
------------------------------------------------------------------
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
-CREATE TABLE analyses (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    query_hash  TEXT NOT NULL,
-    db_type     TEXT NOT NULL,
-    original_query TEXT NOT NULL,
-    findings    JSONB NOT NULL DEFAULT '[]',
-    severity    TEXT NOT NULL DEFAULT 'low',
-    optimized_query TEXT,
-    readability_score FLOAT,
-    analysis_time_ms FLOAT,
-    used_ai     BOOLEAN DEFAULT FALSE,
-    ai_model    TEXT,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Index for fast lookup by hash (dedup future queries)
-CREATE INDEX idx_analyses_query_hash ON analyses(query_hash);
--- Index for time-based queries (usage analytics later)
-CREATE INDEX idx_analyses_created_at ON analyses(created_at DESC);
------------------------------------------------------------------
-"""
-
 import hashlib
 import logging
 from typing import Any

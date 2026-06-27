@@ -3,6 +3,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
+# Issue #73: dialect-aware rewrites
+from app.utils.dialect_config import get_dialect
+
 
 class QueryOptimizer:
     """
@@ -14,17 +17,18 @@ class QueryOptimizer:
 
     def rewrite(self, query: str, suggestions: list[dict[str, Any]], db_type: str) -> str:
         q = query.strip()
+        cfg = get_dialect(db_type)  # Issue #73: dialect config for this rewrite session
+
         header_lines: list[str] = [
             "-- QueryTuner: Suggested optimized SQL (review before applying)",
-            f"-- DB: {db_type}",
+            f"-- Dialect: {cfg.display}",  # Issue #73: show dialect display name not raw string
         ]
         applied: list[str] = []
 
-        # --- Rewrite 1: YEAR(col) = N → range condition ---
-        # Fixes: function_in_where for YEAR() — enables index seek
-        q, changed = self._rewrite_year_function(q)
+        # --- Rewrite 1: YEAR(col) = N → dialect-correct range condition ---
+        q, changed = self._rewrite_year_function(q, db_type)
         if changed:
-            applied.append("YEAR() rewritten as range condition to enable index seek")
+            applied.append(f"YEAR() rewritten as range condition ({cfg.display} syntax) to enable index seek")
 
         # --- Rewrite 2: MONTH(col) = N → range condition ---
         q, changed = self._rewrite_month_function(q)
@@ -32,16 +36,18 @@ class QueryOptimizer:
             applied.append("MONTH() rewritten as range condition to enable index seek")
 
         # --- Rewrite 3: LOWER(col) = 'val' comment ---
-        q, changed = self._rewrite_lower_function(q)
+        q, changed = self._rewrite_lower_function(q, db_type)
         if changed:
-            applied.append("LOWER() in WHERE flagged — use case-insensitive collation or index instead")
+            applied.append(
+                f"LOWER() in WHERE flagged — use {cfg.display} case-insensitive approach: {cfg.like_ci.splitlines()[0]}"
+            )
 
         # --- Rewrite 4: SELECT * placeholder ---
         q, changed = self._rewrite_select_star(q)
         if changed:
             applied.append("SELECT * replaced with column placeholder — list only required columns")
 
-        # --- Rewrite 5: Add LIMIT hint for ORDER BY without LIMIT ---
+        # --- Rewrite 5: Add dialect-correct LIMIT hint for ORDER BY without LIMIT ---
         ql = q.lower()
         has_order_by = bool(re.search(r"\border\s+by\b", ql, re.IGNORECASE))
         has_limit = (
@@ -53,7 +59,7 @@ class QueryOptimizer:
         if has_order_by and not has_limit:
             q, changed = self._suggest_limit(q, db_type)
             if changed:
-                applied.append("LIMIT placeholder added for ORDER BY without pagination")
+                applied.append(f"Pagination placeholder added ({cfg.display} syntax)")
 
         # --- Rewrite 6: Correlated subquery → CTE hint ---
         q, changed = self._suggest_cte_for_subquery(q)
@@ -73,83 +79,100 @@ class QueryOptimizer:
     # Individual rewrite methods — each returns (new_query, was_changed)
     # ------------------------------------------------------------------
 
-    def _rewrite_year_function(self, q: str):
-        """YEAR(col) = 2025  →  col BETWEEN '2025-01-01' AND '2025-12-31'"""
+    def _rewrite_year_function(self, q: str, db_type: str):
+        """
+        YEAR(col) = 2025 → col BETWEEN '2025-01-01' AND '2025-12-31'
+        Issue #73: Oracle uses DATE literal, others use string literal.
+        """
         pattern = r"YEAR\s*\(\s*([\w.]+)\s*\)\s*=\s*(\d{4})"
 
         def _replace(m):
             col = m.group(1).strip()
             yr = m.group(2).strip()
-            return f"{col} BETWEEN '{yr}-01-01' AND '{yr}-12-31'"
+            if db_type == "oracle":
+                # Oracle date literals
+                return f"{col} >= DATE '{yr}-01-01' AND {col} < DATE '{int(yr)+1}-01-01'"
+            elif db_type == "sqlserver":
+                # SQL Server uses CAST or string literals
+                return f"{col} >= '{yr}-01-01' AND {col} < '{int(yr)+1}-01-01'"
+            else:
+                # PostgreSQL, MySQL, SQLite — ISO 8601 strings work
+                return f"{col} BETWEEN '{yr}-01-01' AND '{yr}-12-31'"
 
         new_q, n = re.subn(pattern, _replace, q, flags=re.IGNORECASE)
         return new_q, n > 0
 
     def _rewrite_month_function(self, q: str):
-        """MONTH(col) = 3  →  col BETWEEN 'YYYY-03-01' AND 'YYYY-03-31' (approximate)"""
+        """MONTH(col) = 3 → col BETWEEN 'YYYY-03-01' AND 'YYYY-03-31' (approximate)"""
         pattern = r"MONTH\s*\(\s*([\w.]+)\s*\)\s*=\s*(\d{1,2})"
 
         def _replace(m):
             col = m.group(1).strip()
             mo = int(m.group(2).strip())
-            mo_str = f"{mo:02d}"
-            # last day approximation — safe, reviewer will confirm
-            last_day = {
-                1: 31,
-                2: 28,
-                3: 31,
-                4: 30,
-                5: 31,
-                6: 30,
-                7: 31,
-                8: 31,
-                9: 30,
-                10: 31,
-                11: 30,
-                12: 31,
-            }.get(mo, 30)
-            return f"{col} BETWEEN 'YYYY-{mo_str}-01' AND 'YYYY-{mo_str}-{last_day}' /* replace YYYY */"
+            mo_s = f"{mo:02d}"
+            last = {1: 31, 2: 28, 3: 31, 4: 30, 5: 31, 6: 30, 7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31}.get(mo, 30)
+            return f"{col} BETWEEN 'YYYY-{mo_s}-01' AND 'YYYY-{mo_s}-{last}'" f" /* replace YYYY */"
 
         new_q, n = re.subn(pattern, _replace, q, flags=re.IGNORECASE)
         return new_q, n > 0
 
-    def _rewrite_lower_function(self, q: str):
-        """LOWER(col) = 'val'  →  add comment about collation-based alternative"""
+    def _rewrite_lower_function(self, q: str, db_type: str):
+        """
+        LOWER(col) = 'val' → dialect-specific case-insensitive alternative comment.
+        Issue #73: PostgreSQL has ILIKE; others use collation.
+        """
         pattern = r"LOWER\s*\(\s*([\w.]+)\s*\)\s*=\s*('[^']*')"
 
         def _replace(m):
             col = m.group(1).strip()
             val = m.group(2).strip()
-            # Keep the condition but prepend an inline hint
-            return f"/* TIP: use case-insensitive collation or index on {col} instead of LOWER() */ {col} = {val}"
+            if db_type == "postgresql":
+                hint = f"/* TIP (PostgreSQL): use {col} ILIKE {val} for case-insensitive match with index support via pg_trgm */"
+            elif db_type == "mysql":
+                hint = f"/* TIP (MySQL): set ci collation on {col} — then {col} = {val} is case-insensitive without LOWER() */"
+            elif db_type == "oracle":
+                hint = (
+                    f"/* TIP (Oracle): use NLS_UPPER or a function-based index: CREATE INDEX idx ON t(UPPER({col})) */"
+                )
+            elif db_type == "sqlserver":
+                hint = f"/* TIP (SQL Server): use {col} COLLATE SQL_Latin1_General_CP1_CI_AS = {val} */"
+            else:
+                hint = f"/* TIP: avoid LOWER() in WHERE — use a case-insensitive collation or index on {col} */"
+            return f"{hint} {col} = {val}"
 
         new_q, n = re.subn(pattern, _replace, q, flags=re.IGNORECASE)
         return new_q, n > 0
 
     def _rewrite_select_star(self, q: str):
-        """SELECT *  →  SELECT /* TODO: list required columns */"""
+        """SELECT * → SELECT /* TODO: list required columns */"""
         pattern = r"\bSELECT\s+\*"
         new_q, n = re.subn(pattern, "SELECT /* TODO: list required columns */", q, flags=re.IGNORECASE)
         return new_q, n > 0
 
     def _suggest_limit(self, q: str, db_type: str):
-        """Append LIMIT / TOP / FETCH FIRST based on dialect at end of query."""
-        db = (db_type or "").lower()
+        """
+        Append dialect-correct pagination syntax at end of query.
+        Issue #73: uses dialect_config.pagination instead of hardcoded strings.
+        """
+        # cfg = get_dialect(db_type)
         q_stripped = "\n".join(line.rstrip() for line in q.rstrip().rstrip(";").splitlines())
-        if db == "sqlserver":
-            # For SQL Server, TOP goes after SELECT — too risky to auto-inject; add comment
+
+        if db_type == "sqlserver":
+            # TOP goes after SELECT — too risky to auto-inject; use OFFSET/FETCH comment
             return (
-                q_stripped + "\n-- TODO: Add TOP N or OFFSET/FETCH NEXT N ROWS ONLY",
+                q_stripped + "\n-- TODO (SQL Server): ORDER BY col OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY",
                 True,
             )
-        elif db == "oracle":
-            return q_stripped + "\nFETCH FIRST 100 ROWS ONLY -- TODO: adjust N", True
+        elif db_type == "oracle":
+            return q_stripped + "\nFETCH FIRST 100 ROWS ONLY  -- adjust N (Oracle 12c+)", True
+        elif db_type == "sqlite":
+            return q_stripped + "\nLIMIT 100  -- SQLite: adjust to your page size", True
         else:
+            # PostgreSQL, MySQL — standard LIMIT
             return q_stripped + "\nLIMIT 100  -- adjust to your page size", True
 
     def _suggest_cte_for_subquery(self, q: str):
-        """If a SELECT appears inside WHERE/FROM at depth > 0, prepend a CTE refactor hint."""
-        # Count nested SELECTs beyond the first
+        """If nested SELECTs exist, prepend a CTE refactor hint."""
         nested = len(re.findall(r"\bSELECT\b", q, re.IGNORECASE)) - 1
         if nested < 1:
             return q, False

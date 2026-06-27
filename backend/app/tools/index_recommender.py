@@ -3,6 +3,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
+# Issue #72: dialect-aware index DDL
+from app.utils.dialect_config import get_dialect, get_index_ddl
+
 _PRIMARY_KEY_NAMES = frozenset({"id", "pk", "oid", "rowid", "uuid"})
 
 
@@ -95,6 +98,7 @@ def _detect_composite_opportunity(
     where_cols: list[tuple[str | None, str]],
     join_cols: list[tuple[str | None, str]],
     order_by_cols: list[tuple[str | None, str]],
+    db_type: str = "postgresql",  # Issue #72: added db_type param
 ) -> list[dict[str, Any]]:
     from collections import defaultdict
 
@@ -103,9 +107,17 @@ def _detect_composite_opportunity(
         if alias and not _is_primary_key(col):
             if col not in table_cols[alias]:
                 table_cols[alias].append(col)
+
     composites = []
     for alias, cols in table_cols.items():
         if len(cols) >= 2:
+            # Issue #72: use dialect-correct DDL for composite index
+            idx_name = f"idx_{alias}_{'_'.join(cols)}"
+            table_ph = f"<{alias}_table>"
+            col_list = ", ".join(cols)
+            ddl = get_index_ddl(db_type, table_ph, col_list, idx_name)
+            note = get_dialect(db_type).index_ddl_note()
+
             composites.append(
                 {
                     "table_alias": alias,
@@ -115,9 +127,8 @@ def _detect_composite_opportunity(
                         f"({', '.join(f'`{c}`' for c in cols)}) — "
                         f"all appear in JOIN/WHERE/ORDER BY together"
                     ),
-                    "ddl_hint": (
-                        f"CREATE INDEX CONCURRENTLY idx_{alias}_{'_'.join(cols)} ON <{alias}_table>({', '.join(cols)});"
-                    ),
+                    "ddl_hint": ddl,
+                    "ddl_note": note,
                 }
             )
     return composites
@@ -170,6 +181,7 @@ class IndexRecommender:
                     reason="Unindexed JOIN keys cause nested-loop full scans. An index on the foreign key column is one of the highest-ROI changes.",
                     estimated="50-90% faster JOINs on large tables",
                     ddl_hint=self._ddl_hint(alias, col, db_type),
+                    ddl_note=get_dialect(db_type).index_ddl_note(),
                 )
             )
 
@@ -192,6 +204,7 @@ class IndexRecommender:
                         reason="Low-cardinality columns have poor selectivity for full indexes. A partial index (WHERE status = 'active') is smaller and faster.",
                         estimated="Significant if active rows are a small subset of the table",
                         ddl_hint=self._ddl_partial_hint(alias, col, db_type),
+                        ddl_note=get_dialect(db_type).index_ddl_note(),
                     )
                 )
             else:
@@ -204,6 +217,7 @@ class IndexRecommender:
                         reason="Unindexed WHERE columns force full table or full index scans. Adding a B-tree index enables seek access.",
                         estimated="Often large — enables index seek vs full scan",
                         ddl_hint=self._ddl_hint(alias, col, db_type),
+                        ddl_note=get_dialect(db_type).index_ddl_note(),
                     )
                 )
 
@@ -225,6 +239,7 @@ class IndexRecommender:
                     reason="Without an index matching the ORDER BY, the DB sorts all matching rows in memory or on disk before returning results.",
                     estimated="Eliminates filesort — often 30-70% faster",
                     ddl_hint=self._ddl_hint(alias, col, db_type),
+                    ddl_note=get_dialect(db_type).index_ddl_note(),
                 )
             )
 
@@ -244,10 +259,12 @@ class IndexRecommender:
                     reason="An index on GROUP BY columns lets the planner use index scan for grouping instead of a hash aggregate or temp table.",
                     estimated="15-50% faster GROUP BY on large tables",
                     ddl_hint=self._ddl_hint(alias, col, db_type),
+                    ddl_note=get_dialect(db_type).index_ddl_note(),
                 )
             )
 
-        composites = _detect_composite_opportunity(where_cols, join_cols, order_cols)
+        # Issue #72: pass db_type to composite detector
+        composites = _detect_composite_opportunity(where_cols, join_cols, order_cols, db_type)
         for comp in composites:
             alias = comp["table_alias"]
             cols = comp["columns"]
@@ -260,27 +277,52 @@ class IndexRecommender:
                     reason="A composite index covering multiple query columns is more efficient than separate single-column indexes — one index scan satisfies JOIN, filter, and sort in a single pass.",
                     estimated="Often the highest-ROI index change for multi-column queries",
                     ddl_hint=comp["ddl_hint"],
+                    ddl_note=comp.get("ddl_note", ""),
                 )
             )
 
         return self._dedupe(suggestions)
 
-    def _ddl_hint(self, alias, col, db_type):
+    # Issue #72: replaced hardcoded DDL with dialect_config lookup
+    def _ddl_hint(self, alias: str | None, col: str, db_type: str) -> str:
         table_ph = f"<{alias}_table>" if alias else "<table_name>"
-        idx = f"idx_{alias or 'tbl'}_{col}"
-        if db_type == "postgresql":
-            return f"CREATE INDEX CONCURRENTLY {idx} ON {table_ph}({col});"
-        return f"CREATE INDEX {idx} ON {table_ph}({col});"
+        idx_name = f"idx_{alias or 'tbl'}_{col}"
+        return get_index_ddl(db_type, table_ph, col, idx_name)
 
-    def _ddl_partial_hint(self, alias, col, db_type):
+    def _ddl_partial_hint(self, alias: str | None, col: str, db_type: str) -> str:
+        """Dialect-correct partial/filtered index DDL."""
         table_ph = f"<{alias}_table>" if alias else "<table_name>"
         idx = f"idx_{alias or 'tbl'}_{col}_partial"
-        if db_type == "postgresql":
-            return f"CREATE INDEX CONCURRENTLY {idx} ON {table_ph}(id) WHERE {col} = '<active_value>';"
-        return f"-- MySQL: no native partial indexes. Consider: CREATE INDEX {idx} ON {table_ph}({col}, id);"
+        cfg = get_dialect(db_type)
 
-    def _make(self, index_type, severity, columns, suggestion, reason, estimated, ddl_hint):
-        return {
+        if db_type == "postgresql":
+            return (
+                f"CREATE INDEX CONCURRENTLY {idx} ON {table_ph}(id) "
+                f"WHERE {col} = '<active_value>';  -- {cfg.index_ddl_note()}"
+            )
+        elif db_type == "mysql":
+            return (
+                f"-- MySQL has no native partial indexes.\n"
+                f"-- Option A: ALTER TABLE {table_ph} ADD INDEX {idx} ({col}, id);\n"
+                f"-- Option B: partition the table by {col} value."
+            )
+        elif db_type == "sqlserver":
+            return (
+                f"CREATE NONCLUSTERED INDEX {idx} ON {table_ph}(id) "
+                f"WHERE {col} = '<active_value>' WITH (ONLINE=ON);"
+            )
+        elif db_type == "oracle":
+            return (
+                f"-- Oracle: use a function-based index or partition:\n"
+                f"CREATE INDEX {idx} ON {table_ph}(id) NOLOGGING;\n"
+                f"-- Or: use list partitioning on {col}."
+            )
+        else:
+            # SQLite and fallback
+            return f"CREATE INDEX IF NOT EXISTS {idx} ON {table_ph}({col});"
+
+    def _make(self, index_type, severity, columns, suggestion, reason, estimated, ddl_hint, ddl_note: str = ""):
+        result = {
             "type": f"index_review_{index_type}",
             "severity": severity,
             "confirmed": False,
@@ -290,6 +332,9 @@ class IndexRecommender:
             "estimated_improvement": estimated,
             "ddl_hint": ddl_hint,
         }
+        if ddl_note:
+            result["ddl_note"] = ddl_note
+        return result
 
     def _dedupe(self, suggestions):
         seen: set[str] = set()
