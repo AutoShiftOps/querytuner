@@ -152,24 +152,25 @@ class QueryOptimizer:
     def _suggest_limit(self, q: str, db_type: str):
         """
         Append dialect-correct pagination syntax at end of query.
-        Issue #73: uses dialect_config.pagination instead of hardcoded strings.
+        Issue #73: dialect-aware pagination comment per DB type.
         """
-        # cfg = get_dialect(db_type)
+        cfg = get_dialect(db_type)
         q_stripped = "\n".join(line.rstrip() for line in q.rstrip().rstrip(";").splitlines())
+        display = cfg.display  # e.g. "SQL Server", "Oracle", "PostgreSQL"
 
         if db_type == "sqlserver":
-            # TOP goes after SELECT — too risky to auto-inject; use OFFSET/FETCH comment
+            # TOP N goes after SELECT — too risky to auto-inject; use OFFSET/FETCH comment
             return (
-                q_stripped + "\n-- TODO (SQL Server): ORDER BY col OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY",
+                q_stripped + f"\n-- TODO ({display}): ORDER BY col OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY",
                 True,
             )
         elif db_type == "oracle":
-            return q_stripped + "\nFETCH FIRST 100 ROWS ONLY  -- adjust N (Oracle 12c+)", True
+            return q_stripped + f"\nFETCH FIRST 100 ROWS ONLY  -- {display}: adjust N; use ROWNUM for 11g", True
         elif db_type == "sqlite":
-            return q_stripped + "\nLIMIT 100  -- SQLite: adjust to your page size", True
+            return q_stripped + f"\nLIMIT 100  -- {display}: adjust to your page size", True
         else:
-            # PostgreSQL, MySQL — standard LIMIT
-            return q_stripped + "\nLIMIT 100  -- adjust to your page size", True
+            # PostgreSQL, MySQL — standard LIMIT/OFFSET
+            return q_stripped + f"\nLIMIT 100  -- {display}: adjust to your page size", True
 
     def _suggest_cte_for_subquery(self, q: str):
         """If nested SELECTs exist, prepend a CTE refactor hint."""

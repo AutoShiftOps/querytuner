@@ -146,11 +146,11 @@ uvicorn app.main:app --reload --port 8000
 # Frontend (new terminal)
 cd frontend
 npm install
-echo "REACT_APP_API_URL=http://localhost:8000" > .env.local
-npm start
+echo "VITE_API_URL=http://localhost:8000" > .env.local
+npm run dev
 ```
 
-Open `http://localhost:3000`
+Open `http://localhost:5173`
 
 ---
 
@@ -165,6 +165,8 @@ Open `http://localhost:3000`
 | `DEFAULT_LLM_PROVIDER` | No | `huggingface` | Default AI provider |
 | `AI_MAX_TOKENS` | No | `800` | Max tokens per LLM response |
 | `MAX_QUERY_CHARS` | No | `20000` | Max query input size |
+| `SUPABASE_URL`      | No  | —  | Supabase project URL — enables shareable report URLs |
+| `SUPABASE_ANON_KEY` | No  | —  | Supabase anon key — enables analysis persistence     |
 
 Create a `.env` file in `/backend` using `.env.example` as the template.
 
@@ -191,6 +193,8 @@ sql-query-analyzer/
 │   │   │   └── index_recommender.py
 │   │   ├── utils/
 │   │   │   ├── config.py
+│   │   │   ├── database.py          # Supabase persistence — save/fetch analyses
+│   │   │   ├── dialect_config.py    # Dialect-specific DDL, rewrites, LLM prompts (Phase 1.7)
 │   │   │   └── db_connectors.py
 │   │   └── main.py                # FastAPI app, routes, rate limiting
 │   ├── requirements.txt
@@ -201,8 +205,17 @@ sql-query-analyzer/
 │   │   │   ├── QueryInput.jsx
 │   │   │   ├── OptimizationSuggestions.jsx
 │   │   │   ├── ExecutionPlan.jsx
-│   │   │   └── ResultsPanel.jsx
-│   │   └── App.js
+│   │   │   ├── ResultsPanel.jsx
+│   │   │   ├── Header.jsx           # Sticky enterprise nav
+│   │   │   ├── Hero.jsx             # Value proposition strip
+│   │   │   ├── Footer.jsx           # Links + attribution
+│   │   │   ├── Toast.jsx            # Notification system
+│   │   │   ├── ShareButton.jsx      # Share analysis URL
+│   │   │   ├── QueryDiagnosis.jsx   # Structured plain-explanation renderer
+│   │   │   └── ReportPage.jsx       # Shareable /report/:id read-only page
+│   │   ├── utils/
+│   │   │   └── analytics.js         # GA4 event tracking
+│   │   └── App.jsx
 │   └── package.json
 ├── docs/
 └── .github/workflows/
@@ -212,13 +225,18 @@ sql-query-analyzer/
 
 ## Roadmap
 
-- [ ] Persistent query history (Supabase)
-- [ ] API key auth + usage metering
-- [ ] Explain plan paste-in mode (Oracle `DBMS_XPLAN`, PostgreSQL `EXPLAIN ANALYZE`)
-- [ ] Cross-database execution plan risk normalizer (UEPN)
-- [ ] GitHub Action: `querytuner-analyze` for CI/CD pipelines
-- [ ] Schema-aware analysis (paste your DDL for richer suggestions)
-- [ ] OpenAI GPT-4o tier
+* [x] Persistent query history (Supabase) — Phase 1.5 ✅
+* [x] Shareable /report/:id URLs — Phase 1.5 ✅
+* [x] Enterprise UI shell (Header, Hero, Footer, Toast) — Phase 1.6 ✅
+* [x] Google Analytics 4 event tracking — Phase 1.6 ✅
+* [x] Dialect-aware DDL, rewrites, and LLM prompts (5 DB types) — Phase 1.7 ✅
+* [ ] Schema-aware analysis — paste DDL for named index suggestions — Phase 2
+* [ ] LangGraph agentic pipeline — Phase 3
+* [ ] API key auth + usage metering — Phase 4
+* [ ] Stripe payments — Free / Pro / Team tiers — Phase 4
+* [ ] GitHub Action: `querytuner-analyze` for CI/CD pipelines — Phase 5
+* [ ] Cross-database execution plan risk normalizer (UEPN) — Phase 5
+* [ ] Live DB connection mode — Phase 5
 
 ---
 

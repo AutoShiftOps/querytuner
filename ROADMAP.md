@@ -73,6 +73,31 @@
 
 ---
 
+## ✅ Phase 1.7 — Dialect Intelligence (Completed)
+
+**Goal:** Every recommendation, DDL statement, and LLM output is dialect-correct.
+Generic output that could mislead engineers using Oracle, SQL Server, or SQLite is eliminated.
+
+**Exit criteria met:** Same query run against all 5 dialects produces distinct DDL,
+rewrites, and maintenance commands in each response.
+
+| Issue | Task | Status |
+|---|---|---|
+| #72 | Dialect-aware index DDL generator — CONCURRENTLY / ALTER TABLE / NOLOGGING / ONLINE=ON / IF NOT EXISTS | ✅ Done |
+| #73 | Dialect-aware query optimizer — YEAR() rewrites, LOWER() hints, pagination per DB | ✅ Done |
+| #74 | Dialect-aware LLM prompts — DB-specific system context in HF and OpenAI calls | ✅ Done |
+| #75 | Dialect-aware maintenance recommendations — VACUUM / ANALYZE TABLE / DBMS_STATS / UPDATE STATISTICS | ✅ Done |
+
+**Files added / modified:**
+- `backend/app/utils/dialect_config.py` — new: single source of truth for all dialect config
+- `backend/app/tools/index_recommender.py` — wired: dialect DDL via get_index_ddl()
+- `backend/app/agents/optimizer.py` — wired: dialect rewrites + pagination
+- `backend/app/agents/explainer.py` — wired: maintenance section + get_llm_context()
+- `backend/app/llm/router.py` — wired: db_type param + dialect system prompt (OpenAI)
+- `backend/app/llm/hf_client.py` — wired: db_type param + dialect system prompt (HF)
+
+---
+
 ## 🗓️ Phase 2 — Schema-Aware Analysis (Week 4–5, May 19–30)
 
 **Goal:** Users can paste DDL and get column-specific advice instead of generic warnings.
