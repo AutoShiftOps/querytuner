@@ -1,0 +1,47 @@
+name: Keep Supabase Alive
+
+# Supabase free tier pauses projects after 7 days of inactivity.
+# This workflow pings the REST API every 3 days to prevent that.
+# Runs silently — no DB writes, just a lightweight GET request.
+
+on:
+  schedule:
+    - cron: '0 8 */3 * *'   # every 3 days at 08:00 UTC
+  workflow_dispatch:          # allow manual trigger from Actions tab
+
+jobs:
+  ping-supabase:
+    name: Ping Supabase REST API
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Ping analyses table
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          echo "Pinging Supabase to prevent project pause..."
+
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${SUPABASE_URL}/rest/v1/analyses?limit=1" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")
+
+          echo "Supabase responded: HTTP $HTTP_STATUS"
+
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "✓ Supabase is alive and healthy"
+          elif [ "$HTTP_STATUS" = "503" ]; then
+            echo "✗ Supabase returned 503 — project may be paused. Visit dashboard to restore."
+            exit 1
+          elif [ "$HTTP_STATUS" = "000" ]; then
+            echo "✗ Could not reach Supabase — check SUPABASE_URL secret is set correctly"
+            exit 1
+          else
+            echo "⚠ Unexpected HTTP $HTTP_STATUS — check Supabase dashboard"
+            exit 1
+          fi
+
+      - name: Log completion
+        run: echo "Keep-alive ping completed at $(date -u '+%Y-%m-%d %H:%M UTC')"
