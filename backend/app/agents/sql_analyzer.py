@@ -14,6 +14,7 @@ from app.schemas.models import QueryRequest as QR
 from app.tools.execution_planner import collect_facts
 from app.tools.index_recommender import IndexRecommender
 from app.tools.query_parser import QueryParser
+from app.utils.dialect_config import get_llm_context
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ class SQLAnalyzerAgent:
     - Always runs heuristics (fast, free, reliable).
     - Optionally runs LLM insights via provider routing:
         - huggingface (default) using HF_API_KEY
-        - openai (later) using OPENAI_API_KEY
+        - openai using OPENAI_API_KEY
     """
 
     def __init__(self, config: AnalyzerConfig | None = None):
@@ -46,23 +47,6 @@ class SQLAnalyzerAgent:
         self.explainer = QueryExplainer()
         self.index_recommender = IndexRecommender()
 
-        DIALECT_RULES = {
-            "postgresql": (
-                "Use PostgreSQL syntax and indexing (CREATE INDEX ...). EXPLAIN is available; ANALYZE executes."
-            ),
-            "mysql": (
-                "Use MySQL 8+ syntax. Use EXPLAIN/EXPLAIN ANALYZE where applicable; avoid PostgreSQL-only syntax."
-            ),
-            "sqlite": ("Use SQLite syntax. Avoid server-only features; indexes exist but no advanced planner hints."),
-            "sqlserver": (
-                "Use T-SQL syntax. Use SQL Server indexing and query patterns; avoid LIMIT (use TOP/OFFSET)."
-            ),
-            "oracle": (
-                "Use Oracle SQL syntax. Use EXPLAIN PLAN FOR and DBMS_XPLAN. Use ROWNUM or FETCH FIRST for pagination."
-            ),
-        }
-        self.dialect_rules = DIALECT_RULES
-
     async def analyze(
         self,
         query: str,
@@ -71,17 +55,8 @@ class SQLAnalyzerAgent:
         use_llm: bool = False,
         llm_provider: str = "huggingface",
         focus: str = "performance",
+        explain_plan: str | None = None,  # Issue #60: EXPLAIN plan paste-in
     ) -> dict[str, Any]:
-        """
-        Returns a dict that your FastAPI layer can map into QueryAnalysisResult:
-          - parsing_result
-          - optimization_suggestions
-          - optimized_query
-          - security_issues
-          - readability_score
-          - ai_insights (optional)
-          - ai_model (optional)
-        """
         query = (query or "").strip()
         if not query:
             raise ValueError("Query is empty")
@@ -90,18 +65,16 @@ class SQLAnalyzerAgent:
             raise ValueError(f"Query too large (>{self.config.max_query_chars} chars)")
 
         schema_info = (schema_info or "").strip()
+        explain_plan = (explain_plan or "").strip()
         focus = (focus or "performance").strip().lower()
         llm_provider = (llm_provider or "huggingface").strip().lower()
 
         parsed = self._safe_parse(query)
-
         security_issues = self._security_checks(query)
         readability_score = self._readability_score(query, parsed)
         suggestions = self._heuristic_suggestions(query, parsed, db_type=db_type, focus=focus)
-        # optimizer.py now does the actual rewriting
         optimized_query = self.optimizer.rewrite(query, suggestions, db_type=db_type)
 
-        # explainer.py generates plain-English diagnosis (always runs, free, no LLM needed)
         plain_explanation = self.explainer.explain(
             query=query,
             parsed=parsed,
@@ -120,13 +93,17 @@ class SQLAnalyzerAgent:
                 query=query,
                 db_type=db_type,
                 schema_info=schema_info,
+                explain_plan=explain_plan,  # Issue #60: pass EXPLAIN plan into LLM context
                 parsed=parsed,
                 suggestions=suggestions,
                 focus=focus,
             )
-
-            ai_insights, ai_model, ai_error = await self._try_llm(llm_provider=llm_provider, prompt=prompt)
-
+            # Issue #74 fix: pass db_type so router injects dialect context
+            ai_insights, ai_model, ai_error = await self._try_llm(
+                llm_provider=llm_provider,
+                prompt=prompt,
+                db_type=db_type,
+            )
             used_ai = bool(ai_insights and str(ai_insights).strip())
 
         facts_result = None
@@ -189,7 +166,6 @@ class SQLAnalyzerAgent:
         q = query.strip()
         ql = q.lower()
 
-        # tables = parsed.get("tables") or []
         subqueries = parsed.get("subqueries") or 0
         complexity = parsed.get("complexity_score") or 0
 
@@ -223,7 +199,6 @@ class SQLAnalyzerAgent:
             )
 
         # 3) LIKE with leading wildcard
-        # FIX: removed trailing \b which never matched after closing quote character
         if re.search(r"\blike\s+'%[^']*'", ql):
             suggestions.append(
                 self._suggest(
@@ -236,8 +211,6 @@ class SQLAnalyzerAgent:
             )
 
         # 4) Functions on columns in WHERE
-        # FIX: expanded function list to include YEAR, MONTH, DAY, DATEPART, EXTRACT,
-        #      CONVERT, TO_DATE, TO_CHAR, NVL, ISNULL, IFNULL which were previously missed
         _fn_pattern = (
             r"\bwhere\b.*\b("
             r"lower|upper|trim|ltrim|rtrim|substr|substring|"
@@ -279,7 +252,7 @@ class SQLAnalyzerAgent:
                 )
             )
 
-        # 6) Too many joins
+        # 6) Too many JOINs
         join_count = ql.count(" join ")
         if join_count >= 4:
             suggestions.append(
@@ -291,8 +264,8 @@ class SQLAnalyzerAgent:
                     estimated="Varies",
                 )
             )
+
         # 6.5) Cartesian JOIN — JOIN without ON or USING
-        # Finds: JOIN word, then table name/alias, then NOT followed by ON or USING
         cartesian_joins = re.findall(
             r"\bJOIN\s+\S+(?:\s+\w+)?\s*(?!ON\b|USING\b)(?=\s+(?:JOIN|WHERE|GROUP|ORDER|LIMIT|FETCH|$)|\s*;|$)",
             q,
@@ -316,7 +289,7 @@ class SQLAnalyzerAgent:
                 )
             )
 
-        # 7) Subquery count
+        # 7) Subquery count — generic refactor suggestion
         if isinstance(subqueries, int) and subqueries >= 2:
             suggestions.append(
                 self._suggest(
@@ -328,7 +301,74 @@ class SQLAnalyzerAgent:
                 )
             )
 
-        # 8) Complexity score
+        # 8) Issue #25: implicit_cast — detect type coercion patterns in WHERE
+        # Catches: PostgreSQL cast operator (::), SQL Server CONVERT(type, col),
+        # and ID columns compared to string literals (e.g. WHERE user_id = '123')
+        _implicit_cast_patterns = [
+            # PostgreSQL cast operator in WHERE: col::type
+            (r"\bwhere\b.*[\w.]+\s*::\s*\w+", "PostgreSQL :: cast operator in WHERE prevents index use"),
+            # SQL Server / MySQL CONVERT(type, col) — already caught by function_in_where,
+            # but flag explicitly here for type-coercion context
+            (r"\bconvert\s*\(\s*\w+\s*,\s*[\w.]+\s*\)", "CONVERT() performs an implicit type cast"),
+            # ID/FK columns compared to string literals — likely implicit int→varchar cast
+            (
+                r"\b(user_id|customer_id|order_id|product_id|account_id|tenant_id)\s*=\s*'[^']+'",
+                "ID column compared to string literal — implicit cast may prevent index use",
+            ),
+            # Numeric literal compared to column that looks like a string/code column
+            (
+                r"\b(status|code|flag|type|kind|role|tier)\s*=\s*\d+\b",
+                "String-like column compared to numeric literal — implicit cast may prevent index use",
+            ),
+        ]
+
+        implicit_cast_reasons = []
+        for pattern, reason in _implicit_cast_patterns:
+            if re.search(pattern, ql, re.IGNORECASE | re.DOTALL):
+                implicit_cast_reasons.append(reason)
+
+        if implicit_cast_reasons:
+            suggestions.append(
+                self._suggest(
+                    type_="implicit_cast",
+                    severity="high",
+                    suggestion=(
+                        "Implicit or explicit type cast detected in WHERE — "
+                        "may prevent index use and cause full scans"
+                    ),
+                    reason=(
+                        f"{implicit_cast_reasons[0]}. "
+                        "Ensure the comparison value matches the column's data type to allow index seeks."
+                    ),
+                    estimated="Often significant — removes type-coercion full scan",
+                )
+            )
+
+        # 9) Issue #26: subquery_to_join — flag correlated subqueries in SELECT list
+        # Pattern: SELECT (...) , ... where the subquery references outer columns
+        # Detect subqueries directly in the SELECT clause (not just in WHERE)
+        select_clause = self._extract_select_clause(q)
+        select_subquery_count = len(re.findall(r"\bSELECT\b", select_clause, re.IGNORECASE))
+        # select_subquery_count > 0 means there is a nested SELECT in the SELECT list
+        if select_subquery_count > 0:
+            suggestions.append(
+                self._suggest(
+                    type_="subquery_to_join",
+                    severity="high",
+                    suggestion=(
+                        f"Correlated subquery detected in SELECT clause "
+                        f"({select_subquery_count} occurrence(s)) — consider rewriting as a JOIN or CTE"
+                    ),
+                    reason=(
+                        "A subquery in the SELECT list executes once per row of the outer query. "
+                        "On a 10,000-row result set this means 10,000 separate lookups. "
+                        "A LEFT JOIN or CTE is evaluated once and is far more efficient."
+                    ),
+                    estimated="Often 10x–100x faster for large result sets",
+                )
+            )
+
+        # 10) Complexity score
         try:
             c = float(complexity)
             if c >= 70:
@@ -347,7 +387,7 @@ class SQLAnalyzerAgent:
         except Exception:
             pass
 
-        # 9) Column-level index recommendations
+        # 11) Column-level index recommendations
         index_suggestions = self.index_recommender.recommend(
             query=q,
             parsed=parsed,
@@ -361,7 +401,7 @@ class SQLAnalyzerAgent:
             base_score = float(parsed.get("complexity_score") or 0)
             parsed["complexity_score"] = min(100.0, base_score + (high_index_count * 8.0))
 
-        # 10) Focus-specific
+        # 12) Focus-specific
         if focus == "security":
             suggestions.append(
                 self._suggest(
@@ -374,54 +414,6 @@ class SQLAnalyzerAgent:
             )
 
         return self._dedupe_suggestions(suggestions)
-
-    def _compose_optimized_query(self, query: str, suggestions: list[dict[str, Any]], db_type: str) -> str:
-        q = query.strip()
-        out_lines: list[str] = []
-
-        out_lines.append("-- Suggested optimized SQL (review before using)")
-        out_lines.append(f"-- DB: {db_type}")
-
-        if any(s.get("type") in ("index_review", "index_missing") for s in suggestions):
-            out_lines.append("-- Consider: add/verify indexes on WHERE/JOIN/GROUP BY/ORDER BY columns")
-
-        # Rewrite SELECT *
-        if re.search(r"\bselect\s+\*\b", q, re.IGNORECASE):
-            q = re.sub(
-                r"\bselect\s+\*\b",
-                "SELECT /* TODO: list required columns */",
-                q,
-                flags=re.IGNORECASE,
-            )
-
-        # Rewrite YEAR(col) = N → range condition (MySQL/SQL Server/Oracle pattern)
-        def _rewrite_year(m):
-            col = m.group(1).strip()
-            yr = m.group(2).strip()
-            return f"{col} BETWEEN '{yr}-01-01' AND '{yr}-12-31'"
-
-        q = re.sub(
-            r"YEAR\s*\(\s*([\w.]+)\s*\)\s*=\s*(\d{{4}})",
-            _rewrite_year,
-            q,
-            flags=re.IGNORECASE,
-        )
-
-        # Rewrite LOWER(col) = 'x' → col = 'x' with note
-        def _rewrite_lower(m):
-            col = m.group(1).strip()
-            val = m.group(2).strip()
-            return f"-- Use a case-insensitive index (CITEXT/collation) instead of LOWER()\n{col} = {val}"
-
-        q = re.sub(
-            r"LOWER\s*\(\s*([\w.]+)\s*\)\s*=\s*('[^']*')",
-            _rewrite_lower,
-            q,
-            flags=re.IGNORECASE,
-        )
-
-        out_lines.append(q)
-        return "\n".join(out_lines)
 
     # -------------------------
     # Security / readability
@@ -470,6 +462,22 @@ class SQLAnalyzerAgent:
         return float(max(0.0, min(100.0, score)))
 
     # -------------------------
+    # Helpers
+    # -------------------------
+
+    def _extract_select_clause(self, query: str) -> str:
+        """Extract everything between SELECT and FROM at top level."""
+        q = re.sub(r"\s+", " ", query).strip()
+        ql = q.lower()
+        sel = ql.find("select")
+        if sel == -1:
+            return ""
+        frm = ql.find(" from ", sel)
+        if frm == -1:
+            return q[sel + 6 :]
+        return q[sel + 6 : frm]
+
+    # -------------------------
     # LLM prompt + call
     # -------------------------
 
@@ -481,8 +489,11 @@ class SQLAnalyzerAgent:
         parsed: dict[str, Any],
         suggestions: list[dict[str, Any]],
         focus: str,
+        explain_plan: str = "",  # Issue #60
     ) -> str:
         schema_trim = (schema_info or "")[:4000]
+        explain_trim = (explain_plan or "")[:3000]  # Issue #60: include EXPLAIN plan in prompt
+
         parsed_summary = {
             "tables": parsed.get("tables"),
             "joins": parsed.get("joins"),
@@ -491,20 +502,22 @@ class SQLAnalyzerAgent:
             "order_by": parsed.get("order_by"),
             "complexity_score": parsed.get("complexity_score"),
         }
-        dialect_hint = self.dialect_rules.get(db_type, "")
 
-        return f"""You are a senior SQL performance engineer.
+        # Issue #74: use dialect_config context instead of inline dict
+        dialect_context = get_llm_context(db_type)
+
+        explain_section = f"\nEXPLAIN plan output (provided by user):\n{explain_trim}\n" if explain_trim else ""
+
+        return f"""{dialect_context}
 
 Focus: {focus}
-Database: {db_type}
-Dialect rules: {dialect_hint}
 
 Schema (optional, may be partial):
 {schema_trim}
 
 SQL:
 {query}
-
+{explain_section}
 Parsed summary:
 {parsed_summary}
 
@@ -513,17 +526,34 @@ Heuristic suggestions already found:
 
 Tasks:
 1) Provide the most impactful performance improvements (prioritized).
-2) Recommend concrete indexes (include example CREATE INDEX statements).
+2) Recommend concrete indexes (include dialect-correct CREATE INDEX statements).
 3) Provide a rewritten query if it can reduce cost (CTEs/JOIN refactors/filters).
 4) Call out any risky assumptions (unknown cardinalities, missing schema).
 Keep it concise and actionable.
 """
 
-    async def _try_llm(self, llm_provider: str, prompt: str) -> tuple[str | None, str | None, str | None]:
+    async def _try_llm(
+        self,
+        llm_provider: str,
+        prompt: str,
+        db_type: str = "postgresql",  # Issue #74 fix: pass to router
+    ) -> tuple[str | None, str | None, str | None]:
+        """
+        Bug fix: call_llm now returns a dict, not a tuple.
+        Previous code: text, model, err = await call_llm(...) — this was broken.
+        """
         try:
-            text, model, err = await call_llm(provider=llm_provider, prompt=prompt)
+            result = await call_llm(
+                prompt=prompt,
+                provider=llm_provider,
+                db_type=db_type,  # Issue #74: dialect context injection
+            )
+            text = result.get("text")
+            model = result.get("model")
+            err = result.get("error")
+
             if not text or not str(text).strip():
-                return None, model, "LLM returned empty response"
+                return None, model, err or "LLM returned empty response"
             return text, model, err
         except Exception as e:
             return None, None, str(e)
@@ -542,7 +572,7 @@ Keep it concise and actionable.
         }
 
     def _dedupe_suggestions(self, suggestions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        seen = set()
+        seen: set = set()
         out: list[dict[str, Any]] = []
         for s in suggestions:
             key = (s.get("type"), s.get("suggestion"))

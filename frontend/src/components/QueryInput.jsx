@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function QueryInput({
   query,
@@ -12,26 +13,83 @@ export default function QueryInput({
   onAnalyze,
   loading,
   caps,
+  explainPlan = '', // Issue #60
+  setExplainPlan = () => {}, // Issue #60
 }) {
+  const [explainOpen, setExplainOpen] = useState(false); // Issue #60: collapsed by default
+
   const openaiEnabled = !!caps?.providers?.openai;
-  const hfEnabled = caps?.providers?.huggingface ?? true; // assume true if server doesn’t report
+  const hfEnabled = caps?.providers?.huggingface ?? true;
   const anyAiEnabled = hfEnabled || openaiEnabled;
 
   const onChangeProvider = (next) => {
     setLlmProvider(next);
-    // Optional UX: if user chooses a provider, they probably want AI on
     if (!useLlm) setUseLlm(true);
   };
 
   return (
     <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
+      {/* ── SQL Query textarea ── */}
       <label className="block text-sm font-medium text-slate-300 mb-2">SQL Query</label>
       <textarea
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        className="w-full h-40 bg-slate-900 text-white rounded border border-slate-600 p-3 font-mono text-sm"
+        placeholder="Paste your SQL query here..."
+        className="w-full h-40 bg-slate-900 text-white rounded border border-slate-600 p-3 font-mono text-sm resize-y focus:outline-none focus:border-sky-500"
       />
 
+      {/* ── Issue #60: Collapsible EXPLAIN plan textarea ── */}
+      <div className="mt-3">
+        <button
+          type="button"
+          onClick={() => setExplainOpen((o) => !o)}
+          className="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-sky-400 transition-colors"
+        >
+          {explainOpen ? (
+            <ChevronUp className="w-3.5 h-3.5" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5" />
+          )}
+          {explainOpen ? 'Hide EXPLAIN plan' : 'Add EXPLAIN plan output (optional)'}
+        </button>
+
+        {explainOpen && (
+          <div className="mt-2">
+            <p className="text-xs text-slate-500 mb-1.5">
+              Paste the raw output of{' '}
+              <code className="bg-slate-900 px-1 py-0.5 rounded text-sky-400 text-xs">
+                EXPLAIN ANALYZE
+              </code>{' '}
+              (PostgreSQL),{' '}
+              <code className="bg-slate-900 px-1 py-0.5 rounded text-sky-400 text-xs">
+                EXPLAIN FORMAT=JSON
+              </code>{' '}
+              (MySQL), or your dialect's equivalent. This gives the AI layer concrete cost data to
+              work with.
+            </p>
+            <textarea
+              value={explainPlan}
+              onChange={(e) => setExplainPlan(e.target.value)}
+              placeholder="Paste EXPLAIN / EXPLAIN ANALYZE output here..."
+              rows={6}
+              className="w-full bg-slate-900 text-emerald-300 rounded border border-slate-600 p-3 font-mono text-xs resize-y focus:outline-none focus:border-sky-500"
+            />
+            {explainPlan && (
+              <div className="flex justify-end mt-1">
+                <button
+                  type="button"
+                  onClick={() => setExplainPlan('')}
+                  className="text-xs text-slate-500 hover:text-red-400 transition-colors"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Controls row ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
         <div>
           <label className="block text-sm font-medium text-slate-300 mb-2">Database</label>
@@ -81,6 +139,7 @@ export default function QueryInput({
         </div>
       </div>
 
+      {/* ── Analyze button ── */}
       <button
         onClick={onAnalyze}
         disabled={loading || !query.trim()}

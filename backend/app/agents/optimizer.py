@@ -47,7 +47,13 @@ class QueryOptimizer:
         if changed:
             applied.append("SELECT * replaced with column placeholder — list only required columns")
 
-        # --- Rewrite 5: Add dialect-correct LIMIT hint for ORDER BY without LIMIT ---
+        # --- Rewrite 5: LIKE leading wildcard comment (#28) ---
+        # LIKE '%value' prevents index usage — flag it with an inline comment
+        q, changed = self._rewrite_like_leading_wildcard(q)
+        if changed:
+            applied.append(
+                "LIKE leading wildcard flagged — index cannot be used; consider full-text search or prefix match"
+            )
         ql = q.lower()
         has_order_by = bool(re.search(r"\border\s+by\b", ql, re.IGNORECASE))
         has_limit = (
@@ -147,6 +153,29 @@ class QueryOptimizer:
         """SELECT * → SELECT /* TODO: list required columns */"""
         pattern = r"\bSELECT\s+\*"
         new_q, n = re.subn(pattern, "SELECT /* TODO: list required columns */", q, flags=re.IGNORECASE)
+        return new_q, n > 0
+
+    def _rewrite_like_leading_wildcard(self, q: str):
+        """
+        Issue #28: LIKE '%value' or LIKE '%value%' → add inline comment.
+        A leading wildcard forces a full index scan or full table scan.
+        We don't remove the condition (semantics must be preserved),
+        but we flag it prominently so the developer sees it.
+        Pattern matches: LIKE '%...  (any quote style, any content starting with %)
+        """
+        pattern = r"(\bLIKE\s+)(['\"])(%[^'\"]*)\2"
+
+        def _replace(m):
+            like_kw = m.group(1)
+            quote = m.group(2)
+            content = m.group(3)
+            return (
+                f"/* ⚠ LIKE leading wildcard: index cannot be used on this column "
+                f"— consider a full-text index or rewrite as prefix match if possible */ "
+                f"{like_kw}{quote}{content}{quote}"
+            )
+
+        new_q, n = re.subn(pattern, _replace, q, flags=re.IGNORECASE)
         return new_q, n > 0
 
     def _suggest_limit(self, q: str, db_type: str):

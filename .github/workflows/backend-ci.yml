@@ -1,0 +1,62 @@
+name: Backend CI
+
+# Issue #30: wire pytest into GitHub Actions
+# Runs on every push to master and every pull request targeting master.
+# Blocks merge if any test fails.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'backend/**'          # only trigger when backend files change
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'backend/**'
+
+jobs:
+  test:
+    name: Pytest — heuristic engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pytest
+        env:
+          # Heuristic tests don't need real API keys — use empty strings
+          HF_API_KEY: ''
+          OPENAI_API_KEY: ''
+          SUPABASE_URL: ''
+          SUPABASE_ANON_KEY: ''
+        run: |
+          pytest tests/ \
+            -v \
+            --tb=short \
+            --no-header \
+            -q
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results
+          path: backend/tests/
+          retention-days: 7

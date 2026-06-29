@@ -28,6 +28,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 function App() {
   const [query, setQuery] = useState('');
+  const [explainPlan, setExplainPlan] = useState('');
   const [dbType, setDbType] = useState('postgresql');
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -57,6 +58,7 @@ function App() {
         llm_provider: llmProvider,
         use_llm: useLlm,
         focus: 'performance',
+        explain_plan: explainPlan,
       });
 
       const data = response.data;
@@ -165,6 +167,8 @@ function App() {
               llmProvider={llmProvider}
               setLlmProvider={setLlmProvider}
               caps={caps}
+              explainPlan={explainPlan}
+              setExplainPlan={setExplainPlan}
             />
             {error && (
               <div className="p-4 bg-red-900/20 border border-red-500 rounded-lg flex gap-3">
