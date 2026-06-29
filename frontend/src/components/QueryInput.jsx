@@ -64,7 +64,7 @@ export default function QueryInput({
               <code className="bg-slate-900 px-1 py-0.5 rounded text-sky-400 text-xs">
                 EXPLAIN FORMAT=JSON
               </code>{' '}
-              (MySQL), or your dialect''s equivalent. This gives the AI layer concrete cost data to
+              (MySQL), or your dialect`'`s equivalent. This gives the AI layer concrete cost data to
               work with.
             </p>
             <textarea
