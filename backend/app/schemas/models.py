@@ -21,6 +21,10 @@ class QueryRequest(BaseModel):
     query: str = Field(..., description="SQL query to analyze")
     db_type: DatabaseType = Field(default=DatabaseType.POSTGRES)
     schema_info: str | None = Field(None, description="Schema DDL for better context")
+    # Issue #60: EXPLAIN plan paste-in — was missing, silently dropped by FastAPI
+    explain_plan: str | None = Field(
+        None, description="Raw EXPLAIN plan output pasted by user (dialect-specific format)"
+    )
     llm_provider: LLMProvider = Field(default=LLMProvider.HUGGINGFACE)
     use_llm: bool = Field(default=False)
     focus: str = Field(default="performance")
@@ -54,6 +58,12 @@ class OptimizationSuggestion(BaseModel):
     suggestion: str
     reason: str
     estimated_improvement: str
+    # Issue #72: dialect-aware DDL fields — optional so existing suggestions
+    # without them (e.g. from index_recommender before Phase 1.7) still validate
+    ddl_hint: str | None = None
+    ddl_note: str | None = None
+    columns: list[str] | None = None
+    confirmed: bool | None = None
 
 
 class ExecutionPlan(BaseModel):
