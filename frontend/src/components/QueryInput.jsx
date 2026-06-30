@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function QueryInput({
   query,
@@ -13,83 +12,52 @@ export default function QueryInput({
   onAnalyze,
   loading,
   caps,
-  explainPlan = '', // Issue #60
-  setExplainPlan = () => {}, // Issue #60
+  explainPlan, // Issue #60: new prop — raw EXPLAIN output text
+  setExplainPlan, // Issue #60: new prop — setter from parent
 }) {
-  const [explainOpen, setExplainOpen] = useState(false); // Issue #60: collapsed by default
-
   const openaiEnabled = !!caps?.providers?.openai;
   const hfEnabled = caps?.providers?.huggingface ?? true;
   const anyAiEnabled = hfEnabled || openaiEnabled;
+
+  // Issue #60: collapsed by default — keeps the form uncluttered
+  const [explainOpen, setExplainOpen] = useState(false);
 
   const onChangeProvider = (next) => {
     setLlmProvider(next);
     if (!useLlm) setUseLlm(true);
   };
 
+  // Issue #60: per-dialect placeholder so users paste in the right format
+  const explainPlaceholders = {
+    postgresql:
+      "Paste output of: EXPLAIN (ANALYZE, BUFFERS) your_query;\n\nExample:\nSeq Scan on orders  (cost=0.00..431.00 rows=10000 width=244)\n  Filter: (status = 'pending'::text)",
+    mysql:
+      'Paste output of: EXPLAIN FORMAT=JSON your_query;\n\nExample:\n{"query_block": {"table": {"table_name": "orders", "access_type": "ALL", "rows_examined_per_scan": 10000}}}',
+    oracle:
+      'Paste output of:\nEXPLAIN PLAN FOR your_query;\nSELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);\n\nExample:\n| Id | Operation | Name | Rows |\n| 0 | SELECT STATEMENT | | |\n| 1 |  TABLE ACCESS FULL | ORDERS | 10000 |',
+    sqlserver:
+      "Paste output of: SET STATISTICS IO, TIME ON;  (or Actual Execution Plan XML from SSMS)\n\nExample:\nTable 'orders'. Scan count 1, logical reads 431",
+    sqlite: 'Paste output of: EXPLAIN QUERY PLAN your_query;\n\nExample:\nSCAN TABLE orders',
+  };
+
+  const explainHint = {
+    postgresql: 'EXPLAIN (ANALYZE, BUFFERS)',
+    mysql: 'EXPLAIN FORMAT=JSON',
+    oracle: 'DBMS_XPLAN.DISPLAY',
+    sqlserver: 'SET STATISTICS IO, TIME ON',
+    sqlite: 'EXPLAIN QUERY PLAN',
+  };
+
   return (
     <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
-      {/* ── SQL Query textarea ── */}
       <label className="block text-sm font-medium text-slate-300 mb-2">SQL Query</label>
       <textarea
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Paste your SQL query here..."
-        className="w-full h-40 bg-slate-900 text-white rounded border border-slate-600 p-3 font-mono text-sm resize-y focus:outline-none focus:border-sky-500"
+        className="w-full h-40 bg-slate-900 text-white rounded border border-slate-600 p-3 font-mono text-sm"
+        placeholder="SELECT * FROM orders WHERE status = 'pending'"
       />
 
-      {/* ── Issue #60: Collapsible EXPLAIN plan textarea ── */}
-      <div className="mt-3">
-        <button
-          type="button"
-          onClick={() => setExplainOpen((o) => !o)}
-          className="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-sky-400 transition-colors"
-        >
-          {explainOpen ? (
-            <ChevronUp className="w-3.5 h-3.5" />
-          ) : (
-            <ChevronDown className="w-3.5 h-3.5" />
-          )}
-          {explainOpen ? 'Hide EXPLAIN plan' : 'Add EXPLAIN plan output (optional)'}
-        </button>
-
-        {explainOpen && (
-          <div className="mt-2">
-            <p className="text-xs text-slate-500 mb-1.5">
-              Paste the raw output of{' '}
-              <code className="bg-slate-900 px-1 py-0.5 rounded text-sky-400 text-xs">
-                EXPLAIN ANALYZE
-              </code>{' '}
-              (PostgreSQL),{' '}
-              <code className="bg-slate-900 px-1 py-0.5 rounded text-sky-400 text-xs">
-                EXPLAIN FORMAT=JSON
-              </code>{' '}
-              (MySQL), or your dialect equivalent. This gives the AI layer concrete cost data to
-              work with.
-            </p>
-            <textarea
-              value={explainPlan}
-              onChange={(e) => setExplainPlan(e.target.value)}
-              placeholder="Paste EXPLAIN / EXPLAIN ANALYZE output here..."
-              rows={6}
-              className="w-full bg-slate-900 text-emerald-300 rounded border border-slate-600 p-3 font-mono text-xs resize-y focus:outline-none focus:border-sky-500"
-            />
-            {explainPlan && (
-              <div className="flex justify-end mt-1">
-                <button
-                  type="button"
-                  onClick={() => setExplainPlan('')}
-                  className="text-xs text-slate-500 hover:text-red-400 transition-colors"
-                >
-                  Clear
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Controls row ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
         <div>
           <label className="block text-sm font-medium text-slate-300 mb-2">Database</label>
@@ -139,7 +107,62 @@ export default function QueryInput({
         </div>
       </div>
 
-      {/* ── Analyze button ── */}
+      {/* Issue #60: Collapsible EXPLAIN plan section */}
+      <div className="mt-4 border-t border-slate-700 pt-4">
+        <button
+          type="button"
+          onClick={() => setExplainOpen((v) => !v)}
+          className="flex items-center justify-between w-full text-left group"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium text-slate-300">
+            <ChevronIcon open={explainOpen} />
+            EXPLAIN plan
+            <span className="text-xs font-normal text-slate-500">
+              (optional — paste {explainHint[dbType] || 'EXPLAIN'} output for confirmed analysis)
+            </span>
+          </span>
+          {explainPlan?.trim() && !explainOpen && (
+            <span
+              className="text-xs px-2 py-0.5 rounded-full"
+              style={{
+                background: 'rgba(52,211,153,0.1)',
+                color: '#34d399',
+                border: '1px solid rgba(52,211,153,0.3)',
+              }}
+            >
+              ✓ plan attached
+            </span>
+          )}
+        </button>
+
+        {explainOpen && (
+          <div className="mt-3">
+            <textarea
+              value={explainPlan || ''}
+              onChange={(e) => setExplainPlan(e.target.value)}
+              className="w-full h-32 bg-slate-900 text-white rounded border border-slate-600 p-3 font-mono text-xs leading-relaxed"
+              placeholder={explainPlaceholders[dbType] || explainPlaceholders.postgresql}
+            />
+            <p className="text-xs text-slate-500 mt-2">
+              Pasting a real EXPLAIN plan upgrades heuristic findings from{' '}
+              <span className="text-amber-400 font-medium">estimated</span> to{' '}
+              <span className="text-emerald-400 font-medium">confirmed</span> — QueryTuner
+              cross-references your actual execution plan against the parsed query instead of
+              guessing from syntax alone.
+            </p>
+            {explainPlan?.trim() && (
+              <button
+                type="button"
+                onClick={() => setExplainPlan('')}
+                className="text-xs text-slate-400 hover:text-red-400 mt-2 underline"
+              >
+                Clear plan
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
       <button
         onClick={onAnalyze}
         disabled={loading || !query.trim()}
@@ -148,5 +171,26 @@ export default function QueryInput({
         {loading ? 'Analyzing...' : 'Analyze'}
       </button>
     </div>
+  );
+}
+
+function ChevronIcon({ open }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{
+        transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+        transition: 'transform 0.15s',
+      }}
+    >
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
   );
 }
