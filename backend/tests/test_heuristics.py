@@ -19,10 +19,9 @@ def run(analyzer, query, db_type="postgresql", focus="performance"):
     """Run heuristics synchronously using a helper."""
     import asyncio
 
-    result = asyncio.get_event_loop().run_until_complete(
-        analyzer.analyze(query=query, db_type=db_type, use_llm=False, focus=focus)
-    )
-    return result["optimization_suggestions"]
+    return asyncio.run(analyzer.analyze(query=query, db_type=db_type, use_llm=False, focus=focus))[
+        "optimization_suggestions"
+    ]
 
 
 # ── 1. SELECT * triggers column_selection ─────────────────────────────────────
@@ -207,9 +206,7 @@ def test_security_drop_detected(analyzer):
     # but DROP is caught in _security_checks — verify via full analyze
     import asyncio
 
-    full = asyncio.get_event_loop().run_until_complete(
-        analyzer.analyze(query="DROP TABLE orders", db_type="postgresql", use_llm=False)
-    )
+    full = asyncio.run(analyzer.analyze(query="DROP TABLE orders", db_type="postgresql", use_llm=False))
     assert any(
         "DROP" in issue.upper() for issue in full["security_issues"]
     ), "DROP should be detected as a security issue"
