@@ -197,7 +197,7 @@ def test_implicit_cast_id_string(analyzer):
     ), "Comparing ID column to string literal should trigger implicit_cast"
 
 
-# ── 19. Security: DROP statement detected ─────────────────────────────────────
+# ── 19. Security: DROP statement detected ────────────────────────────────────
 
 
 def test_security_drop_detected(analyzer):
@@ -212,7 +212,7 @@ def test_security_drop_detected(analyzer):
     ), "DROP should be detected as a security issue"
 
 
-# ── 20. Clean simple query returns no critical findings ───────────────────────
+# ── 20. Clean simple query returns no critical findings ──────────────────────
 
 
 def test_clean_query_no_critical(analyzer):
