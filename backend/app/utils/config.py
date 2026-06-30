@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_anon_key: str = ""
 
-    class Config:
+    class ConfigDict:
         env_file = ".env"
         case_sensitive = False
 

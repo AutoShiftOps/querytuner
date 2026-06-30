@@ -1,15 +1,3 @@
-import pytest
-
-from app.agents.sql_analyzer import SQLAnalyzerAgent
-
-# ── Shared fixture ────────────────────────────────────────────────────────────
-
-
-@pytest.fixture(scope="module")
-def analyzer():
-    return SQLAnalyzerAgent()
-
-
 def get_types(suggestions):
     """Extract heuristic type strings from a suggestions list."""
     return [s["type"] for s in suggestions]

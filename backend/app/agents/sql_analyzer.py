@@ -111,11 +111,12 @@ class SQLAnalyzerAgent:
             _req = QR(
                 query=query,
                 db_type=db_type if isinstance(db_type, DatabaseType) else DatabaseType(db_type),
+                explain_plan=explain_plan or None,
                 schema_info=schema_info or None,
                 use_llm=False,
             )
             _facts = await collect_facts(_req)
-            facts_result = _facts.dict()
+            facts_result = _facts.model_dump()
         except Exception as _e:
             facts_result = {
                 "db_type": db_type,

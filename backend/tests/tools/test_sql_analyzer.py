@@ -2,11 +2,14 @@
 tests/tools/test_index_recommender.py
 pytest test suite for IndexRecommender — Issue #23
 Run: pytest tests/tools/test_index_recommender.py -v
+
+NOTE: filename is test_sql_analyzer.py but tests IndexRecommender —
+consider renaming to test_index_recommender.py for clarity in a future cleanup.
+Not changed here to avoid breaking CI references to the current filename.
 """
 
-import pytest
-from backend.app.tools.index_recommender import IndexRecommender
-from backend.app.tools.query_parser import QueryParser
+from app.tools.index_recommender import IndexRecommender
+from app.tools.query_parser import QueryParser
 
 recommender = IndexRecommender()
 parser = QueryParser()
@@ -93,29 +96,12 @@ def test_no_suggestions_for_simple_query():
     assert suggestions == [], "Simple SELECT 1 should produce zero index suggestions"
 
 
-@pytest.fixture
-def cartesian_query():
-    return "SELECT u.id, o.total FROM users u JOIN orders o WHERE u.status = 'active'"
-
-
-def test_cartesian_join_detected(analyzer, cartesian_query):
-    suggestions = analyzer._heuristic_suggestions(
-        cartesian_query,
-        parsed={},
-        db_type="postgresql",
-        focus="performance",
-    )
-    cartesian = [s for s in suggestions if s["type"] == "cartesian_join"]
-    assert len(cartesian) == 1
-    assert cartesian[0]["severity"] == "critical"
-
-
-def test_valid_join_not_flagged(analyzer):
-    query = """SELECT u.id, o.total FROM users u
-               JOIN orders o ON o.user_id = u.id"""
-    suggestions = analyzer._heuristic_suggestions(query, parsed={}, db_type="postgresql", focus="performance")
-    cartesian = [s for s in suggestions if s["type"] == "cartesian_join"]
-    assert len(cartesian) == 0
+# NOTE: test_cartesian_join_detected and test_valid_join_not_flagged were
+# removed from this file — they are duplicates of tests #13 and "valid join"
+# coverage already present in test_heuristics.py (which tests cartesian_join
+# at the SQLAnalyzerAgent level, the correct layer for that heuristic).
+# This file tests IndexRecommender specifically and should not test
+# cartesian_join detection, which lives in sql_analyzer.py, not index_recommender.py.
 
 
 # ── Fixture 7: confirmed=False on all suggestions ────────────────────────────
