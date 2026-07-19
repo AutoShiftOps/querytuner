@@ -199,8 +199,8 @@ class SQLAnalyzerAgent:
                 )
             )
 
-        # 3) LIKE with leading wildcard
-        if re.search(r"\blike\s+'%[^']*'", ql):
+        # 3) LIKE with leading wildcard (ILIKE included — PostgreSQL case-insensitive LIKE)
+        if re.search(r"\bi?like\s+'%[^']*'", ql):
             suggestions.append(
                 self._suggest(
                     type_="like_wildcard",
@@ -238,8 +238,10 @@ class SQLAnalyzerAgent:
             )
 
         # 5) ORDER BY without LIMIT
+        # Uses the parser's top-level order_by (excludes ORDER BY inside window
+        # function OVER(...) clauses) instead of a raw whole-string regex.
         if (
-            bool(re.search(r"\border\s+by\b", ql))
+            bool(parsed.get("order_by"))
             and not bool(re.search(r"\blimit\b", ql))
             and not bool(re.search(r"\bfetch\s+first\b", ql))
         ):

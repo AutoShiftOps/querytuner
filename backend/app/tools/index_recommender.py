@@ -6,7 +6,7 @@ from typing import Any
 # Issue #72: dialect-aware index DDL
 from app.utils.dialect_config import get_dialect, get_index_ddl
 
-_PRIMARY_KEY_NAMES = frozenset({"id", "pk", "oid", "rowid", "uuid"})
+_PRIMARY_KEY_NAMES = frozenset({"id", "pk", "oid", "rowid", "uuid", "rownum", "level", "sysdate", "systimestamp"})
 
 
 def _is_primary_key(col: str) -> bool:
@@ -16,6 +16,12 @@ def _is_primary_key(col: str) -> bool:
 def _extract_col_name(expr: str) -> str | None:
     e = expr.strip()
     e = re.sub(r"\s+(ASC|DESC)\s*$", "", e, flags=re.IGNORECASE).strip()
+
+    # Quoted identifier, optionally alias-qualified: "Col Name" or alias."Col Name"
+    quoted_m = re.match(r'^(?:[A-Za-z_][A-Za-z0-9_]*\.)?"([^"]+)"', e)
+    if quoted_m:
+        return quoted_m.group(1)
+
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*\s*\(", e):
         return None
     e = re.split(r"[=<>!]", e)[0].strip()
@@ -51,7 +57,8 @@ def _extract_where_columns(where_clause: str) -> list[tuple[str | None, str]]:
                 cols.append(qc)
             continue
         m = re.match(
-            r"^([A-Za-z_][A-Za-z0-9_.]+)\s*" r"(?:=|!=|<>|<=|>=|<|>|\bLIKE\b|\bIN\b|\bBETWEEN\b|\bNOT\s+IN\b)",
+            r'^([A-Za-z_][A-Za-z0-9_.]+|"[^"]+")\s*'
+            r"(?:=|!=|<>|<=|>=|<|>|\bI?LIKE\b|\bIN\b|\bBETWEEN\b|\bNOT\s+IN\b)",
             cond,
             re.IGNORECASE,
         )
@@ -62,17 +69,32 @@ def _extract_where_columns(where_clause: str) -> list[tuple[str | None, str]]:
     return cols
 
 
+_ON_CLAUSE_END = r"(?:\bJOIN\b|\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|\bHAVING\b|;|$)"
+
+
 def _extract_join_columns(joins_raw: list[dict[str, Any]], query: str) -> list[tuple[str | None, str]]:
     cols: list[tuple[str | None, str]] = []
-    for m in re.finditer(
-        r"\bON\s+([A-Za-z_][A-Za-z0-9_.]+)\s*=\s*([A-Za-z_][A-Za-z0-9_.]+)",
-        query,
-        re.IGNORECASE,
-    ):
-        for grp in (m.group(1), m.group(2)):
-            qc = _qualified_col(grp)
+
+    # ON clause — loop over every AND-joined col=col pair, not just the first
+    for on_m in re.finditer(r"\bON\s+(.*?)(?=" + _ON_CLAUSE_END + r")", query, re.IGNORECASE | re.DOTALL):
+        for cond in re.split(r"\bAND\b", on_m.group(1), flags=re.IGNORECASE):
+            cond_m = re.match(
+                r"^\s*([A-Za-z_][A-Za-z0-9_.]+)\s*=\s*([A-Za-z_][A-Za-z0-9_.]+)\s*$",
+                cond.strip(),
+            )
+            if cond_m:
+                for grp in (cond_m.group(1), cond_m.group(2)):
+                    qc = _qualified_col(grp)
+                    if qc:
+                        cols.append(qc)
+
+    # USING (col[, col...]) — shared column name, no left/right alias
+    for using_m in re.finditer(r"\bUSING\s*\(\s*([^)]+?)\s*\)", query, re.IGNORECASE):
+        for col_expr in using_m.group(1).split(","):
+            qc = _qualified_col(col_expr.strip())
             if qc:
                 cols.append(qc)
+
     return cols
 
 
