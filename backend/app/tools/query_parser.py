@@ -411,3 +411,238 @@ class QueryParser:
             seen.add(x)
             out.append(x)
         return out
+
+
+# -----------------------------------------------------------------------------
+# Schema DDL parsing (Issue #8)
+#
+# Standalone from QueryParser: these two functions read CREATE TABLE / CREATE
+# INDEX DDL (not SELECT queries) so index_recommender can cross-reference a
+# real schema instead of guessing column existence from the query text alone.
+# -----------------------------------------------------------------------------
+
+_SCHEMA_SKIP_COL_NAMES = frozenset({"id", "pk", "uuid", "rowid", "rownum", "level"})
+
+# Keywords that mark a top-level CREATE TABLE body line as a constraint/index
+# definition rather than a column definition. KEY/INDEX/CONSTRAINT aren't real
+# column names either (MySQL's bare KEY/INDEX table-level syntax, and named
+# CONSTRAINT wrappers around PRIMARY KEY/UNIQUE/FOREIGN KEY/CHECK).
+_CONSTRAINT_KEYWORDS = frozenset({"PRIMARY", "UNIQUE", "FOREIGN", "CHECK", "CONSTRAINT", "KEY", "INDEX"})
+
+_QUOTED_IDENT = r'"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_]*'
+
+_CREATE_TABLE_RE = re.compile(
+    r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"
+    rf"(?P<name>{_QUOTED_IDENT})(?:\s*\.\s*(?P<name2>{_QUOTED_IDENT}))?"
+    r"\s*\(",
+    re.IGNORECASE,
+)
+
+_CREATE_INDEX_RE = re.compile(
+    rf"CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:{_QUOTED_IDENT})\s+ON\s+"
+    rf"(?P<table>{_QUOTED_IDENT})(?:\s*\.\s*(?P<table2>{_QUOTED_IDENT}))?"
+    r"\s*\((?P<cols>[^)]*)\)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_COLUMN_NAME_RE = re.compile(
+    r'^\s*(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][A-Za-z0-9_]*))\s+(.*)$',
+    re.DOTALL,
+)
+
+# Canonical type -> raw type tokens/aliases seen across dialects.
+_TYPE_ALIAS_GROUPS: dict[str, tuple[str, ...]] = {
+    "integer": (
+        "int",
+        "int2",
+        "int4",
+        "int8",
+        "integer",
+        "bigint",
+        "smallint",
+        "tinyint",
+        "mediumint",
+        "serial",
+        "bigserial",
+        "smallserial",
+    ),
+    "text": (
+        "varchar",
+        "varchar2",
+        "nvarchar",
+        "nvarchar2",
+        "char",
+        "nchar",
+        "text",
+        "ntext",
+        "clob",
+        "nclob",
+        "string",
+        "longtext",
+        "mediumtext",
+        "tinytext",
+    ),
+    "timestamp": ("timestamp", "timestamptz", "datetime", "datetime2", "smalldatetime"),
+    "date": ("date",),
+    "boolean": ("bool", "boolean", "bit"),
+    "numeric": ("numeric", "decimal", "number", "money", "smallmoney", "real", "float", "float4", "float8", "double"),
+    "uuid": ("uuid", "uniqueidentifier"),
+    "json": ("json", "jsonb"),
+}
+_TYPE_ALIASES: dict[str, str] = {
+    alias: canonical for canonical, aliases in _TYPE_ALIAS_GROUPS.items() for alias in aliases
+}
+
+
+def _find_matching_close_paren(s: str, open_idx: int) -> int:
+    """s[open_idx] must be '('. Returns the index of the matching ')', or -1."""
+    depth = 0
+    in_sq = False
+    in_dq = False
+    i = open_idx
+    while i < len(s):
+        ch = s[i]
+        if ch == "'" and not in_dq:
+            in_sq = not in_sq
+        elif ch == '"' and not in_sq:
+            in_dq = not in_dq
+        elif not in_sq and not in_dq:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    return i
+        i += 1
+    return -1
+
+
+def _clean_identifier(raw: str) -> str:
+    """Strip quotes/backticks/brackets and a trailing ASC/DESC from one identifier."""
+    s = raw.strip()
+    s = re.sub(r"\s+(ASC|DESC)\s*$", "", s, flags=re.IGNORECASE).strip()
+    if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+        s = s[1:-1]
+    elif len(s) >= 2 and s[0] == "`" and s[-1] == "`":
+        s = s[1:-1]
+    elif len(s) >= 2 and s[0] == "[" and s[-1] == "]":
+        s = s[1:-1]
+    return s.strip()
+
+
+def _clean_table_name(raw: str) -> str:
+    """Strip quoting; drop a schema prefix: public.orders -> orders, [dbo].[Orders] -> Orders."""
+    return _clean_identifier(raw.strip().split(".")[-1])
+
+
+def _normalize_type(raw_type: str) -> str:
+    base = raw_type.strip().split("(")[0].strip().lower()
+    base = base.split()[0] if base else base
+    return _TYPE_ALIASES.get(base, base)
+
+
+def _is_constraint_or_index_line(part: str) -> bool:
+    m = re.match(r"^\s*([A-Za-z_]+)", part)
+    if not m:
+        return False
+    return m.group(1).upper() in _CONSTRAINT_KEYWORDS
+
+
+def _constraint_indexed_columns(part: str) -> set[str]:
+    """Column names covered by a table-level PRIMARY KEY / UNIQUE / bare KEY|INDEX line.
+
+    Deliberately excludes FOREIGN KEY / CHECK — an FK column is not indexed
+    just because it references another table (the whole reason JOIN keys
+    need explicit index review).
+    """
+    upper = part.upper()
+    starts_key_or_index = bool(re.match(r"^\s*(KEY|INDEX)\b", part, re.IGNORECASE))
+    if "PRIMARY" not in upper and "UNIQUE" not in upper and not starts_key_or_index:
+        return set()
+    m = re.search(r"\(([^)]*)\)", part)
+    if not m:
+        return set()
+    return {_clean_identifier(c) for c in m.group(1).split(",") if c.strip()}
+
+
+def _iter_create_table_blocks(ddl: str):
+    """Yield (table_name, [top_level_comma_parts]) for every CREATE TABLE block."""
+    for m in _CREATE_TABLE_RE.finditer(ddl):
+        open_idx = m.end() - 1
+        close_idx = _find_matching_close_paren(ddl, open_idx)
+        if close_idx == -1:
+            continue
+        raw_name = m.group("name2") or m.group("name")
+        table = _clean_table_name(raw_name)
+        body = ddl[open_idx + 1 : close_idx]
+        yield table, _split_top_level_commas(body)
+
+
+def parse_schema_ddl(ddl: str) -> dict[str, dict[str, str]]:
+    """
+    Best-effort CREATE TABLE parser: {table: {column: normalised_type}}.
+
+    Skips constraint/index lines (PRIMARY KEY, UNIQUE, FOREIGN KEY, CHECK) and
+    primary-key-style column names (id, pk, uuid, rowid, rownum, level) since
+    those are assumed already indexed and shouldn't be re-suggested downstream.
+    """
+    schema: dict[str, dict[str, str]] = {}
+    for table, parts in _iter_create_table_blocks(ddl or ""):
+        columns: dict[str, str] = {}
+        for part in parts:
+            part = part.strip()
+            if not part or _is_constraint_or_index_line(part):
+                continue
+            cm = _COLUMN_NAME_RE.match(part)
+            if not cm:
+                continue
+            col_name = next(g for g in cm.group(1, 2, 3, 4) if g is not None)
+            if col_name.lower() in _SCHEMA_SKIP_COL_NAMES:
+                continue
+            rest = cm.group(5).strip()
+            type_m = re.match(r"[A-Za-z_][A-Za-z0-9_]*", rest)
+            if not type_m:
+                continue
+            columns[col_name] = _normalize_type(type_m.group(0))
+        if columns:
+            schema.setdefault(table, {}).update(columns)
+    return schema
+
+
+def get_indexed_columns(ddl: str) -> dict[str, set[str]]:
+    """
+    Best-effort scan for columns that already have an index: standalone
+    CREATE INDEX / CREATE UNIQUE INDEX statements, PRIMARY KEY and UNIQUE
+    constraints (inline on a column or table-level), and MySQL's bare
+    KEY/INDEX table-level syntax. Used by index_recommender to suppress
+    suggestions for columns that are already indexed.
+    """
+    ddl = ddl or ""
+    indexed: dict[str, set[str]] = {}
+
+    for m in _CREATE_INDEX_RE.finditer(ddl):
+        raw_table = m.group("table2") or m.group("table")
+        table = _clean_table_name(raw_table)
+        cols = {_clean_identifier(c) for c in m.group("cols").split(",") if c.strip()}
+        if cols:
+            indexed.setdefault(table, set()).update(cols)
+
+    for table, parts in _iter_create_table_blocks(ddl):
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            if _is_constraint_or_index_line(part):
+                cols = _constraint_indexed_columns(part)
+                if cols:
+                    indexed.setdefault(table, set()).update(cols)
+                continue
+            cm = _COLUMN_NAME_RE.match(part)
+            if not cm:
+                continue
+            col_name = next(g for g in cm.group(1, 2, 3, 4) if g is not None)
+            rest = cm.group(5)
+            if re.search(r"\bPRIMARY\s+KEY\b", rest, re.IGNORECASE) or re.search(r"\bUNIQUE\b", rest, re.IGNORECASE):
+                indexed.setdefault(table, set()).add(col_name)
+
+    return indexed
