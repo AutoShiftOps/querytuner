@@ -6,7 +6,8 @@ Every case here was run against the live functions first to establish
 ground truth (not guessed), the same way test_comprehensive.py was built.
 """
 
-from app.tools.query_parser import get_indexed_columns, parse_schema_ddl
+from app.tools.index_recommender import IndexRecommender
+from app.tools.query_parser import QueryParser, get_indexed_columns, parse_schema_ddl
 
 # ═══════════════════════════════════════════════════════════════════════════
 # parse_schema_ddl — PostgreSQL
@@ -424,3 +425,107 @@ def test_multi_table_indexed_columns_kept_separate():
 
 def test_empty_ddl_returns_empty_indexed_columns():
     assert get_indexed_columns("") == {}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# IndexRecommender.recommend(schema_info=...) — schema-aware confirmation
+# (Issue #8 phase 2: wiring parse_schema_ddl / get_indexed_columns into
+# IndexRecommender so suggestions can be confirmed or suppressed against a
+# real schema instead of always guessing from the query text alone.)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_ORDERS_DDL = """
+    CREATE TABLE orders (
+        id SERIAL PRIMARY KEY,
+        customer_id INTEGER NOT NULL,
+        status VARCHAR(20),
+        notes TEXT
+    );
+    CREATE INDEX idx_orders_customer ON orders (customer_id);
+"""
+
+
+def _recommend(query, db_type="postgresql", schema_info=None):
+    parsed = QueryParser().parse(query)
+    return IndexRecommender().recommend(query=query, parsed=parsed, db_type=db_type, schema_info=schema_info)
+
+
+def _by_type(suggestions, type_):
+    return [s for s in suggestions if s["type"] == type_]
+
+
+def test_confirmed_true_when_table_and_column_in_schema():
+    # 'status' is a real, unindexed column on 'orders' per _ORDERS_DDL
+    suggestions = _recommend("SELECT * FROM orders o WHERE o.status = 'active'", schema_info=_ORDERS_DDL)
+    partials = _by_type(suggestions, "index_review_partial_index_candidate")
+    assert partials, "expected a partial_index_candidate suggestion for o.status"
+    assert partials[0]["confirmed"] is True
+
+
+def test_confirmed_false_when_schema_not_provided():
+    suggestions = _recommend("SELECT * FROM orders o WHERE o.status = 'active'")
+    partials = _by_type(suggestions, "index_review_partial_index_candidate")
+    assert partials, "expected a partial_index_candidate suggestion for o.status"
+    assert partials[0]["confirmed"] is False
+
+
+def test_ddl_hint_uses_real_table_name_when_confirmed():
+    suggestions = _recommend("SELECT * FROM orders o WHERE o.status = 'active'", schema_info=_ORDERS_DDL)
+    partials = _by_type(suggestions, "index_review_partial_index_candidate")
+    assert partials[0]["confirmed"] is True
+    ddl = partials[0]["ddl_hint"]
+    assert "orders" in ddl
+    assert "<o_table>" not in ddl
+    assert "<table_name>" not in ddl
+
+
+def test_ddl_hint_falls_back_to_placeholder_when_not_confirmed():
+    suggestions = _recommend("SELECT * FROM orders o WHERE o.status = 'active'")
+    partials = _by_type(suggestions, "index_review_partial_index_candidate")
+    assert "<o_table>" in partials[0]["ddl_hint"]
+
+
+def test_suggestion_suppressed_when_index_already_exists_in_schema():
+    # customer_id already has CREATE INDEX idx_orders_customer in _ORDERS_DDL
+    query = "SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id"
+    suggestions = _recommend(query, schema_info=_ORDERS_DDL)
+    join_keys = _by_type(suggestions, "index_review_join_key")
+    assert not any(
+        "o.customer_id" in s["columns"] for s in join_keys
+    ), "customer_id is already indexed per the schema DDL — it must not be re-suggested"
+
+
+def test_unindexed_join_key_still_suggested_with_schema_present():
+    # Same query, but referencing a column the schema DDL does NOT index —
+    # schema-awareness must suppress only what's genuinely covered, not everything.
+    ddl = """
+        CREATE TABLE orders (
+            id SERIAL PRIMARY KEY,
+            customer_id INTEGER NOT NULL,
+            warehouse_id INTEGER NOT NULL
+        );
+    """
+    query = "SELECT * FROM orders o JOIN warehouses w ON o.warehouse_id = w.id"
+    suggestions = _recommend(query, schema_info=ddl)
+    join_keys = _by_type(suggestions, "index_review_join_key")
+    assert any("o.warehouse_id" in s["columns"] for s in join_keys)
+    assert join_keys[0]["confirmed"] is True
+
+
+def test_alias_resolves_to_real_table_name():
+    rec = IndexRecommender()
+    schema = {"orders": {"customer_id": "integer"}, "customers": {"id": "integer"}}
+    assert rec._real_table("o", schema) == "orders"
+    assert rec._real_table("c", schema) == "customers"
+    assert rec._real_table("zzz", schema) is None
+
+
+def test_alias_exact_match_resolves_when_alias_is_the_table_name():
+    rec = IndexRecommender()
+    schema = {"orders": {}}
+    assert rec._real_table("orders", schema) == "orders"
+
+
+def test_no_schema_provided_never_confirms():
+    rec = IndexRecommender()
+    assert rec._real_table("o", {}) is None
