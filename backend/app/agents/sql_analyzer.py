@@ -72,7 +72,13 @@ class SQLAnalyzerAgent:
         parsed = self._safe_parse(query)
         security_issues = self._security_checks(query)
         readability_score = self._readability_score(query, parsed)
-        suggestions = self._heuristic_suggestions(query, parsed, db_type=db_type, focus=focus)
+        suggestions = self._heuristic_suggestions(
+            query,
+            parsed,
+            db_type=db_type,
+            focus=focus,
+            schema_info=schema_info,  # Phase 2: pass schema through
+        )
         optimized_query = self.optimizer.rewrite(query, suggestions, db_type=db_type)
 
         plain_explanation = self.explainer.explain(
@@ -81,6 +87,7 @@ class SQLAnalyzerAgent:
             suggestions=suggestions,
             db_type=db_type,
             security_issues=security_issues,
+            schema_info=schema_info,  # Phase 2: pass schema through
         )
 
         ai_insights, ai_model, ai_error = None, None, None
@@ -163,6 +170,7 @@ class SQLAnalyzerAgent:
         parsed: dict[str, Any],
         db_type: str,
         focus: str,
+        schema_info: str | None = None,
     ) -> list[dict[str, Any]]:
         q = query.strip()
         ql = q.lower()
@@ -395,6 +403,7 @@ class SQLAnalyzerAgent:
             query=q,
             parsed=parsed,
             db_type=db_type,
+            schema_info=schema_info,  # Phase 2: pass schema through
         )
         suggestions.extend(index_suggestions)
 

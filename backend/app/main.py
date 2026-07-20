@@ -142,6 +142,7 @@ async def analyze_query(request: QueryRequest):
             "ai_error": result.get("ai_error"),
             "db_type": db_type_str,
             "original_query": request.query,
+            "schema_info": request.schema_info,
         }
         # Persist asynchronously — failure never blocks the response
         analysis_id = await save_analysis(response_payload)

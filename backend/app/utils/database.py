@@ -54,6 +54,7 @@ async def save_analysis(payload: dict[str, Any]) -> str | None:
         "analysis_time_ms": payload.get("analysis_time_ms"),
         "used_ai": payload.get("used_ai", False),
         "ai_model": payload.get("ai_model"),
+        "schema_info": payload.get("schema_info") or None,
     }
 
     try:
