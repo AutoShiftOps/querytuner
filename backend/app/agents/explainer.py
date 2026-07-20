@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+# Issue #8: schema DDL parsing — used to build the Schema Context section
+from app.tools.query_parser import get_indexed_columns, parse_schema_ddl
+
 # Issue #74 + #75: dialect-aware LLM context and maintenance commands
 from app.utils.dialect_config import get_dialect
 
@@ -27,6 +30,7 @@ class QueryExplainer:
         suggestions: list[dict[str, Any]],
         db_type: str,
         security_issues: list[str] | None = None,
+        schema_info: str | None = None,
     ) -> str:
         sections: list[str] = []
 
@@ -52,6 +56,12 @@ class QueryExplainer:
         maintenance = self._format_maintenance(suggestions, db_type, parsed)
         if maintenance:
             sections.append(maintenance)
+
+        # Issue #8: schema context — inserted after the query summary, before findings
+        if schema_info:
+            schema_summary = self._format_schema_summary(schema_info, suggestions, parsed)
+            if schema_summary is not None:
+                sections.insert(1, schema_summary)
 
         return "\n\n".join(sections)
 
@@ -137,6 +147,51 @@ class QueryExplainer:
         lines = ["## Readability Tips"]
         for t in tips:
             lines.append(f"- {t}")
+        return "\n".join(lines)
+
+    def _format_schema_summary(
+        self,
+        schema_info: str | None,
+        suggestions: list[dict[str, Any]],
+        parsed: dict[str, Any],
+    ) -> str | None:
+        """
+        Issue #8: summarise the parsed schema DDL — tables/columns/existing
+        indexes — and how many suggestions were confirmed against it rather
+        than estimated from the query text alone.
+        """
+        try:
+            schema = parse_schema_ddl(schema_info)
+            indexed = get_indexed_columns(schema_info)
+        except Exception:
+            return None
+
+        if not schema:
+            return None
+
+        lines = ["## Schema Context"]
+        for table, columns in schema.items():
+            col_items = list(columns.items())
+            shown = col_items[:3]
+            remaining = len(col_items) - len(shown)
+            col_str = ", ".join(f"{col} {ctype}" for col, ctype in shown)
+            if remaining > 0:
+                col_str += f" + {remaining} more"
+            lines.append(f"- **{table}** ({len(col_items)} columns) — {col_str}")
+
+            table_indexed = indexed.get(table)
+            if table_indexed:
+                lines.append(f"  - Existing indexes: {', '.join(sorted(table_indexed))}")
+
+        if suggestions:
+            total = len(suggestions)
+            confirmed_count = sum(1 for s in suggestions if s.get("confirmed") is True)
+            estimated_count = total - confirmed_count
+            lines.append(
+                f"- QueryTuner cross-referenced **{confirmed_count}/{total}** suggestions against schema"
+                f" — {confirmed_count} confirmed ✓, {estimated_count} estimated"
+            )
+
         return "\n".join(lines)
 
     def _format_maintenance(

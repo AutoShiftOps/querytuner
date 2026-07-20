@@ -6,6 +6,7 @@ Every case here was run against the live functions first to establish
 ground truth (not guessed), the same way test_comprehensive.py was built.
 """
 
+from app.agents.explainer import QueryExplainer
 from app.tools.index_recommender import IndexRecommender
 from app.tools.query_parser import QueryParser, get_indexed_columns, parse_schema_ddl
 
@@ -529,3 +530,76 @@ def test_alias_exact_match_resolves_when_alias_is_the_table_name():
 def test_no_schema_provided_never_confirms():
     rec = IndexRecommender()
     assert rec._real_table("o", {}) is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QueryExplainer._format_schema_summary / explain(schema_info=...)
+# (Issue #8 phase 3: surface the parsed schema and confirmation rate as a
+# "## Schema Context" section in the plain-English explanation.)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_WAREHOUSE_DDL = """
+    CREATE TABLE orders (
+        id SERIAL PRIMARY KEY,
+        customer_id INTEGER NOT NULL,
+        status VARCHAR(20),
+        notes TEXT
+    );
+    CREATE INDEX idx_orders_customer ON orders (customer_id);
+"""
+
+
+def test_explain_with_schema_info_produces_schema_context_section():
+    query = "SELECT * FROM orders o WHERE o.status = 'active' AND o.notes = 'x'"
+    parsed = QueryParser().parse(query)
+    suggestions = IndexRecommender().recommend(
+        query=query, parsed=parsed, db_type="postgresql", schema_info=_WAREHOUSE_DDL
+    )
+    out = QueryExplainer().explain(
+        query=query,
+        parsed=parsed,
+        suggestions=suggestions,
+        db_type="postgresql",
+        schema_info=_WAREHOUSE_DDL,
+    )
+    assert "## Schema Context" in out
+    # Inserted at index 1: after the query summary, before Performance Findings
+    sections = out.split("\n\n")
+    assert sections[1].startswith("## Schema Context")
+    assert sections[2].startswith("## Performance Findings")
+
+
+def test_explain_without_schema_info_has_no_schema_section():
+    query = "SELECT * FROM orders o WHERE o.status = 'active'"
+    parsed = QueryParser().parse(query)
+    suggestions = IndexRecommender().recommend(query=query, parsed=parsed, db_type="postgresql")
+    out = QueryExplainer().explain(
+        query=query,
+        parsed=parsed,
+        suggestions=suggestions,
+        db_type="postgresql",
+    )
+    assert "## Schema Context" not in out
+
+
+def test_confirmation_rate_line_shows_correct_count():
+    query = "SELECT * FROM orders o WHERE o.status = 'active' AND o.notes = 'x'"
+    parsed = QueryParser().parse(query)
+    suggestions = IndexRecommender().recommend(
+        query=query, parsed=parsed, db_type="postgresql", schema_info=_WAREHOUSE_DDL
+    )
+    confirmed_count = sum(1 for s in suggestions if s.get("confirmed") is True)
+    total = len(suggestions)
+    estimated_count = total - confirmed_count
+
+    summary = QueryExplainer()._format_schema_summary(_WAREHOUSE_DDL, suggestions, parsed)
+    assert f"**{confirmed_count}/{total}**" in summary
+    assert f"{confirmed_count} confirmed" in summary
+    assert f"{estimated_count} estimated" in summary
+
+
+def test_format_schema_summary_returns_none_for_unparseable_ddl():
+    explainer = QueryExplainer()
+    assert explainer._format_schema_summary("this is not DDL at all", [], {}) is None
+    assert explainer._format_schema_summary("", [], {}) is None
+    assert explainer._format_schema_summary(None, [], {}) is None
