@@ -14,6 +14,8 @@ export default function QueryInput({
   caps,
   explainPlan, // Issue #60: new prop — raw EXPLAIN output text
   setExplainPlan, // Issue #60: new prop — setter from parent
+  schemaDdl, // Issue #8: new prop — raw CREATE TABLE DDL text
+  setSchemaDdl, // Issue #8: new prop — setter from parent
 }) {
   const openaiEnabled = !!caps?.providers?.openai;
   const hfEnabled = caps?.providers?.huggingface ?? true;
@@ -21,6 +23,8 @@ export default function QueryInput({
 
   // Issue #60: collapsed by default — keeps the form uncluttered
   const [explainOpen, setExplainOpen] = useState(false);
+  // Issue #8: collapsed by default — same rationale as the EXPLAIN accordion
+  const [schemaOpen, setSchemaOpen] = useState(false);
 
   const onChangeProvider = (next) => {
     setLlmProvider(next);
@@ -46,6 +50,20 @@ export default function QueryInput({
     oracle: 'DBMS_XPLAN.DISPLAY',
     sqlserver: 'SET STATISTICS IO, TIME ON',
     sqlite: 'EXPLAIN QUERY PLAN',
+  };
+
+  // Issue #8: per-dialect CREATE TABLE placeholder so users paste the right syntax
+  const schemaPlaceholders = {
+    postgresql:
+      "CREATE TABLE orders (\n  id SERIAL PRIMARY KEY,\n  customer_id INTEGER NOT NULL,\n  status VARCHAR(20) DEFAULT 'pending',\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);",
+    mysql:
+      "CREATE TABLE orders (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  customer_id INT NOT NULL,\n  status VARCHAR(20) DEFAULT 'pending',\n  created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n);",
+    oracle:
+      "CREATE TABLE orders (\n  id NUMBER PRIMARY KEY,\n  customer_id NUMBER NOT NULL,\n  status VARCHAR2(20) DEFAULT 'pending',\n  created_at TIMESTAMP DEFAULT SYSTIMESTAMP\n);",
+    sqlserver:
+      "CREATE TABLE orders (\n  id INT IDENTITY(1,1) PRIMARY KEY,\n  customer_id INT NOT NULL,\n  status NVARCHAR(20) DEFAULT 'pending',\n  created_at DATETIME2 DEFAULT GETDATE()\n);",
+    sqlite:
+      "CREATE TABLE orders (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  customer_id INTEGER NOT NULL,\n  status TEXT DEFAULT 'pending',\n  created_at TEXT DEFAULT CURRENT_TIMESTAMP\n);",
   };
 
   return (
@@ -157,6 +175,63 @@ export default function QueryInput({
                 className="text-xs text-slate-400 hover:text-red-400 mt-2 underline"
               >
                 Clear plan
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Issue #8: Collapsible Schema DDL section */}
+      <div className="mt-4 border-t border-slate-700 pt-4">
+        <button
+          type="button"
+          onClick={() => setSchemaOpen((v) => !v)}
+          className="flex items-center justify-between w-full text-left group"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium text-slate-300">
+            <ChevronIcon open={schemaOpen} />
+            Schema DDL
+            <span className="text-xs font-normal text-slate-500">
+              (optional — paste CREATE TABLE statements for confirmed index recommendations)
+            </span>
+          </span>
+          {schemaDdl?.trim() && !schemaOpen && (
+            <span
+              className="text-xs px-2 py-0.5 rounded-full"
+              style={{
+                background: 'rgba(56,189,248,0.1)',
+                color: '#38bdf8',
+                border: '1px solid rgba(56,189,248,0.3)',
+              }}
+            >
+              ✓ schema attached
+            </span>
+          )}
+        </button>
+
+        {schemaOpen && (
+          <div className="mt-3">
+            <textarea
+              value={schemaDdl || ''}
+              onChange={(e) => setSchemaDdl(e.target.value)}
+              className="w-full h-40 bg-slate-900 text-white rounded border border-slate-600 p-3 font-mono text-xs leading-relaxed"
+              placeholder={schemaPlaceholders[dbType] || schemaPlaceholders.postgresql}
+            />
+            <p className="text-xs text-slate-500 mt-2">
+              Providing your schema upgrades index recommendations from{' '}
+              <span className="text-amber-400 font-medium">estimated</span> to{' '}
+              <span className="font-medium" style={{ color: '#38bdf8' }}>
+                confirmed
+              </span>
+              .
+            </p>
+            {schemaDdl?.trim() && (
+              <button
+                type="button"
+                onClick={() => setSchemaDdl('')}
+                className="text-xs text-slate-400 hover:text-red-400 mt-2 underline"
+              >
+                Clear schema
               </button>
             )}
           </div>

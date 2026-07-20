@@ -29,6 +29,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 function App() {
   const [query, setQuery] = useState('');
   const [explainPlan, setExplainPlan] = useState('');
+  const [schemaDdl, setSchemaDdl] = useState('');
   const [dbType, setDbType] = useState('postgresql');
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -54,11 +55,11 @@ function App() {
       const response = await axios.post(`${API_BASE_URL}/analyze`, {
         query,
         db_type: dbType,
-        schema_info: null,
         llm_provider: llmProvider,
         use_llm: useLlm,
         focus: 'performance',
         explain_plan: explainPlan,
+        schema_info: schemaDdl || null,
       });
 
       const data = response.data;
@@ -84,7 +85,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [query, dbType, llmProvider, useLlm, showToast]);
+  }, [query, dbType, llmProvider, useLlm, explainPlan, schemaDdl, showToast]);
 
   // ── Cmd/Ctrl + Enter shortcut ───────────────────────────────────────────
   useEffect(() => {
@@ -169,6 +170,8 @@ function App() {
               caps={caps}
               explainPlan={explainPlan}
               setExplainPlan={setExplainPlan}
+              schemaDdl={schemaDdl}
+              setSchemaDdl={setSchemaDdl}
             />
             {error && (
               <div className="p-4 bg-red-900/20 border border-red-500 rounded-lg flex gap-3">
