@@ -71,7 +71,6 @@ export default function Hero() {
         </p>
 
         <div className="qt-hero-pills">
-          <span className="qt-hero-pill">Sub-5ms heuristics</span>
           <span className="qt-hero-pill">Severity ranking</span>
           <span className="qt-hero-pill">Rewritten SQL</span>
           <span className="qt-hero-pill">Security scan</span>
