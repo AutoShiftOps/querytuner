@@ -159,22 +159,78 @@ function SuggestionCard({ item }) {
   );
 }
 
+const RISKY_CARD_STYLE = {
+  background: 'rgba(251,191,36,0.06)',
+  border: '1px solid rgba(251,191,36,0.2)',
+  borderRadius: 8,
+  padding: '10px 14px',
+  marginBottom: 8,
+};
+
+const RISKY_NOTE_STYLE = {
+  fontSize: 13,
+  color: '#e2e8f0',
+  margin: 0,
+  lineHeight: 1.5,
+};
+
 function RiskyAssumptionCard({ item }) {
-  const text = typeof item === 'string' ? item : item?.assumption || JSON.stringify(item);
+  // Plain string assumption — render directly, no object shape to unpack.
+  if (typeof item === 'string') {
+    return (
+      <div style={RISKY_CARD_STYLE}>
+        <p style={RISKY_NOTE_STYLE}>{item}</p>
+      </div>
+    );
+  }
+
+  // Defensive fallback for anything that's neither a string nor an object
+  // (number, boolean, null, undefined) — never hand JSON.stringify a
+  // non-object here, since that's how raw braces leak to the user.
+  if (!item || typeof item !== 'object') {
+    return (
+      <div style={RISKY_CARD_STYLE}>
+        <p style={RISKY_NOTE_STYLE}>{String(item)}</p>
+      </div>
+    );
+  }
+
+  // {"type": "unknown_cardinality", "column": "p.category", "note": "..."}
+  const note = item.note || item.assumption || JSON.stringify(item);
+
   return (
-    <div
-      style={{
-        background: 'rgba(251,191,36,0.06)',
-        border: '1px solid rgba(251,191,36,0.3)',
-        borderRadius: 8,
-        padding: 12,
-        marginBottom: 8,
-        fontSize: 12,
-        color: '#fde68a',
-        lineHeight: 1.5,
-      }}
-    >
-      {text}
+    <div style={RISKY_CARD_STYLE}>
+      {item.type && (
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            color: '#94a3b8',
+            border: '1px solid rgba(148,163,184,0.3)',
+            borderRadius: 999,
+            padding: '1px 6px',
+            display: 'inline-block',
+            marginBottom: 6,
+          }}
+        >
+          {String(item.type).replace(/_/g, ' ')}
+        </span>
+      )}
+      <p style={RISKY_NOTE_STYLE}>{note}</p>
+      {item.column && (
+        <p
+          style={{
+            fontSize: 11,
+            color: '#fbbf24',
+            fontFamily: "'JetBrains Mono', monospace",
+            margin: '6px 0 0',
+          }}
+        >
+          Column: {item.column}
+        </p>
+      )}
     </div>
   );
 }
