@@ -1,5 +1,6 @@
 # QueryTuner — AI-Powered SQL Query Diagnostics
 
+[![Version](https://img.shields.io/badge/version-0.2.0-blue)](CHANGELOG.md)
 [![Backend](https://img.shields.io/badge/backend-FastAPI-009688?logo=fastapi)](https://sql-query-analyzer-ekbk.onrender.com/docs)
 [![Frontend](https://img.shields.io/badge/frontend-React-61DAFB?logo=react)](https://querytuner.com)
 [![AI](https://img.shields.io/badge/AI-HuggingFace%20%7C%20OpenAI-FFD21F?logo=huggingface)](https://huggingface.co)
@@ -33,15 +34,23 @@ QueryTuner analyzes SQL queries in two layers:
 
 ## Features
 
-- 🗄️ **5 Database Flavors** — PostgreSQL, MySQL, Oracle, SQL Server, SQLite
-- ⚡ **Instant Heuristic Analysis** — sub-5ms, no external API calls required
-- 🤖 **Dual AI Provider** — HuggingFace (default, free) or OpenAI
+- 🗄️ **5 Database Dialects** — PostgreSQL, MySQL, Oracle, SQL Server, SQLite
+- ⚡ **Heuristic Engine** — 12 deterministic rules, always available, no external API calls required
+- 🗂️ **Schema-Aware Analysis** — paste `CREATE TABLE` DDL and index recommendations upgrade from
+  estimated to **confirmed**, resolved against your real table and column names
+- 🔧 **Dialect-Correct Index DDL** — `CREATE INDEX CONCURRENTLY` (PostgreSQL),
+  `ALTER TABLE ... ADD INDEX` (MySQL), `NOLOGGING` (Oracle), `WITH (ONLINE=ON)` (SQL Server)
+- 🤖 **Dual AI Provider** — HuggingFace (default, free) or OpenAI, with structured JSON output
+  (falls back to readable plain text if the model doesn't return JSON)
 - 🔍 **Severity-Ranked Findings** — Critical → High → Medium → Low
 - 📋 **Optimized Query Output** — rewritten SQL you can copy and run
+- 🔗 **Shareable Reports** — every analysis gets a permanent `/report/:id` URL
+- 📈 **Analytics** — Google Analytics 4 event tracking on every user action
 - 🛡️ **Security Scanning** — detects SQL injection patterns and unsafe constructs
 - 📊 **Readability Score** — quantifies query clarity for code review
 - 🔌 **REST API** — integrable into CI/CD pipelines and developer tooling
-- 🚫 **No DB Connection Needed** — works entirely from pasted query text
+- 🚫 **No DB Connection Needed** — works entirely from pasted query text (schema DDL is optional,
+  only needed to unlock confirmed mode)
 
 ---
 
@@ -133,8 +142,8 @@ querytuner.com (Vercel)          sql-query-analyzer-ekbk.onrender.com (Render)
 
 ```bash
 # Clone
-git clone https://github.com/AutoShiftOps/sql-query-analyzer
-cd sql-query-analyzer
+git clone https://github.com/AutoShiftOps/querytuner
+cd querytuner
 
 # Backend
 cd backend
@@ -150,7 +159,8 @@ echo "VITE_API_URL=http://localhost:8000" > .env.local
 npm run dev
 ```
 
-Open `http://localhost:5173`
+Open `http://localhost:3000` (this project pins Vite's dev server port in `vite.config.js`;
+it does not use Vite's default 5173)
 
 ---
 
@@ -197,6 +207,8 @@ sql-query-analyzer/
 │   │   │   ├── dialect_config.py    # Dialect-specific DDL, rewrites, LLM prompts (Phase 1.7)
 │   │   │   └── db_connectors.py
 │   │   └── main.py                # FastAPI app, routes, rate limiting
+│   ├── migrations/                # Versioned Supabase schema (001_initial_schema.sql, ...)
+│   ├── LIMITATIONS.md             # Known gaps and scope boundaries
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/
@@ -206,6 +218,7 @@ sql-query-analyzer/
 │   │   │   ├── OptimizationSuggestions.jsx
 │   │   │   ├── ExecutionPlan.jsx
 │   │   │   ├── ResultsPanel.jsx
+│   │   │   ├── SampleQueries.jsx    # Pre-built example queries
 │   │   │   ├── Header.jsx           # Sticky enterprise nav
 │   │   │   ├── Hero.jsx             # Value proposition strip
 │   │   │   ├── Footer.jsx           # Links + attribution
@@ -214,10 +227,12 @@ sql-query-analyzer/
 │   │   │   ├── QueryDiagnosis.jsx   # Structured plain-explanation renderer
 │   │   │   └── ReportPage.jsx       # Shareable /report/:id read-only page
 │   │   ├── utils/
-│   │   │   └── analytics.js         # GA4 event tracking
+│   │   │   ├── analytics.js         # GA4 event tracking
+│   │   │   └── aiInsights.js        # Shared AI-JSON parsing (App.jsx + ResultsPanel.jsx)
 │   │   └── App.jsx
 │   └── package.json
 ├── docs/
+├── CHANGELOG.md
 └── .github/workflows/
 ```
 
@@ -225,18 +240,27 @@ sql-query-analyzer/
 
 ## Roadmap
 
+* [x] Core heuristic engine — 12 rules across 5 dialects — Phase 1 ✅
 * [x] Persistent query history (Supabase) — Phase 1.5 ✅
 * [x] Shareable /report/:id URLs — Phase 1.5 ✅
 * [x] Enterprise UI shell (Header, Hero, Footer, Toast) — Phase 1.6 ✅
 * [x] Google Analytics 4 event tracking — Phase 1.6 ✅
 * [x] Dialect-aware DDL, rewrites, and LLM prompts (5 DB types) — Phase 1.7 ✅
-* [ ] Schema-aware analysis — paste DDL for named index suggestions — Phase 2
-* [ ] LangGraph agentic pipeline — Phase 3
-* [ ] API key auth + usage metering — Phase 4
-* [ ] Stripe payments — Free / Pro / Team tiers — Phase 4
-* [ ] GitHub Action: `querytuner-analyze` for CI/CD pipelines — Phase 5
-* [ ] Cross-database execution plan risk normalizer (UEPN) — Phase 5
-* [ ] Live DB connection mode — Phase 5
+* [x] Schema-aware analysis — paste DDL for confirmed (not just estimated) index suggestions — Phase 2 ✅
+* [ ] LangGraph agentic pipeline — Phase 3 ⏭ (deferred post-revenue)
+* [ ] API key auth + usage metering — Phase 4 🔜
+* [ ] Stripe payments — Free / Pro / Team tiers — Phase 4 🔜
+* [ ] GitHub Action: `querytuner-analyze` for CI/CD pipelines — Phase 5 🔜
+* [ ] Cross-database execution plan risk normalizer (UEPN) — Phase 5 🔜
+* [ ] Live DB connection mode — Phase 5 🔜
+
+---
+
+## Known Limitations
+
+See [LIMITATIONS.md](backend/LIMITATIONS.md) for the full list. Key limitations: no live DB
+connection, stateless analysis (no query history across runs), LLM availability depends on the
+HuggingFace free tier, and LATERAL join correlated-column detection is not yet supported.
 
 ---
 
