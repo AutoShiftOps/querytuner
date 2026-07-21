@@ -23,6 +23,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - "✓ Confirmed by AI" badge on heuristically-confirmed findings, with the two panels
   reframed as complementary (heuristic vs. AI-additive) rather than duplicated
 - `migrations/` folder with versioned schema files
+- `dialect_config.py`: single source of truth for dialect-aware DDL, rewrites, and
+  LLM prompts across 5 dialects (Phase 1.7)
 
 ### Fixed
 - ILIKE filter columns not detected (was using `\bLIKE\b` regex)
@@ -41,7 +43,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Grew from ~30 tests to 94 passing tests, 1 intentional xfail (LATERAL join
   correlated-column detection)
 
-## [0.1.0] — 2026-02-15
+## [0.1.0] — 2026-05-01
 
 ### Added
 - Core heuristic engine: 12 rules across 5 database dialects
@@ -49,7 +51,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `index_recommender.py`: 4-pass index opportunity detection
 - `optimizer.py`: 7 SQL rewrite rules (YEAR, LIKE, SELECT *, LOWER)
 - `explainer.py`: plain-English diagnosis with maintenance commands
-- `dialect_config.py`: single source of truth for 5 dialects
 - LLM layer: HuggingFace (primary) + OpenAI (optional)
 - Supabase persistence + shareable `/report/:id` URLs
 - Enterprise UI shell: Header, Hero, Footer, Toast
