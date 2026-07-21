@@ -7,6 +7,7 @@ const C = {
   text: '#e2e8f0',
   muted: '#94a3b8',
   dim: '#4a6480',
+  label: '#7fa3c4',
   accent: '#38bdf8',
   green: '#34d399',
   yellow: '#fbbf24',
@@ -17,10 +18,12 @@ const C = {
 
 const SECTION_MARKERS = [
   'Query Summary',
+  'Schema Context',
   'Performance Findings',
+  'Security Observations',
+  'Security Notes',
   'Readability Tips',
   'Optimization Hints',
-  'Security Notes',
 ];
 
 function isSectionHeader(line) {
@@ -28,7 +31,15 @@ function isSectionHeader(line) {
     .replace(/^#{1,3}\s*/, '')
     .replace(/📖|🔍|⚠️|✅|❌/gu, '')
     .trim();
+  // Covers "PostgreSQL Maintenance Commands", "MySQL Maintenance Commands", etc.
+  // without hardcoding every dialect variant.
+  if (stripped.endsWith('Maintenance Commands')) return true;
   return SECTION_MARKERS.some((m) => stripped.startsWith(m));
+}
+
+function isFenceLine(line) {
+  const t = line.trim();
+  return t === '```sql' || t === '```';
 }
 
 function isKVLine(line) {
@@ -45,9 +56,12 @@ function parseKV(line) {
   return null;
 }
 
-// function isBoldLine(line) {
-//   return /^\*\*[^*]+\*\*\s*[—–-]/.test(line.trim()) || /^\*\*[^*]+\*\*$/.test(line.trim());
-// }
+// Matches the sql_analyzer "**N issue(s) detected** — ..." findings summary line
+function parseIssueCountLine(line) {
+  const m = line.match(/^\*\*(\d+)\s+(issue\(s\)\s+detected)\*\*(.*)$/);
+  if (!m) return null;
+  return { count: m[1], label: m[2], rest: m[3] };
+}
 
 function parseBold(line) {
   // Returns array of { text, bold } segments
@@ -76,9 +90,30 @@ export default function QueryDiagnosis({ content }) {
   const lines = content.split('\n');
   const sections = [];
   let currentSection = null;
+  let inCodeBlock = false;
+  let codeBuffer = [];
 
   for (const raw of lines) {
     const line = raw.trimEnd();
+
+    if (isFenceLine(line)) {
+      if (inCodeBlock) {
+        if (!currentSection) currentSection = { title: null, lines: [] };
+        currentSection.lines.push({ type: 'code', content: codeBuffer.join('\n') });
+        codeBuffer = [];
+        inCodeBlock = false;
+      } else {
+        inCodeBlock = true;
+        codeBuffer = [];
+      }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeBuffer.push(raw);
+      continue;
+    }
+
     if (!line) {
       if (currentSection) currentSection.lines.push({ type: 'spacer' });
       continue;
@@ -105,7 +140,19 @@ export default function QueryDiagnosis({ content }) {
       }
     }
 
+    const issueCount = parseIssueCountLine(line);
+    if (issueCount) {
+      currentSection.lines.push({ type: 'issue-count', ...issueCount });
+      continue;
+    }
+
     currentSection.lines.push({ type: 'text', content: line });
+  }
+
+  // Unterminated fence (shouldn't happen, but don't silently drop the content)
+  if (inCodeBlock && codeBuffer.length) {
+    if (!currentSection) currentSection = { title: null, lines: [] };
+    currentSection.lines.push({ type: 'code', content: codeBuffer.join('\n') });
   }
 
   if (currentSection) sections.push(currentSection);
@@ -176,6 +223,28 @@ export default function QueryDiagnosis({ content }) {
               {section.lines.map((line, li) => {
                 if (line.type === 'spacer') return null;
 
+                if (line.type === 'code') {
+                  return (
+                    <pre
+                      key={li}
+                      style={{
+                        background: '#0f172a',
+                        color: C.green,
+                        fontFamily: "'JetBrains Mono', monospace",
+                        fontSize: 11.5,
+                        lineHeight: 1.6,
+                        padding: 12,
+                        borderRadius: 8,
+                        overflowX: 'auto',
+                        margin: '2px 0',
+                        whiteSpace: 'pre-wrap',
+                      }}
+                    >
+                      {line.content}
+                    </pre>
+                  );
+                }
+
                 if (line.type === 'kv') {
                   return (
                     <div
@@ -190,10 +259,10 @@ export default function QueryDiagnosis({ content }) {
                     >
                       <span
                         style={{
-                          color: C.muted,
+                          color: C.label,
                           fontWeight: 500,
                           flexShrink: 0,
-                          minWidth: 130,
+                          minWidth: 140,
                         }}
                       >
                         {line.key}
@@ -203,18 +272,29 @@ export default function QueryDiagnosis({ content }) {
                   );
                 }
 
-                // Text line — render inline bold segments
+                if (line.type === 'issue-count') {
+                  return (
+                    <p
+                      key={li}
+                      style={{ fontSize: 12, lineHeight: 1.65, color: C.text, margin: 0 }}
+                    >
+                      <strong style={{ color: C.red, fontWeight: 700 }}>{line.count}</strong>{' '}
+                      {line.label}
+                      {line.rest}
+                    </p>
+                  );
+                }
+
+                // Text line — render inline bold segments (readability tips, generic body text)
                 const segments = parseBold(line.content);
-                const hasHighlight =
-                  line.content.includes('issue') || line.content.includes('detected');
 
                 return (
                   <p
                     key={li}
                     style={{
-                      fontSize: 12,
+                      fontSize: 11,
                       lineHeight: 1.65,
-                      color: hasHighlight ? C.text : C.muted,
+                      color: C.muted,
                       margin: 0,
                     }}
                   >
@@ -223,7 +303,7 @@ export default function QueryDiagnosis({ content }) {
                         <strong
                           key={segi}
                           style={{
-                            color: hasHighlight ? C.yellow : C.text,
+                            color: C.text,
                             fontWeight: 600,
                           }}
                         >
