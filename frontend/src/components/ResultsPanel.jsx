@@ -1,3 +1,5 @@
+import { safeParseAiJson } from '../utils/aiInsights';
+
 // ── Token colours matching the design system (QueryDiagnosis.jsx, App.jsx) ──
 const SEVERITY_COLORS = {
   critical: '#f87171',
@@ -8,22 +10,6 @@ const SEVERITY_COLORS = {
 
 function severityColor(sev) {
   return SEVERITY_COLORS[(sev || '').toLowerCase()] || SEVERITY_COLORS.low;
-}
-
-// LLMs frequently wrap JSON in a markdown fence even when asked for raw JSON,
-// and sometimes ignore the JSON instruction entirely and reply in prose —
-// both are valid responses we need to render, not errors.
-function safeParseAiJson(content) {
-  if (!content || typeof content !== 'string') return null;
-  let text = content.trim();
-  const fenceMatch = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
-  if (fenceMatch) text = fenceMatch[1].trim();
-  try {
-    const parsed = JSON.parse(text);
-    return parsed && typeof parsed === 'object' ? parsed : null;
-  } catch {
-    return null;
-  }
 }
 
 const copyButtonClass =
@@ -235,10 +221,16 @@ function RiskyAssumptionCard({ item }) {
   );
 }
 
-function StructuredInsights({ data }) {
-  const improvements = Array.isArray(data.most_impactful_improvements)
+function StructuredInsights({ data, aiConfirmedTypes }) {
+  const allImprovements = Array.isArray(data.most_impactful_improvements)
     ? data.most_impactful_improvements
     : [];
+  // Types already confirmed on a heuristic card (badged in OptimizationSuggestions)
+  // are dropped here instead of repeating the same finding in both panels.
+  const improvements =
+    aiConfirmedTypes && aiConfirmedTypes.size > 0
+      ? allImprovements.filter((item) => !aiConfirmedTypes.has(item?.type))
+      : allImprovements;
   const indexes = Array.isArray(data.recommended_indexes) ? data.recommended_indexes : [];
   const rewritten = typeof data.rewritten_query === 'string' ? data.rewritten_query.trim() : '';
   const risky = Array.isArray(data.risky_assumptions) ? data.risky_assumptions : [];
@@ -247,7 +239,19 @@ function StructuredInsights({ data }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {improvements.length > 0 && (
         <div>
-          <SectionTitle>Most Impactful Improvements</SectionTitle>
+          <SectionTitle>
+            Most Impactful Improvements
+            <span
+              style={{
+                textTransform: 'none',
+                fontWeight: 400,
+                letterSpacing: 'normal',
+                color: '#4a6480',
+              }}
+            >
+              (complements heuristic findings above)
+            </span>
+          </SectionTitle>
           {improvements.map((item, idx) => (
             <SuggestionCard key={idx} item={item} />
           ))}
@@ -313,7 +317,7 @@ function PlainTextInsights({ content }) {
   );
 }
 
-function ResultsPanel({ title, content, icon: Icon, onShare }) {
+function ResultsPanel({ title, content, icon: Icon, onShare, aiConfirmedTypes }) {
   if (!content) return null;
 
   const handleCopy = () => {
@@ -327,32 +331,43 @@ function ResultsPanel({ title, content, icon: Icon, onShare }) {
 
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          {Icon && <Icon className="w-5 h-5 text-blue-400" />}
-          <h3 className="text-lg font-bold text-white">{title}</h3>
-          <span
-            style={{
-              fontSize: 9,
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              color: '#7fa3c4',
-              background: 'rgba(127,163,196,0.1)',
-              border: '1px solid rgba(127,163,196,0.25)',
-              borderRadius: 999,
-              padding: '2px 8px',
-            }}
-          >
-            AI Generated
-          </span>
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-start gap-2">
+          {Icon && <Icon className="w-5 h-5 text-blue-400 mt-0.5" />}
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-bold text-white">{title}</h3>
+              <span
+                style={{
+                  fontSize: 9,
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: '#7fa3c4',
+                  background: 'rgba(127,163,196,0.1)',
+                  border: '1px solid rgba(127,163,196,0.25)',
+                  borderRadius: 999,
+                  padding: '2px 8px',
+                }}
+              >
+                AI Generated
+              </span>
+            </div>
+            <p style={{ fontSize: 11, color: '#7fa3c4', margin: '2px 0 0' }}>
+              AI-enhanced reasoning and query rewrites
+            </p>
+          </div>
         </div>
         <button onClick={handleCopy} className={copyButtonClass}>
           Copy
         </button>
       </div>
 
-      {parsed ? <StructuredInsights data={parsed} /> : <PlainTextInsights content={content} />}
+      {parsed ? (
+        <StructuredInsights data={parsed} aiConfirmedTypes={aiConfirmedTypes} />
+      ) : (
+        <PlainTextInsights content={content} />
+      )}
     </div>
   );
 }

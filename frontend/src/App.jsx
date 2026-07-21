@@ -11,6 +11,7 @@ import Header from './components/Header';
 import Hero from './components/Hero';
 import Footer from './components/Footer';
 import { ToastContainer, useToast } from './components/Toast';
+import { getAiConfirmedTypes } from './utils/aiInsights';
 import {
   trackAnalysisRun,
   trackAnalysisSuccess,
@@ -124,6 +125,15 @@ function App() {
   const issueCount = Array.isArray(result?.optimization_suggestions)
     ? result.optimization_suggestions.length
     : 0;
+
+  // Heuristic types the AI's most_impactful_improvements also flagged — only
+  // computed when AI was actually used and returned usable content. Drives
+  // the "✓ Confirmed by AI" badge in OptimizationSuggestions and suppresses
+  // the same finding from being repeated in the AI Insights panel.
+  const aiConfirmedTypes =
+    result?.used_ai && result?.ai_insights && !result?.ai_error
+      ? getAiConfirmedTypes(result.optimization_suggestions, result.ai_insights)
+      : new Set();
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
@@ -244,7 +254,10 @@ function App() {
               {result.plain_explanation && <QueryDiagnosis content={result.plain_explanation} />}
 
               {/* Optimization findings */}
-              <OptimizationSuggestions suggestions={result.optimization_suggestions || []} />
+              <OptimizationSuggestions
+                suggestions={result.optimization_suggestions || []}
+                aiConfirmedTypes={aiConfirmedTypes}
+              />
 
               {/* AI Insights — only show when AI was actually used and returned content */}
               {result.used_ai && result.ai_insights && !result.ai_error && (
@@ -256,6 +269,7 @@ function App() {
                   }`}
                   content={result.ai_insights}
                   icon={Zap}
+                  aiConfirmedTypes={aiConfirmedTypes}
                   onShare={() => {
                     navigator.clipboard.writeText(result.ai_insights || '');
                     showToast('AI insights copied to clipboard', 'success');

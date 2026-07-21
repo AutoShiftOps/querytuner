@@ -1,4 +1,5 @@
 import React from 'react';
+import { Zap } from 'lucide-react';
 
 function severityColor(sev) {
   const s = (sev || '').toLowerCase();
@@ -41,12 +42,40 @@ function typeLabel(type) {
   );
 }
 
-export default function OptimizationSuggestions({ suggestions }) {
+// Frames this panel as "fast, deterministic, always-on" — the complement to
+// the AI panel's "deeper, additive reasoning" framing — so the two panels
+// read as two layers of analysis rather than duplicated findings.
+function HeuristicHeader() {
+  return (
+    <div className="mb-4">
+      <div className="flex items-center gap-2">
+        <Zap className="w-3.5 h-3.5" style={{ color: '#38bdf8' }} />
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            color: '#38bdf8',
+          }}
+        >
+          Heuristic Analysis
+        </span>
+      </div>
+      <p className="text-xs mt-1" style={{ color: '#4a6480' }}>
+        Deterministic rules — sub-second, always available
+      </p>
+    </div>
+  );
+}
+
+export default function OptimizationSuggestions({ suggestions, aiConfirmedTypes }) {
   const items = Array.isArray(suggestions) ? suggestions : [];
 
   if (items.length === 0) {
     return (
       <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+        <HeuristicHeader />
         <h3 className="text-lg font-bold text-white">Suggestions</h3>
         <p className="text-slate-400 text-sm mt-2">No suggestions found.</p>
       </div>
@@ -55,25 +84,43 @@ export default function OptimizationSuggestions({ suggestions }) {
 
   return (
     <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+      <HeuristicHeader />
       <h3 className="text-lg font-bold text-white mb-4">Suggestions</h3>
 
       <div className="space-y-3">
-        {items.map((s, idx) => (
-          <div key={idx} className={`p-4 rounded border ${severityColor(s.severity)}`}>
-            <div className="flex items-center justify-between gap-3">
-              <p className="font-semibold">{typeLabel(s.type)}</p>
-              <span className="text-xs opacity-90">{(s.severity || 'low').toUpperCase()}</span>
+        {items.map((s, idx) => {
+          const confirmedByAi = Boolean(aiConfirmedTypes?.has?.(s.type));
+          return (
+            <div key={idx} className={`p-4 rounded border ${severityColor(s.severity)}`}>
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-semibold">{typeLabel(s.type)}</p>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {confirmedByAi && (
+                    <span
+                      className="text-xs px-2 py-0.5 rounded-full whitespace-nowrap"
+                      style={{
+                        color: '#7fa3c4',
+                        background: 'rgba(127,163,196,0.1)',
+                        border: '1px solid rgba(127,163,196,0.3)',
+                      }}
+                    >
+                      ✓ Confirmed by AI
+                    </span>
+                  )}
+                  <span className="text-xs opacity-90">{(s.severity || 'low').toUpperCase()}</span>
+                </div>
+              </div>
+
+              <p className="mt-2">{s.suggestion}</p>
+
+              {s.reason ? <p className="mt-2 text-sm opacity-90">Reason: {s.reason}</p> : null}
+
+              {s.estimated_improvement ? (
+                <p className="mt-2 text-sm opacity-90">Estimate: {s.estimated_improvement}</p>
+              ) : null}
             </div>
-
-            <p className="mt-2">{s.suggestion}</p>
-
-            {s.reason ? <p className="mt-2 text-sm opacity-90">Reason: {s.reason}</p> : null}
-
-            {s.estimated_improvement ? (
-              <p className="mt-2 text-sm opacity-90">Estimate: {s.estimated_improvement}</p>
-            ) : null}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
