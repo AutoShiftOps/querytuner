@@ -43,15 +43,29 @@ function isFenceLine(line) {
 }
 
 function isKVLine(line) {
-  // Matches "**Key:** value" or "Key: value"
-  return /^\*\*[^*]+\*\*:/.test(line.trim()) || /^[A-Z][^:]+:\s/.test(line.trim());
+  return parseKV(line) !== null;
 }
 
 function parseKV(line) {
-  // Handles "**Query type:** SELECT" → { key: 'Query type', value: 'SELECT' }
-  const boldMatch = line.match(/^\*\*([^*]+)\*\*:\s*(.*)/);
-  if (boldMatch) return { key: boldMatch[1].trim(), value: boldMatch[2].trim() };
-  const plainMatch = line.match(/^([^:]+):\s+(.*)/);
+  // Handles "**Query type:** SELECT" (colon inside the bold markers — the actual
+  // format sql_analyzer/explainer.py emits) as well as "**Query type**: SELECT"
+  // (colon outside) → { key: 'Query type', value: 'SELECT' }
+  const boldMatch = line.match(/^\*\*([^*]+)\*\*\s*(.*)/);
+  if (boldMatch) {
+    let key = boldMatch[1].trim();
+    const value = boldMatch[2].trim();
+    if (key.endsWith(':')) {
+      return { key: key.slice(0, -1).trim(), value };
+    }
+    if (value.startsWith(':')) {
+      return { key, value: value.slice(1).trim() };
+    }
+    return null;
+  }
+  // Plain "Key: value" (no markdown bold) — same conservative gate as before:
+  // key must start with an uppercase letter, to avoid false-matching ordinary
+  // sentences that happen to contain a colon.
+  const plainMatch = line.match(/^([A-Z][^:]+):\s+(.*)/);
   if (plainMatch) return { key: plainMatch[1].trim(), value: plainMatch[2].trim() };
   return null;
 }
@@ -94,7 +108,10 @@ export default function QueryDiagnosis({ content }) {
   let codeBuffer = [];
 
   for (const raw of lines) {
-    const line = raw.trimEnd();
+    const line = raw
+      .trimEnd()
+      .replace(/^[-–]\s*/, '')
+      .trim();
 
     if (isFenceLine(line)) {
       if (inCodeBlock) {
