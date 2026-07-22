@@ -4,20 +4,22 @@ import time
 from collections import defaultdict
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
-from .agents.sql_analyzer import SQLAnalyzerAgent
-from .schemas.models import QueryAnalysisResult, QueryRequest
-from .utils.database import get_analysis, save_analysis
+# Must run before any local import that triggers Settings instantiation
+# (app.utils.config reads env vars at import time via a module-level singleton).
+load_dotenv()
+
+from fastapi import FastAPI, HTTPException, Request  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+
+from .agents.sql_analyzer import SQLAnalyzerAgent  # noqa: E402
+from .schemas.models import QueryAnalysisResult, QueryRequest  # noqa: E402
+from .utils.database import get_analysis, save_analysis  # noqa: E402
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-load_dotenv()
 
 # Initialize FastAPI
 app = FastAPI(
