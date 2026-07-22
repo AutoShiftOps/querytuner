@@ -573,6 +573,17 @@ export default function ReportPage() {
           </span>
           <span className="qt-footer-id">ID: {id}</span>
         </div>
+        <p
+          style={{
+            fontSize: 10,
+            color: T.textDim,
+            marginTop: 6,
+            textAlign: 'center',
+          }}
+        >
+          This report is publicly accessible to anyone with this URL and stored indefinitely. Do not
+          share queries containing sensitive or production data.
+        </p>
       </div>
     </div>
   );

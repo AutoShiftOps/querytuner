@@ -30,64 +30,76 @@ export default function ShareButton({ analysisId, onShare }) {
   };
 
   return (
-    <button
-      onClick={handleShare}
-      title={state === 'idle' ? shareUrl : undefined}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: '6px 14px',
-        borderRadius: 6,
-        fontSize: 12,
-        fontWeight: 500,
-        cursor: 'pointer',
-        fontFamily: 'inherit',
-        transition: 'all 0.15s',
-        background:
-          state === 'copied'
-            ? 'rgba(52,211,153,0.08)'
-            : state === 'error'
-              ? 'rgba(248,113,113,0.08)'
-              : 'transparent',
-        border:
-          state === 'copied'
-            ? '1px solid #34d399'
-            : state === 'error'
-              ? '1px solid #f87171'
-              : '1px solid #2d3f55',
-        color: state === 'copied' ? '#34d399' : state === 'error' ? '#f87171' : '#7fa3c4',
-      }}
-      onMouseEnter={(e) => {
-        if (state === 'idle') {
-          e.currentTarget.style.borderColor = '#3b5268';
-          e.currentTarget.style.color = '#e2e8f0';
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (state === 'idle') {
-          e.currentTarget.style.borderColor = '#2d3f55';
-          e.currentTarget.style.color = '#7fa3c4';
-        }
-      }}
-    >
-      {state === 'copied' ? (
-        <>
-          <CheckIcon />
-          Link copied!
-        </>
-      ) : state === 'error' ? (
-        <>
-          <LinkIcon />
-          Copy failed — try again
-        </>
-      ) : (
-        <>
-          <LinkIcon />
-          Share analysis
-        </>
-      )}
-    </button>
+    <>
+      <button
+        onClick={handleShare}
+        title={state === 'idle' ? shareUrl : undefined}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '6px 14px',
+          borderRadius: 6,
+          fontSize: 12,
+          fontWeight: 500,
+          cursor: 'pointer',
+          fontFamily: 'inherit',
+          transition: 'all 0.15s',
+          background:
+            state === 'copied'
+              ? 'rgba(52,211,153,0.08)'
+              : state === 'error'
+                ? 'rgba(248,113,113,0.08)'
+                : 'transparent',
+          border:
+            state === 'copied'
+              ? '1px solid #34d399'
+              : state === 'error'
+                ? '1px solid #f87171'
+                : '1px solid #2d3f55',
+          color: state === 'copied' ? '#34d399' : state === 'error' ? '#f87171' : '#7fa3c4',
+        }}
+        onMouseEnter={(e) => {
+          if (state === 'idle') {
+            e.currentTarget.style.borderColor = '#3b5268';
+            e.currentTarget.style.color = '#e2e8f0';
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (state === 'idle') {
+            e.currentTarget.style.borderColor = '#2d3f55';
+            e.currentTarget.style.color = '#7fa3c4';
+          }
+        }}
+      >
+        {state === 'copied' ? (
+          <>
+            <CheckIcon />
+            Link copied!
+          </>
+        ) : state === 'error' ? (
+          <>
+            <LinkIcon />
+            Copy failed — try again
+          </>
+        ) : (
+          <>
+            <LinkIcon />
+            Share analysis
+          </>
+        )}
+      </button>
+      <p
+        style={{
+          fontSize: 11,
+          color: '#fbbf24',
+          marginTop: 6,
+          display: state === 'copied' ? 'block' : 'none',
+        }}
+      >
+        ⚠ Report URLs are public. Avoid sharing queries containing sensitive table or column names.
+      </p>
+    </>
   );
 }
 
