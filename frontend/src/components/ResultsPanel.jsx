@@ -86,61 +86,81 @@ function SuggestionCard({ item }) {
         </span>
       </div>
 
-      {item.suggestion && (
-        <p
-          style={{
-            fontSize: 13,
-            fontWeight: 600,
-            color: '#e2e8f0',
-            margin: '8px 0 0',
-            lineHeight: 1.5,
-          }}
-        >
-          {item.suggestion}
-        </p>
-      )}
+      {(() => {
+        const title = item.suggestion || item.title || item.type;
+        return (
+          title && (
+            <p
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: '#e2e8f0',
+                margin: '8px 0 0',
+                lineHeight: 1.5,
+              }}
+            >
+              {title}
+            </p>
+          )
+        );
+      })()}
 
-      {item.reason && (
-        <p style={{ fontSize: 12, color: '#94a3b8', margin: '6px 0 0', lineHeight: 1.5 }}>
-          {item.reason}
-        </p>
-      )}
+      {(() => {
+        const body = item.reason || item.description || '';
+        return (
+          body && (
+            <p style={{ fontSize: 12, color: '#94a3b8', margin: '6px 0 0', lineHeight: 1.5 }}>
+              {body}
+            </p>
+          )
+        );
+      })()}
 
-      {item.estimated_improvement && (
-        <p
-          style={{
-            fontSize: 11,
-            color: '#38bdf8',
-            fontFamily: "'JetBrains Mono', monospace",
-            margin: '8px 0 0',
-          }}
-        >
-          {item.estimated_improvement}
-        </p>
-      )}
+      {(() => {
+        const estimate = item.estimated_improvement || item.estimate || '';
+        return (
+          estimate && (
+            <p
+              style={{
+                fontSize: 11,
+                color: '#38bdf8',
+                fontFamily: "'JetBrains Mono', monospace",
+                margin: '8px 0 0',
+              }}
+            >
+              {estimate}
+            </p>
+          )
+        );
+      })()}
 
-      {item.ddl_statement && (
-        <div style={{ marginTop: 10 }}>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
-            <CopyButton text={item.ddl_statement} />
-          </div>
-          <pre
-            style={{
-              background: '#0f172a',
-              color: '#7dd3fc',
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 11,
-              padding: 12,
-              borderRadius: 8,
-              overflowX: 'auto',
-              margin: 0,
-              whiteSpace: 'pre-wrap',
-            }}
-          >
-            {item.ddl_statement}
-          </pre>
-        </div>
-      )}
+      {(() => {
+        const ddl = item.ddl_statement || item.ddl || item.ddl_hint || null;
+        return (
+          ddl && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+                <CopyButton text={ddl} />
+              </div>
+              <pre
+                style={{
+                  background: '#0f172a',
+                  color: '#7dd3fc',
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 11,
+                  padding: 12,
+                  borderRadius: 8,
+                  overflowX: 'auto',
+                  margin: 0,
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                {ddl}
+              </pre>
+            </div>
+          )
+        );
+      })()}
     </div>
   );
 }
@@ -181,12 +201,22 @@ function RiskyAssumptionCard({ item }) {
     );
   }
 
-  // {"type": "unknown_cardinality", "column": "p.category", "note": "..."}
-  const note = item.note || item.assumption || JSON.stringify(item);
+  // {"type": "unknown_cardinality", "column": "p.category", "note": "..."} —
+  // but the LLM doesn't always use those exact keys (e.g. {"schema":"missing",
+  // "reason":"..."}), so fall through several aliases before ever resorting
+  // to JSON.stringify, and never let a JSON-shaped string reach the screen.
+  let displayText = item.note || item.reason || item.assumption || JSON.stringify(item);
+  if (typeof displayText === 'string' && /^[[{]/.test(displayText.trim())) {
+    displayText =
+      'AI identified a potential assumption — provide schema DDL for more specific analysis';
+  }
+
+  const columnLabel = item.column || item.field || item.table || null;
+  const typeLabel = item.type || item.schema || null;
 
   return (
     <div style={RISKY_CARD_STYLE}>
-      {item.type && (
+      {typeLabel && (
         <span
           style={{
             fontSize: 10,
@@ -201,11 +231,11 @@ function RiskyAssumptionCard({ item }) {
             marginBottom: 6,
           }}
         >
-          {String(item.type).replace(/_/g, ' ')}
+          {String(typeLabel).replace(/_/g, ' ')}
         </span>
       )}
-      <p style={RISKY_NOTE_STYLE}>{note}</p>
-      {item.column && (
+      <p style={RISKY_NOTE_STYLE}>{displayText}</p>
+      {columnLabel && (
         <p
           style={{
             fontSize: 11,
@@ -214,7 +244,7 @@ function RiskyAssumptionCard({ item }) {
             margin: '6px 0 0',
           }}
         >
-          Column: {item.column}
+          Column: {columnLabel}
         </p>
       )}
     </div>
@@ -331,36 +361,45 @@ function ResultsPanel({ title, content, icon: Icon, onShare, aiConfirmedTypes })
 
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
-      <div className="flex items-start justify-between mb-4">
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          marginBottom: 12,
+        }}
+      >
         <div className="flex items-start gap-2">
           {Icon && <Icon className="w-5 h-5 text-blue-400 mt-0.5" />}
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-lg font-bold text-white">{title}</h3>
-              <span
-                style={{
-                  fontSize: 9,
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  color: '#7fa3c4',
-                  background: 'rgba(127,163,196,0.1)',
-                  border: '1px solid rgba(127,163,196,0.25)',
-                  borderRadius: 999,
-                  padding: '2px 8px',
-                }}
-              >
-                AI Generated
-              </span>
-            </div>
+            <h3 className="text-lg font-bold text-white">{title}</h3>
             <p style={{ fontSize: 11, color: '#7fa3c4', margin: '2px 0 0' }}>
               AI-enhanced reasoning and query rewrites
             </p>
           </div>
         </div>
-        <button onClick={handleCopy} className={copyButtonClass}>
-          Copy
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span
+            style={{
+              fontSize: 9,
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              color: '#7fa3c4',
+              background: 'rgba(127,163,196,0.1)',
+              border: '1px solid rgba(127,163,196,0.25)',
+              borderRadius: 999,
+              padding: '2px 8px',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            AI Generated
+          </span>
+          <button onClick={handleCopy} className={copyButtonClass}>
+            Copy
+          </button>
+        </div>
       </div>
 
       {parsed ? (
