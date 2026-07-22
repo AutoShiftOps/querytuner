@@ -11,9 +11,11 @@
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Status](https://img.shields.io/badge/status-live-brightgreen)](https://querytuner.com)
 
-> Paste any SQL query. Get instant performance diagnosis,
-> index recommendations, and an optimized rewrite —
-> across **PostgreSQL, MySQL, Oracle, SQL Server, and SQLite**.
+> Only 0.3% of developers are database administrators.<br>
+> The SQL performance tools that exist were built for them.<br>
+> QueryTuner is for the other 99.7%.
+>
+> *— Stack Overflow Developer Survey 2024, 65,000+ developers*
 
 **No database connection required. Paste-in and analyze.**
 

@@ -14,15 +14,17 @@ export default function Hero() {
             transparent 60%
           );
         }
-        .qt-hero-eyebrow {
-          display: flex; align-items: center; justify-content: center;
-          gap: 8px; margin-bottom: 12px;
-          font-size: 10px; font-weight: 600;
-          letter-spacing: 0.1em; text-transform: uppercase;
-          color: #38bdf8;
+        .qt-hero-stat-line1 {
+          font-size: 13px; font-weight: 600;
+          color: #e2e8f0; text-align: center;
         }
-        .qt-hero-eyebrow-line {
-          width: 28px; height: 1px; background: rgba(56,189,248,0.4);
+        .qt-hero-stat-line2 {
+          font-size: 13px; color: #7fa3c4;
+          text-align: center; margin-bottom: 16px;
+        }
+        .qt-hero-source {
+          font-size: 10px; color: #4a6480;
+          text-align: center; margin-top: 8px;
         }
         .qt-hero-title {
           font-size: 26px; font-weight: 600;
@@ -53,11 +55,10 @@ export default function Hero() {
       `}</style>
 
       <div className="qt-hero">
-        <div className="qt-hero-eyebrow">
-          <div className="qt-hero-eyebrow-line" />
-          AI-powered SQL diagnostics
-          <div className="qt-hero-eyebrow-line" />
-        </div>
+        <p className="qt-hero-stat-line1">Only 0.3% of developers are DBAs.</p>
+        <p className="qt-hero-stat-line2">
+          The SQL performance tools that exist were built for them.
+        </p>
 
         <h1 className="qt-hero-title">
           Paste any query.
@@ -71,12 +72,14 @@ export default function Hero() {
         </p>
 
         <div className="qt-hero-pills">
-          <span className="qt-hero-pill">Severity ranking</span>
-          <span className="qt-hero-pill">Rewritten SQL</span>
-          <span className="qt-hero-pill">Security scan</span>
-          <span className="qt-hero-pill">Shareable report</span>
-          <span className="qt-hero-pill">REST API</span>
+          <span className="qt-hero-pill">A prioritised fix list</span>
+          <span className="qt-hero-pill">A copy-pasteable rewritten query</span>
+          <span className="qt-hero-pill">A security risk report</span>
+          <span className="qt-hero-pill">A permanent shareable URL</span>
+          <span className="qt-hero-pill">A /analyze API endpoint</span>
         </div>
+
+        <p className="qt-hero-source">†Stack Overflow Developer Survey 2024, 65,000+ developers</p>
       </div>
     </>
   );
