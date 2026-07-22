@@ -359,38 +359,74 @@ function ResultsPanel({ title, content, icon: Icon, onShare, aiConfirmedTypes })
 
   const parsed = safeParseAiJson(content);
 
+  const parts = title.split('(');
+  const mainTitle = parts[0].trim();
+  const subtitle = parts[1] ? parts[1].replace(')', '').trim() : '';
+
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
       <div
         style={{
           display: 'flex',
-          alignItems: 'center',
+          alignItems: 'flex-start',
           justifyContent: 'space-between',
-          gap: 8,
+          gap: 12,
           marginBottom: 12,
         }}
       >
-        <div className="flex items-start gap-2">
-          {Icon && <Icon className="w-5 h-5 text-blue-400 mt-0.5" />}
-          <div>
-            <h3 className="text-lg font-bold text-white">{title}</h3>
-            <p style={{ fontSize: 11, color: '#7fa3c4', margin: '2px 0 0' }}>
-              AI-enhanced reasoning and query rewrites
-            </p>
+        {/* LEFT: icon + title stack */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flex: 1, minWidth: 0 }}>
+          {Icon && <Icon size={16} style={{ color: '#38bdf8', flexShrink: 0, marginTop: 2 }} />}
+          <div style={{ minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: '#e2e8f0',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {mainTitle}
+            </div>
+            {subtitle && (
+              <div
+                style={{
+                  fontSize: 11,
+                  color: '#7fa3c4',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  marginTop: 2,
+                }}
+              >
+                {subtitle}
+              </div>
+            )}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+
+        {/* RIGHT: badge + copy button — always inline */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            flexShrink: 0,
+          }}
+        >
           <span
             style={{
               fontSize: 9,
               fontWeight: 600,
-              textTransform: 'uppercase',
+              padding: '3px 7px',
+              borderRadius: 20,
+              background: 'rgba(56,189,248,0.1)',
+              color: '#38bdf8',
+              border: '1px solid rgba(56,189,248,0.2)',
               letterSpacing: '0.06em',
-              color: '#7fa3c4',
-              background: 'rgba(127,163,196,0.1)',
-              border: '1px solid rgba(127,163,196,0.25)',
-              borderRadius: 999,
-              padding: '2px 8px',
+              textTransform: 'uppercase',
               whiteSpace: 'nowrap',
             }}
           >
