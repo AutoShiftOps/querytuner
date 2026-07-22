@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo/querytuner-mark.svg" alt="QueryTuner logo" width="96" height="96" />
+</p>
+
 # QueryTuner — AI-Powered SQL Query Diagnostics
 
 [![Version](https://img.shields.io/badge/version-0.2.0-blue)](CHANGELOG.md)

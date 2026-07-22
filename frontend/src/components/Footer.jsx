@@ -54,7 +54,7 @@ export default function Footer() {
             API Docs
           </a>
           <a
-            href="https://github.com/AutoShiftOps/sql-query-analyzer"
+            href="https://github.com/AutoShiftOps/querytuner"
             target="_blank"
             rel="noopener noreferrer"
             className="qt-footer-link"
@@ -62,7 +62,7 @@ export default function Footer() {
             GitHub
           </a>
           <a
-            href="https://github.com/AutoShiftOps/sql-query-analyzer/blob/master/ROADMAP.md"
+            href="https://github.com/AutoShiftOps/querytuner/blob/master/ROADMAP.md"
             target="_blank"
             rel="noopener noreferrer"
             className="qt-footer-link"
@@ -70,7 +70,7 @@ export default function Footer() {
             Roadmap
           </a>
           <a
-            href="https://github.com/AutoShiftOps/sql-query-analyzer/blob/master/LICENSE"
+            href="https://github.com/AutoShiftOps/querytuner/blob/master/LICENSE"
             target="_blank"
             rel="noopener noreferrer"
             className="qt-footer-link"

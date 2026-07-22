@@ -18,9 +18,9 @@ export default function Header() {
           display: flex; align-items: center; gap: 8px;
           text-decoration: none;
         }
-        .qt-header-dot {
-          width: 7px; height: 7px; border-radius: 50%;
-          background: #38bdf8; box-shadow: 0 0 8px rgba(56,189,248,0.5);
+        .qt-header-logo {
+          width: 22px; height: 22px; border-radius: 5px;
+          display: block;
         }
         .qt-header-name {
           font-size: 13px; font-weight: 600;
@@ -78,7 +78,7 @@ export default function Header() {
 
       <header className="qt-header">
         <a href="/" className="qt-header-brand">
-          <div className="qt-header-dot" />
+          <img src="/querytuner-mark.svg" alt="QueryTuner logo" className="qt-header-logo" />
           <span className="qt-header-name">QueryTuner</span>
           <span className="qt-header-version">v0.2.0</span>
         </a>
@@ -93,7 +93,7 @@ export default function Header() {
             API Docs
           </a>
           <a
-            href="https://github.com/AutoShiftOps/sql-query-analyzer"
+            href="https://github.com/AutoShiftOps/querytuner"
             target="_blank"
             rel="noopener noreferrer"
             className="qt-header-link qt-header-hide-mobile"
@@ -101,7 +101,7 @@ export default function Header() {
             GitHub
           </a>
           <a
-            href="https://github.com/AutoShiftOps/sql-query-analyzer/blob/master/ROADMAP.md"
+            href="https://github.com/AutoShiftOps/querytuner/blob/master/ROADMAP.md"
             target="_blank"
             rel="noopener noreferrer"
             className="qt-header-link qt-header-hide-mobile"
@@ -117,9 +117,7 @@ export default function Header() {
           </button>
           <button
             className="qt-header-btn qt-header-pro"
-            onClick={() =>
-              window.open('https://github.com/AutoShiftOps/sql-query-analyzer', '_blank')
-            }
+            onClick={() => window.open('https://github.com/AutoShiftOps/querytuner', '_blank')}
             title="Star us on GitHub"
           >
             ★ Star
