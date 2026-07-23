@@ -101,10 +101,10 @@ export default function QueryInput({
             className="w-full bg-slate-900 text-white rounded border border-slate-600 p-2 disabled:opacity-50"
           >
             <option value="huggingface" disabled={!hfEnabled}>
-              Hugging Face (default)
+              Hugging Face
             </option>
             <option value="openai" disabled={!openaiEnabled}>
-              OpenAI {openaiEnabled ? '' : '(not enabled on server)'}
+              OpenAI (recommended) {openaiEnabled ? '' : '(not enabled on server)'}
             </option>
           </select>
           {!anyAiEnabled && (
