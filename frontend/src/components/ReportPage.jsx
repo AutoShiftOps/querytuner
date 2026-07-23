@@ -704,6 +704,7 @@ export default function ReportPage() {
         {/* ── AI Insights — only when AI was actually used and returned content ── */}
         {report.used_ai && report.ai_insights && (
           <div className="qt-section">
+            <div className="qt-section-label">AI Insights</div>
             <ResultsPanel
               title={`AI Insights${
                 report.ai_provider
