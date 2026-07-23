@@ -184,12 +184,13 @@ class QueryExplainer:
                 lines.append(f"  - Existing indexes: {', '.join(sorted(table_indexed))}")
 
         if suggestions:
-            total = len(suggestions)
-            schema_verified_count = sum(1 for s in suggestions if s.get("schema_verified") is True)
-            estimated_count = total - schema_verified_count
+            deterministic_count = sum(1 for s in suggestions if s.get("evidence_level") == "deterministic")
+            schema_verified_count = sum(1 for s in suggestions if s.get("evidence_level") == "schema-verified")
+            runtime_evidence_count = sum(1 for s in suggestions if s.get("evidence_level") == "needs-runtime-evidence")
             lines.append(
-                f"- QueryTuner cross-referenced **{schema_verified_count}/{total}** suggestions against schema"
-                f" — {schema_verified_count} schema-verified ✓, {estimated_count} estimated"
+                f"- {deterministic_count} deterministic findings · "
+                f"{schema_verified_count} schema-verified · "
+                f"{runtime_evidence_count} needs runtime evidence"
             )
 
         return "\n".join(lines)

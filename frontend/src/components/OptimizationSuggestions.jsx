@@ -42,6 +42,47 @@ function typeLabel(type) {
   );
 }
 
+// Three-tier evidence labels — how confident QueryTuner actually is about a
+// finding, instead of a binary confirmed/estimated flag. See backend
+// app/schemas/models.py OptimizationSuggestion.evidence_level.
+const EVIDENCE_CONFIG = {
+  deterministic: {
+    background: 'rgba(56,189,248,0.1)',
+    color: '#38bdf8',
+    border: '1px solid rgba(56,189,248,0.2)',
+    text: 'Deterministic',
+    subtitle: 'Always applies regardless of data distribution',
+  },
+  'schema-verified': {
+    background: 'rgba(52,211,153,0.1)',
+    color: '#34d399',
+    border: '1px solid rgba(52,211,153,0.2)',
+    text: 'Schema Verified',
+    subtitle: 'Verified against your provided DDL',
+  },
+  'needs-runtime-evidence': {
+    background: 'rgba(251,191,36,0.08)',
+    color: '#fbbf24',
+    border: '1px solid rgba(251,191,36,0.2)',
+    text: 'Estimated',
+    subtitle: 'Likely applies — verify with EXPLAIN before creating',
+  },
+};
+
+function EvidenceBadge({ level }) {
+  const cfg = EVIDENCE_CONFIG[level];
+  if (!cfg) return null;
+  return (
+    <span
+      className="text-xs px-2 py-0.5 rounded-full whitespace-nowrap"
+      style={{ background: cfg.background, color: cfg.color, border: cfg.border }}
+      title={cfg.subtitle}
+    >
+      {cfg.text}
+    </span>
+  );
+}
+
 // Frames this panel as "fast, deterministic, always-on" — the complement to
 // the AI panel's "deeper, additive reasoning" framing — so the two panels
 // read as two layers of analysis rather than duplicated findings.
@@ -126,6 +167,7 @@ export default function OptimizationSuggestions({ suggestions, aiConfirmedTypes 
       <div className="space-y-3">
         {items.map((s, idx) => {
           const confirmedByAi = Boolean(aiConfirmedTypes?.has?.(s.type));
+          const evidenceCfg = EVIDENCE_CONFIG[s.evidence_level];
           return (
             <div key={idx} className={`p-4 rounded border ${severityColor(s.severity)}`}>
               <div className="flex items-center justify-between gap-3">
@@ -143,9 +185,16 @@ export default function OptimizationSuggestions({ suggestions, aiConfirmedTypes 
                       ✓ Confirmed by AI
                     </span>
                   )}
+                  <EvidenceBadge level={s.evidence_level} />
                   <span className="text-xs opacity-90">{(s.severity || 'low').toUpperCase()}</span>
                 </div>
               </div>
+
+              {evidenceCfg && (
+                <p className="mt-1 text-xs" style={{ color: '#64748b' }}>
+                  {evidenceCfg.subtitle}
+                </p>
+              )}
 
               <p className="mt-2">{s.suggestion}</p>
 

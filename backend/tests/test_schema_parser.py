@@ -582,20 +582,20 @@ def test_explain_without_schema_info_has_no_schema_section():
     assert "## Schema Context" not in out
 
 
-def test_schema_verified_rate_line_shows_correct_count():
+def test_evidence_level_breakdown_line_shows_correct_counts():
     query = "SELECT * FROM orders o WHERE o.status = 'active' AND o.notes = 'x'"
     parsed = QueryParser().parse(query)
     suggestions = IndexRecommender().recommend(
         query=query, parsed=parsed, db_type="postgresql", schema_info=_WAREHOUSE_DDL
     )
-    schema_verified_count = sum(1 for s in suggestions if s.get("schema_verified") is True)
-    total = len(suggestions)
-    estimated_count = total - schema_verified_count
+    deterministic_count = sum(1 for s in suggestions if s.get("evidence_level") == "deterministic")
+    schema_verified_count = sum(1 for s in suggestions if s.get("evidence_level") == "schema-verified")
+    runtime_evidence_count = sum(1 for s in suggestions if s.get("evidence_level") == "needs-runtime-evidence")
 
     summary = QueryExplainer()._format_schema_summary(_WAREHOUSE_DDL, suggestions, parsed)
-    assert f"**{schema_verified_count}/{total}**" in summary
+    assert f"{deterministic_count} deterministic findings" in summary
     assert f"{schema_verified_count} schema-verified" in summary
-    assert f"{estimated_count} estimated" in summary
+    assert f"{runtime_evidence_count} needs runtime evidence" in summary
 
 
 def test_format_schema_summary_returns_none_for_unparseable_ddl():

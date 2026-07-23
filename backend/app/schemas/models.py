@@ -65,6 +65,10 @@ class OptimizationSuggestion(BaseModel):
     columns: list[str] | None = None
     schema_verified: bool | None = None
     rollback_ddl: str | None = None
+    # Human-facing evidence tier — schema_verified remains the underlying
+    # boolean used for schema cross-reference logic; this is the label.
+    # Values: "deterministic" | "schema-verified" | "needs-runtime-evidence"
+    evidence_level: str | None = None
 
 
 class ExecutionPlan(BaseModel):

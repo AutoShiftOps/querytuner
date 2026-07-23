@@ -449,11 +449,15 @@ class IndexRecommender:
         alias: str | None = None,
         col: str = "",
         table_ph: str = "",
+        evidence_level: str | None = None,
     ):
+        if evidence_level is None:
+            evidence_level = "schema-verified" if schema_verified else "needs-runtime-evidence"
         result = {
             "type": f"index_review_{index_type}",
             "severity": severity,
             "schema_verified": schema_verified,
+            "evidence_level": evidence_level,
             "columns": columns,
             "suggestion": suggestion,
             "reason": reason,

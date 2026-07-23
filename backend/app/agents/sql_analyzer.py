@@ -18,6 +18,21 @@ from app.utils.dialect_config import get_llm_context
 
 logger = logging.getLogger(__name__)
 
+# Three-tier evidence labels for heuristic (non-index-recommender) findings.
+# Deterministic: the pattern is always correct regardless of data distribution.
+# Everything else falls back to "needs-runtime-evidence" — pattern-based,
+# cannot be confirmed without live DB stats or an EXPLAIN plan.
+_DETERMINISTIC_TYPES = frozenset(
+    {
+        "cartesian_join",
+        "like_wildcard",
+        "function_in_where",
+        "implicit_cast",
+        "subquery_to_join",
+        "column_selection",
+    }
+)
+
 
 @dataclass
 class AnalyzerConfig:
@@ -581,6 +596,7 @@ Keep it concise and actionable.
             "suggestion": suggestion,
             "reason": reason,
             "estimated_improvement": estimated,
+            "evidence_level": ("deterministic" if type_ in _DETERMINISTIC_TYPES else "needs-runtime-evidence"),
         }
 
     def _dedupe_suggestions(self, suggestions: list[dict[str, Any]]) -> list[dict[str, Any]]:
