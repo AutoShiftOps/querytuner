@@ -136,7 +136,8 @@ export default function QueryInput({
             <ChevronIcon open={explainOpen} />
             EXPLAIN plan
             <span className="text-xs font-normal text-slate-500">
-              (optional — paste {explainHint[dbType] || 'EXPLAIN'} output for confirmed analysis)
+              (optional — paste {explainHint[dbType] || 'EXPLAIN'} output for schema-verified
+              analysis)
             </span>
           </span>
           {explainPlan?.trim() && !explainOpen && (
@@ -192,7 +193,7 @@ export default function QueryInput({
             <ChevronIcon open={schemaOpen} />
             Schema DDL
             <span className="text-xs font-normal text-slate-500">
-              (optional — paste CREATE TABLE statements for confirmed index recommendations)
+              (optional — paste CREATE TABLE statements for schema-verified index recommendations)
             </span>
           </span>
           {schemaDdl?.trim() && !schemaOpen && (
