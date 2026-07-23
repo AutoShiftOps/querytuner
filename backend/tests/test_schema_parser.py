@@ -429,10 +429,10 @@ def test_empty_ddl_returns_empty_indexed_columns():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# IndexRecommender.recommend(schema_info=...) — schema-aware confirmation
+# IndexRecommender.recommend(schema_info=...) — schema-aware verification
 # (Issue #8 phase 2: wiring parse_schema_ddl / get_indexed_columns into
-# IndexRecommender so suggestions can be confirmed or suppressed against a
-# real schema instead of always guessing from the query text alone.)
+# IndexRecommender so suggestions can be schema-verified or suppressed against
+# a real schema instead of always guessing from the query text alone.)
 # ═══════════════════════════════════════════════════════════════════════════
 
 _ORDERS_DDL = """
@@ -455,32 +455,32 @@ def _by_type(suggestions, type_):
     return [s for s in suggestions if s["type"] == type_]
 
 
-def test_confirmed_true_when_table_and_column_in_schema():
+def test_schema_verified_true_when_table_and_column_in_schema():
     # 'status' is a real, unindexed column on 'orders' per _ORDERS_DDL
     suggestions = _recommend("SELECT * FROM orders o WHERE o.status = 'active'", schema_info=_ORDERS_DDL)
     partials = _by_type(suggestions, "index_review_partial_index_candidate")
     assert partials, "expected a partial_index_candidate suggestion for o.status"
-    assert partials[0]["confirmed"] is True
+    assert partials[0]["schema_verified"] is True
 
 
-def test_confirmed_false_when_schema_not_provided():
+def test_schema_verified_false_when_schema_not_provided():
     suggestions = _recommend("SELECT * FROM orders o WHERE o.status = 'active'")
     partials = _by_type(suggestions, "index_review_partial_index_candidate")
     assert partials, "expected a partial_index_candidate suggestion for o.status"
-    assert partials[0]["confirmed"] is False
+    assert partials[0]["schema_verified"] is False
 
 
-def test_ddl_hint_uses_real_table_name_when_confirmed():
+def test_ddl_hint_uses_real_table_name_when_schema_verified():
     suggestions = _recommend("SELECT * FROM orders o WHERE o.status = 'active'", schema_info=_ORDERS_DDL)
     partials = _by_type(suggestions, "index_review_partial_index_candidate")
-    assert partials[0]["confirmed"] is True
+    assert partials[0]["schema_verified"] is True
     ddl = partials[0]["ddl_hint"]
     assert "orders" in ddl
     assert "<o_table>" not in ddl
     assert "<table_name>" not in ddl
 
 
-def test_ddl_hint_falls_back_to_placeholder_when_not_confirmed():
+def test_ddl_hint_falls_back_to_placeholder_when_not_schema_verified():
     suggestions = _recommend("SELECT * FROM orders o WHERE o.status = 'active'")
     partials = _by_type(suggestions, "index_review_partial_index_candidate")
     assert "<o_table>" in partials[0]["ddl_hint"]
@@ -510,7 +510,7 @@ def test_unindexed_join_key_still_suggested_with_schema_present():
     suggestions = _recommend(query, schema_info=ddl)
     join_keys = _by_type(suggestions, "index_review_join_key")
     assert any("o.warehouse_id" in s["columns"] for s in join_keys)
-    assert join_keys[0]["confirmed"] is True
+    assert join_keys[0]["schema_verified"] is True
 
 
 def test_alias_resolves_to_real_table_name():
@@ -582,19 +582,19 @@ def test_explain_without_schema_info_has_no_schema_section():
     assert "## Schema Context" not in out
 
 
-def test_confirmation_rate_line_shows_correct_count():
+def test_schema_verified_rate_line_shows_correct_count():
     query = "SELECT * FROM orders o WHERE o.status = 'active' AND o.notes = 'x'"
     parsed = QueryParser().parse(query)
     suggestions = IndexRecommender().recommend(
         query=query, parsed=parsed, db_type="postgresql", schema_info=_WAREHOUSE_DDL
     )
-    confirmed_count = sum(1 for s in suggestions if s.get("confirmed") is True)
+    schema_verified_count = sum(1 for s in suggestions if s.get("schema_verified") is True)
     total = len(suggestions)
-    estimated_count = total - confirmed_count
+    estimated_count = total - schema_verified_count
 
     summary = QueryExplainer()._format_schema_summary(_WAREHOUSE_DDL, suggestions, parsed)
-    assert f"**{confirmed_count}/{total}**" in summary
-    assert f"{confirmed_count} confirmed" in summary
+    assert f"**{schema_verified_count}/{total}**" in summary
+    assert f"{schema_verified_count} schema-verified" in summary
     assert f"{estimated_count} estimated" in summary
 
 

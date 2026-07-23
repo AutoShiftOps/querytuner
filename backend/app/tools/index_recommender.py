@@ -232,7 +232,7 @@ class IndexRecommender:
             if real and col in already_indexed.get(real, set()):
                 continue
             label = f"`{alias}.{col}`" if alias else f"`{col}`"
-            ddl, confirmed_flag = self._ddl_hint(alias, col, db_type, schema)
+            ddl, schema_verified = self._ddl_hint(alias, col, db_type, schema)
             suggestions.append(
                 self._make(
                     index_type="join_key",
@@ -243,7 +243,7 @@ class IndexRecommender:
                     estimated="50-90% faster JOINs on large tables",
                     ddl_hint=ddl,
                     ddl_note=get_dialect(db_type).index_ddl_note(),
-                    confirmed=confirmed_flag,
+                    schema_verified=schema_verified,
                 )
             )
 
@@ -260,7 +260,7 @@ class IndexRecommender:
                 continue
             label = f"`{alias}.{col}`" if alias else f"`{col}`"
             if _is_low_cardinality(col):
-                ddl, confirmed_flag = self._ddl_partial_hint(alias, col, db_type, schema)
+                ddl, schema_verified = self._ddl_partial_hint(alias, col, db_type, schema)
                 suggestions.append(
                     self._make(
                         index_type="partial_index_candidate",
@@ -271,11 +271,11 @@ class IndexRecommender:
                         estimated="Significant if active rows are a small subset of the table",
                         ddl_hint=ddl,
                         ddl_note=get_dialect(db_type).index_ddl_note(),
-                        confirmed=confirmed_flag,
+                        schema_verified=schema_verified,
                     )
                 )
             else:
-                ddl, confirmed_flag = self._ddl_hint(alias, col, db_type, schema)
+                ddl, schema_verified = self._ddl_hint(alias, col, db_type, schema)
                 suggestions.append(
                     self._make(
                         index_type="where_filter",
@@ -286,7 +286,7 @@ class IndexRecommender:
                         estimated="Often large — enables index seek vs full scan",
                         ddl_hint=ddl,
                         ddl_note=get_dialect(db_type).index_ddl_note(),
-                        confirmed=confirmed_flag,
+                        schema_verified=schema_verified,
                     )
                 )
 
@@ -302,7 +302,7 @@ class IndexRecommender:
             if real and col in already_indexed.get(real, set()):
                 continue
             label = f"`{alias}.{col}`" if alias else f"`{col}`"
-            ddl, confirmed_flag = self._ddl_hint(alias, col, db_type, schema)
+            ddl, schema_verified = self._ddl_hint(alias, col, db_type, schema)
             suggestions.append(
                 self._make(
                     index_type="order_by_index",
@@ -313,7 +313,7 @@ class IndexRecommender:
                     estimated="Eliminates filesort — often 30-70% faster",
                     ddl_hint=ddl,
                     ddl_note=get_dialect(db_type).index_ddl_note(),
-                    confirmed=confirmed_flag,
+                    schema_verified=schema_verified,
                 )
             )
 
@@ -327,7 +327,7 @@ class IndexRecommender:
             if real and col in already_indexed.get(real, set()):
                 continue
             label = f"`{alias}.{col}`" if alias else f"`{col}`"
-            ddl, confirmed_flag = self._ddl_hint(alias, col, db_type, schema)
+            ddl, schema_verified = self._ddl_hint(alias, col, db_type, schema)
             suggestions.append(
                 self._make(
                     index_type="group_by_index",
@@ -338,7 +338,7 @@ class IndexRecommender:
                     estimated="15-50% faster GROUP BY on large tables",
                     ddl_hint=ddl,
                     ddl_note=get_dialect(db_type).index_ddl_note(),
-                    confirmed=confirmed_flag,
+                    schema_verified=schema_verified,
                 )
             )
 
@@ -367,21 +367,21 @@ class IndexRecommender:
         return _resolve_real_table(alias, schema)
 
     # Issue #72: replaced hardcoded DDL with dialect_config lookup
-    # Issue #8: schema-aware — returns (ddl, confirmed) instead of just ddl
+    # Issue #8: schema-aware — returns (ddl, schema_verified) instead of just ddl
     def _ddl_hint(self, alias: str | None, col: str, db_type: str, schema=None) -> tuple[str, bool]:
         schema = schema or {}
         real_table = self._real_table(alias, schema)
-        confirmed = real_table is not None and col in schema.get(real_table, {})
+        schema_verified = real_table is not None and col in schema.get(real_table, {})
         table_ph = real_table if real_table else (f"<{alias}_table>" if alias else "<table_name>")
         idx_name = f"idx_{real_table or alias or 'tbl'}_{col}"
         ddl = get_index_ddl(db_type, table_ph, col, idx_name)
-        return ddl, confirmed
+        return ddl, schema_verified
 
     def _ddl_partial_hint(self, alias: str | None, col: str, db_type: str, schema=None) -> tuple[str, bool]:
-        """Dialect-correct partial/filtered index DDL. Returns (ddl, confirmed)."""
+        """Dialect-correct partial/filtered index DDL. Returns (ddl, schema_verified)."""
         schema = schema or {}
         real_table = self._real_table(alias, schema)
-        confirmed = real_table is not None and col in schema.get(real_table, {})
+        schema_verified = real_table is not None and col in schema.get(real_table, {})
         table_ph = real_table if real_table else (f"<{alias}_table>" if alias else "<table_name>")
         idx = f"idx_{real_table or alias or 'tbl'}_{col}_partial"
         cfg = get_dialect(db_type)
@@ -412,7 +412,7 @@ class IndexRecommender:
             # SQLite and fallback
             ddl = f"CREATE INDEX IF NOT EXISTS {idx} ON {table_ph}({col});"
 
-        return ddl, confirmed
+        return ddl, schema_verified
 
     def _make(
         self,
@@ -424,12 +424,12 @@ class IndexRecommender:
         estimated,
         ddl_hint,
         ddl_note: str = "",
-        confirmed: bool = False,
+        schema_verified: bool = False,
     ):
         result = {
             "type": f"index_review_{index_type}",
             "severity": severity,
-            "confirmed": confirmed,
+            "schema_verified": schema_verified,
             "columns": columns,
             "suggestion": suggestion,
             "reason": reason,

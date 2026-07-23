@@ -63,7 +63,7 @@ class OptimizationSuggestion(BaseModel):
     ddl_hint: str | None = None
     ddl_note: str | None = None
     columns: list[str] | None = None
-    confirmed: bool | None = None
+    schema_verified: bool | None = None
 
 
 class ExecutionPlan(BaseModel):

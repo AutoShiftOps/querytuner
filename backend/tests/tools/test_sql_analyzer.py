@@ -104,15 +104,15 @@ def test_no_suggestions_for_simple_query():
 # cartesian_join detection, which lives in sql_analyzer.py, not index_recommender.py.
 
 
-# ── Fixture 7: confirmed=False on all suggestions ────────────────────────────
-def test_all_suggestions_confirmed_false():
+# ── Fixture 7: schema_verified=False on all suggestions ──────────────────────
+def test_all_suggestions_schema_verified_false():
     sql = """
         SELECT id FROM orders WHERE user_id = 1
     """
     suggestions = analyze(sql)
     assert suggestions, "Expected at least one suggestion"
     for s in suggestions:
-        assert s.get("confirmed") is False, f"All heuristic suggestions must have confirmed=False, got: {s}"
+        assert s.get("schema_verified") is False, f"All heuristic suggestions must have schema_verified=False, got: {s}"
 
 
 # ── Fixture 8: DDL hint present and non-empty ────────────────────────────────

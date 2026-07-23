@@ -43,7 +43,7 @@ def columns_of(suggestions):
 def assert_well_formed(suggestions):
     """Shared shape contract for every index_review_* suggestion."""
     for s in index_suggestions(suggestions):
-        assert s["confirmed"] is False, f"{s['type']} must be unconfirmed (heuristic, not EXPLAIN-verified)"
+        assert s["schema_verified"] is False, f"{s['type']} must be unverified (heuristic, not EXPLAIN-verified)"
         assert s["severity"] in INDEX_SEVERITIES, f"{s['type']} has unexpected severity {s['severity']!r}"
         ddl = s.get("ddl_hint") or ""
         assert ddl, f"{s['type']} is missing a ddl_hint"

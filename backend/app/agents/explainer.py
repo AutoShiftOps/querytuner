@@ -157,8 +157,8 @@ class QueryExplainer:
     ) -> str | None:
         """
         Issue #8: summarise the parsed schema DDL — tables/columns/existing
-        indexes — and how many suggestions were confirmed against it rather
-        than estimated from the query text alone.
+        indexes — and how many suggestions were schema-verified against it
+        rather than estimated from the query text alone.
         """
         try:
             schema = parse_schema_ddl(schema_info)
@@ -185,11 +185,11 @@ class QueryExplainer:
 
         if suggestions:
             total = len(suggestions)
-            confirmed_count = sum(1 for s in suggestions if s.get("confirmed") is True)
-            estimated_count = total - confirmed_count
+            schema_verified_count = sum(1 for s in suggestions if s.get("schema_verified") is True)
+            estimated_count = total - schema_verified_count
             lines.append(
-                f"- QueryTuner cross-referenced **{confirmed_count}/{total}** suggestions against schema"
-                f" — {confirmed_count} confirmed ✓, {estimated_count} estimated"
+                f"- QueryTuner cross-referenced **{schema_verified_count}/{total}** suggestions against schema"
+                f" — {schema_verified_count} schema-verified ✓, {estimated_count} estimated"
             )
 
         return "\n".join(lines)
