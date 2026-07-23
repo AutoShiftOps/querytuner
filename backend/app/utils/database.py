@@ -55,23 +55,43 @@ async def save_analysis(payload: dict[str, Any]) -> str | None:
         "used_ai": payload.get("used_ai", False),
         "ai_model": payload.get("ai_model"),
         "schema_info": payload.get("schema_info") or None,
+        "plain_explanation": payload.get("plain_explanation"),
     }
 
-    try:
+    async def _insert(body: dict[str, Any]) -> list[dict[str, Any]]:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.post(
                 f"{settings.supabase_url}/rest/v1/analyses",
                 headers=_supabase_headers(),
-                json=row,
+                json=body,
             )
             resp.raise_for_status()
-            data = resp.json()
-            inserted_id = data[0]["id"] if data else None
-            logger.info("Analysis saved: id=%s hash=%s", inserted_id, row["query_hash"])
-            return inserted_id
+            return resp.json()
+
+    try:
+        data = await _insert(row)
+    except httpx.HTTPStatusError as exc:
+        # migrations/003_plain_explanation.sql may not have been run yet on
+        # this Supabase project — retry without the new column rather than
+        # losing the whole analysis record (PGRST204: unknown column).
+        if "plain_explanation" in exc.response.text and "plain_explanation" in row:
+            logger.warning("plain_explanation column not found in Supabase — retrying without it")
+            row.pop("plain_explanation", None)
+            try:
+                data = await _insert(row)
+            except Exception as retry_exc:  # noqa: BLE001
+                logger.warning("Failed to save analysis to Supabase: %s", retry_exc)
+                return None
+        else:
+            logger.warning("Failed to save analysis to Supabase: %s", exc)
+            return None
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to save analysis to Supabase: %s", exc)
         return None
+
+    inserted_id = data[0]["id"] if data else None
+    logger.info("Analysis saved: id=%s hash=%s", inserted_id, row["query_hash"])
+    return inserted_id
 
 
 async def get_analysis(analysis_id: str) -> dict[str, Any] | None:

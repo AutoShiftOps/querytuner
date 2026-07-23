@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { trackPageView, trackReportViewed } from '../utils/analytics';
+import QueryDiagnosis from './QueryDiagnosis';
 
 const API_URL =
   import.meta.env.VITE_API_URL ||
@@ -45,6 +46,117 @@ const SEV = {
   medium: { bar: T.yellow, badge: '#3a2c0a', badgeText: T.yellow, label: 'Medium' },
   low: { bar: T.green, badge: '#0d3328', badgeText: T.green, label: 'Low' },
 };
+
+// Internal heuristic identifiers -> human-readable titles.
+// Mirrors OptimizationSuggestions.jsx so the shared report reads the same
+// as the main analysis view instead of leaking raw finding type codes.
+const TYPE_LABELS = {
+  column_selection: 'Select Specific Columns',
+  full_scan_risk: 'Full Table Scan Risk',
+  like_wildcard: 'Index-Blocking LIKE Pattern',
+  function_in_where: 'Function Blocking Index',
+  order_by_no_limit: 'Missing Pagination',
+  join_complexity: 'High JOIN Complexity',
+  cartesian_join: 'Cartesian JOIN Detected',
+  subquery_refactor: 'Subquery Refactor Opportunity',
+  implicit_cast: 'Implicit Type Cast',
+  subquery_to_join: 'Correlated Subquery in SELECT',
+  high_complexity: 'High Query Complexity',
+  security_best_practice: 'Security Best Practice',
+  index_review_join_key: 'Missing JOIN Index',
+  index_review_where_filter: 'Missing WHERE Index',
+  index_review_order_by_index: 'Missing ORDER BY Index',
+  index_review_group_by_index: 'Missing GROUP BY Index',
+  index_review_partial_index_candidate: 'Partial Index Opportunity',
+  index_review_composite_index: 'Composite Index Opportunity',
+};
+
+function typeLabel(type) {
+  const t = type || 'issue';
+  return (
+    TYPE_LABELS[t] ||
+    t
+      .replace(/_/g, ' ')
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
+// Three-tier evidence labels — same tiers/colors as OptimizationSuggestions.jsx.
+const EVIDENCE_CONFIG = {
+  deterministic: {
+    background: 'rgba(56,189,248,0.1)',
+    color: '#38bdf8',
+    border: '1px solid rgba(56,189,248,0.2)',
+    text: 'Deterministic',
+  },
+  'schema-verified': {
+    background: 'rgba(52,211,153,0.1)',
+    color: '#34d399',
+    border: '1px solid rgba(52,211,153,0.2)',
+    text: 'Schema Verified',
+  },
+  'needs-runtime-evidence': {
+    background: 'rgba(251,191,36,0.08)',
+    color: '#fbbf24',
+    border: '1px solid rgba(251,191,36,0.2)',
+    text: 'Estimated',
+  },
+};
+
+function EvidenceBadge({ level }) {
+  const cfg = EVIDENCE_CONFIG[level];
+  if (!cfg) return null;
+  return (
+    <span
+      className="qt-chip"
+      style={{ background: cfg.background, color: cfg.color, border: cfg.border, fontSize: 10 }}
+    >
+      {cfg.text}
+    </span>
+  );
+}
+
+// Collapsed by default — rollback DDL is a "break glass" action, not
+// something to surface at the same visual weight as the suggestion itself.
+function RollbackToggle({ ddl }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 8 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          fontSize: 11,
+          fontWeight: 500,
+          color: T.red,
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          padding: 0,
+        }}
+      >
+        {open ? '▾' : '▸'} Rollback
+      </button>
+      {open && (
+        <pre
+          style={{
+            marginTop: 6,
+            background: '#0f172a',
+            color: T.red,
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 12,
+            padding: 12,
+            borderRadius: 8,
+            overflowX: 'auto',
+          }}
+        >
+          {`To undo this index: ${ddl}`}
+        </pre>
+      )}
+    </div>
+  );
+}
 
 // ── Inject fonts once ────────────────────────────────────────────────────────
 function injectFonts() {
@@ -488,8 +600,31 @@ export default function ReportPage() {
           </div>
         </div>
 
+        {/* ── Query Diagnosis ── */}
+        {report.plain_explanation && (
+          <div className="qt-section">
+            <QueryDiagnosis content={report.plain_explanation} />
+          </div>
+        )}
+
         {/* ── Findings ── */}
         <div className="qt-section">
+          <div style={{ marginBottom: 10 }}>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+                color: T.accent,
+              }}
+            >
+              Heuristic Analysis
+            </div>
+            <p style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>
+              Deterministic rules — sub-second, always available
+            </p>
+          </div>
           <div className="qt-section-label">Findings ({findings.length})</div>
           {findings.length === 0 ? (
             <div
@@ -527,13 +662,31 @@ export default function ReportPage() {
                         >
                           {cfg.label}
                         </span>
-                        {f.type && <span className="qt-finding-type">{f.type}</span>}
+                        <EvidenceBadge level={f.evidence_level} />
+                        {f.type && <span className="qt-finding-type">{typeLabel(f.type)}</span>}
                       </div>
                       <p className="qt-finding-suggestion">{f.suggestion}</p>
                       {f.reason && <p className="qt-finding-reason">{f.reason}</p>}
                       {f.estimated_improvement && (
                         <span className="qt-finding-impact">↑ {f.estimated_improvement}</span>
                       )}
+                      {f.ddl_hint && (
+                        <pre
+                          style={{
+                            marginTop: 8,
+                            background: '#0f172a',
+                            color: '#7dd3fc',
+                            fontFamily: "'JetBrains Mono', monospace",
+                            fontSize: 12,
+                            padding: 12,
+                            borderRadius: 8,
+                            overflowX: 'auto',
+                          }}
+                        >
+                          {f.ddl_hint}
+                        </pre>
+                      )}
+                      {f.rollback_ddl && <RollbackToggle ddl={f.rollback_ddl} />}
                     </div>
                   </div>
                 );

@@ -190,6 +190,7 @@ async def get_report(analysis_id: str):
             "optimization_suggestions": record["findings"],
             "severity": record["severity"],
             "optimized_query": record.get("optimized_query"),
+            "plain_explanation": record.get("plain_explanation"),
             "readability_score": record.get("readability_score"),
             "analysis_time_ms": record.get("analysis_time_ms"),
             "used_ai": record.get("used_ai", False),
