@@ -37,6 +37,8 @@ class DialectConfig:
     # ── Index DDL ──────────────────────────────────────────────────────────
     # Template for generating CREATE INDEX DDL from table + column name
     _index_ddl_template: str = ""
+    # Statement to undo a suggested index — {index}/{table} placeholders
+    rollback_index: str = ""
 
     # ── Optimizer syntax ───────────────────────────────────────────────────
     # Correct syntax for common rewrites in this dialect
@@ -99,6 +101,7 @@ DIALECTS: dict[str, DialectConfig] = {
         name="postgresql",
         display="PostgreSQL",
         _index_ddl_template=("CREATE INDEX CONCURRENTLY {name} ON {table}({column});"),
+        rollback_index="DROP INDEX CONCURRENTLY {index};",
         pagination="LIMIT {n} OFFSET {m}",
         like_ci="col ILIKE '%value%'  -- case-insensitive, uses pg_trgm index",
         date_range=(
@@ -132,6 +135,7 @@ DIALECTS: dict[str, DialectConfig] = {
         name="mysql",
         display="MySQL",
         _index_ddl_template=("ALTER TABLE {table} ADD INDEX {name} ({column});"),
+        rollback_index="ALTER TABLE {table} DROP INDEX {index};",
         pagination="LIMIT {n} OFFSET {m}",
         like_ci=(
             "col LIKE '%value%'  -- case-insensitive by default on ci collations\n"
@@ -170,6 +174,7 @@ DIALECTS: dict[str, DialectConfig] = {
         name="oracle",
         display="Oracle",
         _index_ddl_template=("CREATE INDEX {name} ON {table}({column}) NOLOGGING;"),
+        rollback_index="DROP INDEX {index};",
         pagination=("FETCH FIRST {n} ROWS ONLY  -- Oracle 12c+\n" "-- Oracle 11g: WHERE ROWNUM <= {n}"),
         like_ci=(
             "WHERE UPPER(col) LIKE UPPER('%value%')\n"
@@ -214,6 +219,7 @@ DIALECTS: dict[str, DialectConfig] = {
         _index_ddl_template=(
             "CREATE NONCLUSTERED INDEX {name} ON {table}({column}) " "WITH (ONLINE=ON, FILLFACTOR=90);"
         ),
+        rollback_index="DROP INDEX {index} ON {table};",
         pagination=("ORDER BY col\n" "OFFSET {m} ROWS FETCH NEXT {n} ROWS ONLY  -- SQL Server 2012+"),
         like_ci=(
             "col LIKE '%value%'  -- case sensitivity depends on collation\n"
@@ -256,6 +262,7 @@ DIALECTS: dict[str, DialectConfig] = {
         name="sqlite",
         display="SQLite",
         _index_ddl_template=("CREATE INDEX IF NOT EXISTS {name} ON {table}({column});"),
+        rollback_index="DROP INDEX IF EXISTS {index};",
         pagination="LIMIT {n} OFFSET {m}",
         like_ci=(
             "col LIKE '%value%'  -- case-insensitive for ASCII by default\n"

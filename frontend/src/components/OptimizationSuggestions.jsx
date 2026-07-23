@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Zap } from 'lucide-react';
 
 function severityColor(sev) {
@@ -45,6 +45,42 @@ function typeLabel(type) {
 // Frames this panel as "fast, deterministic, always-on" — the complement to
 // the AI panel's "deeper, additive reasoning" framing — so the two panels
 // read as two layers of analysis rather than duplicated findings.
+// Collapsed by default — rollback DDL is a "break glass" action, not
+// something to surface at the same visual weight as the suggestion itself.
+function RollbackToggle({ ddl }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="text-xs font-medium"
+        style={{
+          color: '#f87171',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          padding: 0,
+        }}
+      >
+        {open ? '▾' : '▸'} Rollback
+      </button>
+      {open && (
+        <pre
+          className="mt-1 text-xs rounded p-2 overflow-x-auto"
+          style={{
+            background: '#0f172a',
+            color: '#f87171',
+            fontFamily: "'JetBrains Mono', monospace",
+          }}
+        >
+          {`To undo this index: ${ddl}`}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function HeuristicHeader() {
   return (
     <div className="mb-4">
@@ -118,6 +154,21 @@ export default function OptimizationSuggestions({ suggestions, aiConfirmedTypes 
               {s.estimated_improvement ? (
                 <p className="mt-2 text-sm opacity-90">Estimate: {s.estimated_improvement}</p>
               ) : null}
+
+              {s.ddl_hint ? (
+                <pre
+                  className="mt-2 text-xs rounded p-2 overflow-x-auto"
+                  style={{
+                    background: '#0f172a',
+                    color: '#7dd3fc',
+                    fontFamily: "'JetBrains Mono', monospace",
+                  }}
+                >
+                  {s.ddl_hint}
+                </pre>
+              ) : null}
+
+              {s.rollback_ddl ? <RollbackToggle ddl={s.rollback_ddl} /> : null}
             </div>
           );
         })}

@@ -64,6 +64,7 @@ class OptimizationSuggestion(BaseModel):
     ddl_note: str | None = None
     columns: list[str] | None = None
     schema_verified: bool | None = None
+    rollback_ddl: str | None = None
 
 
 class ExecutionPlan(BaseModel):

@@ -232,7 +232,7 @@ class IndexRecommender:
             if real and col in already_indexed.get(real, set()):
                 continue
             label = f"`{alias}.{col}`" if alias else f"`{col}`"
-            ddl, schema_verified = self._ddl_hint(alias, col, db_type, schema)
+            ddl, schema_verified, table_ph = self._ddl_hint(alias, col, db_type, schema)
             suggestions.append(
                 self._make(
                     index_type="join_key",
@@ -244,6 +244,10 @@ class IndexRecommender:
                     ddl_hint=ddl,
                     ddl_note=get_dialect(db_type).index_ddl_note(),
                     schema_verified=schema_verified,
+                    db_type=db_type,
+                    alias=alias,
+                    col=col,
+                    table_ph=table_ph,
                 )
             )
 
@@ -260,7 +264,7 @@ class IndexRecommender:
                 continue
             label = f"`{alias}.{col}`" if alias else f"`{col}`"
             if _is_low_cardinality(col):
-                ddl, schema_verified = self._ddl_partial_hint(alias, col, db_type, schema)
+                ddl, schema_verified, table_ph = self._ddl_partial_hint(alias, col, db_type, schema)
                 suggestions.append(
                     self._make(
                         index_type="partial_index_candidate",
@@ -272,10 +276,14 @@ class IndexRecommender:
                         ddl_hint=ddl,
                         ddl_note=get_dialect(db_type).index_ddl_note(),
                         schema_verified=schema_verified,
+                        db_type=db_type,
+                        alias=alias,
+                        col=col,
+                        table_ph=table_ph,
                     )
                 )
             else:
-                ddl, schema_verified = self._ddl_hint(alias, col, db_type, schema)
+                ddl, schema_verified, table_ph = self._ddl_hint(alias, col, db_type, schema)
                 suggestions.append(
                     self._make(
                         index_type="where_filter",
@@ -287,6 +295,10 @@ class IndexRecommender:
                         ddl_hint=ddl,
                         ddl_note=get_dialect(db_type).index_ddl_note(),
                         schema_verified=schema_verified,
+                        db_type=db_type,
+                        alias=alias,
+                        col=col,
+                        table_ph=table_ph,
                     )
                 )
 
@@ -302,7 +314,7 @@ class IndexRecommender:
             if real and col in already_indexed.get(real, set()):
                 continue
             label = f"`{alias}.{col}`" if alias else f"`{col}`"
-            ddl, schema_verified = self._ddl_hint(alias, col, db_type, schema)
+            ddl, schema_verified, table_ph = self._ddl_hint(alias, col, db_type, schema)
             suggestions.append(
                 self._make(
                     index_type="order_by_index",
@@ -314,6 +326,10 @@ class IndexRecommender:
                     ddl_hint=ddl,
                     ddl_note=get_dialect(db_type).index_ddl_note(),
                     schema_verified=schema_verified,
+                    db_type=db_type,
+                    alias=alias,
+                    col=col,
+                    table_ph=table_ph,
                 )
             )
 
@@ -327,7 +343,7 @@ class IndexRecommender:
             if real and col in already_indexed.get(real, set()):
                 continue
             label = f"`{alias}.{col}`" if alias else f"`{col}`"
-            ddl, schema_verified = self._ddl_hint(alias, col, db_type, schema)
+            ddl, schema_verified, table_ph = self._ddl_hint(alias, col, db_type, schema)
             suggestions.append(
                 self._make(
                     index_type="group_by_index",
@@ -339,6 +355,10 @@ class IndexRecommender:
                     ddl_hint=ddl,
                     ddl_note=get_dialect(db_type).index_ddl_note(),
                     schema_verified=schema_verified,
+                    db_type=db_type,
+                    alias=alias,
+                    col=col,
+                    table_ph=table_ph,
                 )
             )
 
@@ -367,18 +387,18 @@ class IndexRecommender:
         return _resolve_real_table(alias, schema)
 
     # Issue #72: replaced hardcoded DDL with dialect_config lookup
-    # Issue #8: schema-aware — returns (ddl, schema_verified) instead of just ddl
-    def _ddl_hint(self, alias: str | None, col: str, db_type: str, schema=None) -> tuple[str, bool]:
+    # Issue #8: schema-aware — returns (ddl, schema_verified, table_ph) instead of just ddl
+    def _ddl_hint(self, alias: str | None, col: str, db_type: str, schema=None) -> tuple[str, bool, str]:
         schema = schema or {}
         real_table = self._real_table(alias, schema)
         schema_verified = real_table is not None and col in schema.get(real_table, {})
         table_ph = real_table if real_table else (f"<{alias}_table>" if alias else "<table_name>")
         idx_name = f"idx_{real_table or alias or 'tbl'}_{col}"
         ddl = get_index_ddl(db_type, table_ph, col, idx_name)
-        return ddl, schema_verified
+        return ddl, schema_verified, table_ph
 
-    def _ddl_partial_hint(self, alias: str | None, col: str, db_type: str, schema=None) -> tuple[str, bool]:
-        """Dialect-correct partial/filtered index DDL. Returns (ddl, schema_verified)."""
+    def _ddl_partial_hint(self, alias: str | None, col: str, db_type: str, schema=None) -> tuple[str, bool, str]:
+        """Dialect-correct partial/filtered index DDL. Returns (ddl, schema_verified, table_ph)."""
         schema = schema or {}
         real_table = self._real_table(alias, schema)
         schema_verified = real_table is not None and col in schema.get(real_table, {})
@@ -412,7 +432,7 @@ class IndexRecommender:
             # SQLite and fallback
             ddl = f"CREATE INDEX IF NOT EXISTS {idx} ON {table_ph}({col});"
 
-        return ddl, schema_verified
+        return ddl, schema_verified, table_ph
 
     def _make(
         self,
@@ -425,6 +445,10 @@ class IndexRecommender:
         ddl_hint,
         ddl_note: str = "",
         schema_verified: bool = False,
+        db_type: str = "postgresql",
+        alias: str | None = None,
+        col: str = "",
+        table_ph: str = "",
     ):
         result = {
             "type": f"index_review_{index_type}",
@@ -438,6 +462,12 @@ class IndexRecommender:
         }
         if ddl_note:
             result["ddl_note"] = ddl_note
+        if col and table_ph:
+            cfg = get_dialect(db_type)
+            result["rollback_ddl"] = cfg.rollback_index.format(
+                index=f"idx_{alias or 'tbl'}_{col}",
+                table=table_ph,
+            )
         return result
 
     def _dedupe(self, suggestions):
