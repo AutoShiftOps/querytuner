@@ -45,7 +45,68 @@ function SectionTitle({ children }) {
   );
 }
 
+// The LLM's structured-output schema drifts across calls/models — sometimes
+// {suggestion, reason, ddl_statement}, sometimes {description, rationale, ddl},
+// sometimes a nested {suggestion: {text, reason}}, sometimes plain strings.
+// Extract whatever's actually there instead of trusting one fixed shape, and
+// return null when nothing usable is found so the card renders nothing rather
+// than an empty shell with just a type/severity badge.
+function extractCardFields(item) {
+  // Handle plain string
+  if (typeof item === 'string') {
+    return {
+      title: item,
+      reason: null,
+      estimate: null,
+      ddl: null,
+      severity: 'medium',
+    };
+  }
+
+  if (!item || typeof item !== 'object') {
+    return null; // skip entirely
+  }
+
+  // Title — try every known field name
+  const title =
+    (typeof item.suggestion === 'string' ? item.suggestion : null) ||
+    (typeof item.suggestion?.text === 'string' ? item.suggestion.text : null) ||
+    item.title ||
+    item.description ||
+    item.name ||
+    item.text ||
+    // Last resort: first string value > 10 chars
+    Object.values(item).find((v) => typeof v === 'string' && v.length > 10) ||
+    null;
+
+  // If no title found at all — skip this card
+  if (!title) return null;
+
+  const reason =
+    (typeof item.reason === 'string' ? item.reason : null) ||
+    item.rationale ||
+    item.explanation ||
+    item.detail ||
+    (typeof item.suggestion?.reason === 'string' ? item.suggestion.reason : null) ||
+    null;
+
+  const estimate =
+    item.estimated_improvement || item.estimate || item.impact || item.benefit || null;
+
+  const ddl = item.ddl_statement || item.ddl || item.ddl_hint || item.index_ddl || item.sql || null;
+
+  const severity = item.severity || 'medium';
+
+  return { title, reason, estimate, ddl, severity };
+}
+
 function SuggestionCard({ item }) {
+  const fields = extractCardFields(item);
+  if (!fields) return null;
+
+  const typeLabel =
+    item && typeof item === 'object' && item.type ? String(item.type).replace(/_/g, ' ') : '';
+
   return (
     <div
       style={{
@@ -68,99 +129,77 @@ function SuggestionCard({ item }) {
             letterSpacing: '0.04em',
           }}
         >
-          {(item.type || 'suggestion').replace(/_/g, ' ')}
+          {typeLabel}
         </span>
         <span
           style={{
             fontSize: 10,
             fontWeight: 700,
             textTransform: 'uppercase',
-            color: severityColor(item.severity),
-            border: `1px solid ${severityColor(item.severity)}`,
+            color: severityColor(fields.severity),
+            border: `1px solid ${severityColor(fields.severity)}`,
             borderRadius: 999,
             padding: '2px 8px',
             flexShrink: 0,
           }}
         >
-          {item.severity || 'low'}
+          {fields.severity}
         </span>
       </div>
 
-      {(() => {
-        const title = item.suggestion || item.title || item.type;
-        return (
-          title && (
-            <p
-              style={{
-                fontSize: 13,
-                fontWeight: 600,
-                color: '#e2e8f0',
-                margin: '8px 0 0',
-                lineHeight: 1.5,
-              }}
-            >
-              {title}
-            </p>
-          )
-        );
-      })()}
+      <p
+        style={{
+          fontSize: 13,
+          fontWeight: 600,
+          color: '#e2e8f0',
+          margin: '8px 0 0',
+          lineHeight: 1.5,
+        }}
+      >
+        {fields.title}
+      </p>
 
-      {(() => {
-        const body = item.reason || item.description || '';
-        return (
-          body && (
-            <p style={{ fontSize: 12, color: '#94a3b8', margin: '6px 0 0', lineHeight: 1.5 }}>
-              {body}
-            </p>
-          )
-        );
-      })()}
+      {fields.reason && (
+        <p style={{ fontSize: 12, color: '#94a3b8', margin: '6px 0 0', lineHeight: 1.5 }}>
+          {fields.reason}
+        </p>
+      )}
 
-      {(() => {
-        const estimate = item.estimated_improvement || item.estimate || '';
-        return (
-          estimate && (
-            <p
-              style={{
-                fontSize: 11,
-                color: '#38bdf8',
-                fontFamily: "'JetBrains Mono', monospace",
-                margin: '8px 0 0',
-              }}
-            >
-              {estimate}
-            </p>
-          )
-        );
-      })()}
+      {fields.estimate && (
+        <p
+          style={{
+            fontSize: 11,
+            color: '#38bdf8',
+            fontFamily: "'JetBrains Mono', monospace",
+            margin: '8px 0 0',
+          }}
+        >
+          {fields.estimate}
+        </p>
+      )}
 
-      {(() => {
-        const ddl = item.ddl_statement || item.ddl || item.ddl_hint || null;
-        return (
-          ddl && (
-            <div style={{ marginTop: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
-                <CopyButton text={ddl} />
-              </div>
-              <pre
-                style={{
-                  background: '#0f172a',
-                  color: '#7dd3fc',
-                  fontFamily: "'JetBrains Mono', monospace",
-                  fontSize: 11,
-                  padding: 12,
-                  borderRadius: 8,
-                  overflowX: 'auto',
-                  margin: 0,
-                  whiteSpace: 'pre-wrap',
-                }}
-              >
-                {ddl}
-              </pre>
-            </div>
-          )
-        );
-      })()}
+      {fields.ddl && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+            <CopyButton text={fields.ddl} />
+          </div>
+          <pre
+            style={{
+              background: '#0f172a',
+              color: '#7dd3fc',
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 11,
+              padding: 12,
+              borderRadius: 8,
+              overflowX: 'auto',
+              margin: 0,
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {fields.ddl}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }
