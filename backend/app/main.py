@@ -195,6 +195,8 @@ async def get_report(analysis_id: str):
             "analysis_time_ms": record.get("analysis_time_ms"),
             "used_ai": record.get("used_ai", False),
             "ai_model": record.get("ai_model"),
+            "ai_insights": record.get("ai_insights"),
+            "ai_provider": record.get("ai_provider"),
             "created_at": record["created_at"],
             "share_url": f"https://querytuner.com/report/{record['id']}",
         }

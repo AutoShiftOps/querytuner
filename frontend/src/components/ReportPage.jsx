@@ -13,8 +13,10 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
+import { Zap } from 'lucide-react';
 import { trackPageView, trackReportViewed } from '../utils/analytics';
 import QueryDiagnosis from './QueryDiagnosis';
+import ResultsPanel from './ResultsPanel';
 
 const API_URL =
   import.meta.env.VITE_API_URL ||
@@ -698,6 +700,21 @@ export default function ReportPage() {
             </div>
           )}
         </div>
+
+        {/* ── AI Insights — only when AI was actually used and returned content ── */}
+        {report.used_ai && report.ai_insights && (
+          <div className="qt-section">
+            <ResultsPanel
+              title={`AI Insights${
+                report.ai_provider
+                  ? ` (${report.ai_provider}${report.ai_model ? ` / ${report.ai_model}` : ''})`
+                  : ''
+              }`}
+              content={report.ai_insights}
+              icon={Zap}
+            />
+          </div>
+        )}
 
         {/* ── Optimized query ── */}
         {report.optimized_query && (

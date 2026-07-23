@@ -28,9 +28,44 @@ def hash_query(query: str) -> str:
     return hashlib.sha256(normalized.encode()).hexdigest()[:16]
 
 
+# Columns added after the initial schema (001) — a given Supabase project may
+# not have run the corresponding migration yet. Retried one at a time below
+# rather than losing the whole analysis record (PGRST204: unknown column).
+_OPTIONAL_COLUMNS = ("plain_explanation", "ai_insights", "ai_provider")
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+
+async def _insert_with_fallback(row: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """
+    POST row to Supabase, stripping one missing optional column at a time
+    and retrying if PostgREST rejects the insert because that column hasn't
+    been migrated in yet on this project.
+    """
+    for _ in range(len(_OPTIONAL_COLUMNS) + 1):
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.post(
+                    f"{settings.supabase_url}/rest/v1/analyses",
+                    headers=_supabase_headers(),
+                    json=row,
+                )
+                resp.raise_for_status()
+                return resp.json()
+        except httpx.HTTPStatusError as exc:
+            missing = next((c for c in _OPTIONAL_COLUMNS if c in row and c in exc.response.text), None)
+            if not missing:
+                logger.warning("Failed to save analysis to Supabase: %s", exc)
+                return None
+            logger.warning("%s column not found in Supabase — retrying without it", missing)
+            row.pop(missing, None)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to save analysis to Supabase: %s", exc)
+            return None
+    return None
 
 
 async def save_analysis(payload: dict[str, Any]) -> str | None:
@@ -56,37 +91,12 @@ async def save_analysis(payload: dict[str, Any]) -> str | None:
         "ai_model": payload.get("ai_model"),
         "schema_info": payload.get("schema_info") or None,
         "plain_explanation": payload.get("plain_explanation"),
+        "ai_insights": payload.get("ai_insights") or None,
+        "ai_provider": payload.get("ai_provider") or None,
     }
 
-    async def _insert(body: dict[str, Any]) -> list[dict[str, Any]]:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.post(
-                f"{settings.supabase_url}/rest/v1/analyses",
-                headers=_supabase_headers(),
-                json=body,
-            )
-            resp.raise_for_status()
-            return resp.json()
-
-    try:
-        data = await _insert(row)
-    except httpx.HTTPStatusError as exc:
-        # migrations/003_plain_explanation.sql may not have been run yet on
-        # this Supabase project — retry without the new column rather than
-        # losing the whole analysis record (PGRST204: unknown column).
-        if "plain_explanation" in exc.response.text and "plain_explanation" in row:
-            logger.warning("plain_explanation column not found in Supabase — retrying without it")
-            row.pop("plain_explanation", None)
-            try:
-                data = await _insert(row)
-            except Exception as retry_exc:  # noqa: BLE001
-                logger.warning("Failed to save analysis to Supabase: %s", retry_exc)
-                return None
-        else:
-            logger.warning("Failed to save analysis to Supabase: %s", exc)
-            return None
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to save analysis to Supabase: %s", exc)
+    data = await _insert_with_fallback(row)
+    if not data:
         return None
 
     inserted_id = data[0]["id"] if data else None
