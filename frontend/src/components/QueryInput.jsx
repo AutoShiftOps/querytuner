@@ -164,7 +164,7 @@ export default function QueryInput({
             <p className="text-xs text-slate-500 mt-2">
               Pasting a real EXPLAIN plan upgrades heuristic findings from{' '}
               <span className="text-amber-400 font-medium">estimated</span> to{' '}
-              <span className="text-emerald-400 font-medium">confirmed</span> — QueryTuner
+              <span className="text-emerald-400 font-medium">schema-verified</span> — QueryTuner
               cross-references your actual execution plan against the parsed query instead of
               guessing from syntax alone.
             </p>
@@ -221,7 +221,7 @@ export default function QueryInput({
               Providing your schema upgrades index recommendations from{' '}
               <span className="text-amber-400 font-medium">estimated</span> to{' '}
               <span className="font-medium" style={{ color: '#38bdf8' }}>
-                confirmed
+                schema-verified
               </span>
               .
             </p>
