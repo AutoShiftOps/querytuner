@@ -214,3 +214,89 @@ def test_clean_query_no_critical(analyzer):
     suggestions = run(analyzer, query)
     critical = [s for s in suggestions if s.get("severity") == "critical"]
     assert not critical, f"Clean query should have no critical findings, got: {critical}"
+
+
+# ── 21. NOT IN with a subquery triggers not_in_nullable ──────────────────────
+
+
+def test_not_in_subquery_triggers_nullable(analyzer):
+    query = "SELECT * FROM orders WHERE customer_id NOT IN (SELECT id FROM customers)"
+    suggestions = run(analyzer, query)
+    assert "not_in_nullable" in get_types(suggestions), "NOT IN (SELECT ...) should trigger not_in_nullable"
+
+
+# ── 22. NOT IN with a literal list does NOT trigger not_in_nullable ──────────
+
+
+def test_not_in_literal_list_no_nullable(analyzer):
+    query = "SELECT * FROM orders WHERE customer_id NOT IN (1, 2, 3)"
+    suggestions = run(analyzer, query)
+    assert "not_in_nullable" not in get_types(
+        suggestions
+    ), "NOT IN with a literal list (no subquery) should not trigger not_in_nullable"
+
+
+# ── 23. CASE in WHERE triggers case_in_predicate ─────────────────────────────
+
+
+def test_case_in_where_triggers_predicate(analyzer):
+    query = "SELECT id FROM orders WHERE CASE WHEN status = 'active' THEN 1 END = 1"
+    suggestions = run(analyzer, query)
+    assert "case_in_predicate" in get_types(suggestions), "CASE...WHEN in WHERE should trigger case_in_predicate"
+
+
+# ── 24. CASE in SELECT list only does NOT trigger case_in_predicate ──────────
+
+
+def test_case_in_select_only_no_predicate(analyzer):
+    query = "SELECT CASE WHEN status = 'active' THEN 1 END AS flag FROM orders WHERE id = 1"
+    suggestions = run(analyzer, query)
+    assert "case_in_predicate" not in get_types(
+        suggestions
+    ), "CASE in the SELECT list (not WHERE) should not trigger case_in_predicate"
+
+
+# ── 25. OR across columns in WHERE triggers or_expansion ─────────────────────
+
+
+def test_or_in_where_triggers_expansion(analyzer):
+    query = "SELECT id FROM orders WHERE status = 'a' OR type = 'b'"
+    suggestions = run(analyzer, query)
+    assert "or_expansion" in get_types(suggestions), "OR in WHERE should trigger or_expansion"
+
+
+# ── 26. AND-only WHERE does NOT trigger or_expansion ─────────────────────────
+
+
+def test_and_only_where_no_expansion(analyzer):
+    query = "SELECT id FROM orders WHERE status = 'a' AND type = 'b'"
+    suggestions = run(analyzer, query)
+    assert "or_expansion" not in get_types(suggestions), "WHERE with only AND should not trigger or_expansion"
+
+
+# ── 27. CTE referenced 2+ times triggers cte_multiple_references ────────────
+
+
+def test_cte_referenced_twice_triggers_multiple_references(analyzer):
+    query = """
+        WITH recent AS (SELECT id FROM orders WHERE created_at > '2024-01-01')
+        SELECT * FROM recent r1 JOIN recent r2 ON r1.id = r2.id
+    """
+    suggestions = run(analyzer, query)
+    assert "cte_multiple_references" in get_types(
+        suggestions
+    ), "CTE referenced twice outside its own definition should trigger cte_multiple_references"
+
+
+# ── 28. CTE referenced once does NOT trigger cte_multiple_references ────────
+
+
+def test_cte_referenced_once_no_multiple_references(analyzer):
+    query = """
+        WITH recent AS (SELECT id FROM orders WHERE created_at > '2024-01-01')
+        SELECT * FROM recent
+    """
+    suggestions = run(analyzer, query)
+    assert "cte_multiple_references" not in get_types(
+        suggestions
+    ), "CTE referenced only once should not trigger cte_multiple_references"

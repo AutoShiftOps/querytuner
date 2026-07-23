@@ -29,6 +29,10 @@ const TYPE_LABELS = {
   index_review_group_by_index: 'Missing GROUP BY Index',
   index_review_partial_index_candidate: 'Partial Index Opportunity',
   index_review_composite_index: 'Composite Index Opportunity',
+  not_in_nullable: 'NOT IN Nullable Subquery',
+  case_in_predicate: 'CASE Expression in WHERE',
+  or_expansion: 'OR Expansion Risk',
+  cte_multiple_references: 'CTE Referenced Multiple Times',
 };
 
 function typeLabel(type) {

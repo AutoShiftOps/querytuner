@@ -30,6 +30,8 @@ _DETERMINISTIC_TYPES = frozenset(
         "implicit_cast",
         "subquery_to_join",
         "column_selection",
+        "not_in_nullable",
+        "case_in_predicate",
     }
 )
 
@@ -439,6 +441,89 @@ class SQLAnalyzerAgent:
                     estimated="Risk reduction",
                 )
             )
+
+        # 13) not_in_nullable — NOT IN with a subquery that could contain NULLs.
+        # Deterministic: SQL three-valued logic means any NULL in the subquery
+        # silently zeroes out every row, regardless of the actual data.
+        if re.search(r"\bnot\s+in\s*\(\s*select\b", ql, re.IGNORECASE):
+            suggestions.append(
+                self._suggest(
+                    type_="not_in_nullable",
+                    severity="high",
+                    suggestion="NOT IN with a subquery can return zero rows if the subquery contains any NULL values",
+                    reason=(
+                        "SQL three-valued logic: NOT IN propagates NULLs. If any row in the subquery is NULL, "
+                        "the entire NOT IN condition evaluates to UNKNOWN, returning no rows. Use NOT EXISTS "
+                        "instead: WHERE NOT EXISTS (SELECT 1 FROM t WHERE t.col = outer.col)"
+                    ),
+                    estimated="Correctness fix — may also improve performance by enabling index use",
+                )
+            )
+
+        # 14) case_in_predicate — CASE expression in WHERE prevents index use.
+        # Anchored after WHERE (mirrors function_in_where) so a CASE in the
+        # SELECT list doesn't false-positive — same index-blocking problem class.
+        if re.search(r"\bwhere\b.*\bcase\b.*\bwhen\b", ql, re.DOTALL | re.IGNORECASE):
+            suggestions.append(
+                self._suggest(
+                    type_="case_in_predicate",
+                    severity="high",
+                    suggestion="CASE expression in WHERE clause prevents index usage on the evaluated column",
+                    reason=(
+                        "The database cannot use a B-tree index when a column is wrapped in a CASE expression "
+                        "in the WHERE clause. Refactor to use direct comparisons: instead of WHERE CASE WHEN "
+                        "status = 'active' THEN 1 END = 1, use WHERE status = 'active'"
+                    ),
+                    estimated="Often significant — enables index seek vs full scan",
+                )
+            )
+
+        # 15) or_expansion — OR in WHERE may prevent efficient index use.
+        # Not deterministic: harmless on small tables, so this is an estimate.
+        # Uses the parsed where_clause (not the raw query) to avoid matching
+        # OR that appears in the SELECT list or HAVING clause.
+        where_clause = parsed.get("where_clause") or ""
+        if re.search(r"\bor\b", where_clause, re.IGNORECASE):
+            suggestions.append(
+                self._suggest(
+                    type_="or_expansion",
+                    severity="medium",
+                    suggestion="OR conditions on different columns may prevent efficient index use",
+                    reason=(
+                        "The database must evaluate each OR branch separately. On large tables this forces "
+                        "two index scans or a full table scan with bitmap OR. Consider rewriting as UNION ALL: "
+                        "SELECT ... WHERE col1 = 'a' UNION ALL SELECT ... WHERE col2 = 'b' AND col1 != 'a'"
+                    ),
+                    estimated="Varies — significant on large tables, negligible on small ones. Verify with EXPLAIN.",
+                )
+            )
+
+        # 16) cte_multiple_references — a CTE referenced 2+ times may re-execute.
+        # In MySQL/SQL Server, CTEs re-execute per reference; PostgreSQL 12+
+        # inlines them by default. Impact depends on dialect, so this is an
+        # estimate rather than a deterministic finding.
+        cte_names = re.findall(r"(?:\bwith\b|,)\s*(\w+)\s+as\s*\(", ql, re.IGNORECASE)
+        for cte_name in dict.fromkeys(cte_names):
+            total_occurrences = len(re.findall(rf"\b{re.escape(cte_name)}\b", ql))
+            reference_count = total_occurrences - 1  # subtract the CTE's own definition
+            if reference_count >= 2:
+                suggestions.append(
+                    self._suggest(
+                        type_="cte_multiple_references",
+                        severity="medium",
+                        suggestion=(
+                            f"CTE '{cte_name}' is referenced {reference_count} times — "
+                            f"may execute multiple times depending on database dialect"
+                        ),
+                        reason=(
+                            "In MySQL and SQL Server, referencing a CTE multiple times causes it to re-execute "
+                            "on each reference. In PostgreSQL 12+, CTEs are inlined by default. Consider "
+                            "materialising with CREATE TEMP TABLE or using a subquery with a lateral join if "
+                            "the CTE is expensive. PostgreSQL: add /*+ MATERIALIZED */ hint."
+                        ),
+                        estimated="Depends on CTE complexity and row count — verify with EXPLAIN",
+                    )
+                )
 
         return self._dedupe_suggestions(suggestions)
 
