@@ -181,7 +181,11 @@ function injectStyles() {
   const style = document.createElement('style');
   style.id = 'qt-report-styles';
   style.textContent = `
-    .qt-report * { box-sizing: border-box; margin: 0; padding: 0; }
+    /* :where() keeps this reset at zero specificity so components that
+       render Tailwind utility classes here (e.g. ResultsPanel, shared with
+       the main app) aren't fought over on source order — a plain .p-6
+       must always win over this reset, never lose to it. */
+    :where(.qt-report *) { box-sizing: border-box; margin: 0; padding: 0; }
     .qt-report {
       font-family: 'IBM Plex Sans', system-ui, sans-serif;
       background: ${T.bg};

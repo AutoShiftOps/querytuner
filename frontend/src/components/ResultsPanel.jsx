@@ -399,7 +399,10 @@ function StructuredInsights({ data, aiConfirmedTypes }) {
 }
 
 function PlainTextInsights({ content }) {
-  const lines = content.split('\n').filter((line) => line.trim());
+  // Defensive: content should always be a string here, but never crash on
+  // .split if something upstream ever hands us a non-string value.
+  const text = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+  const lines = text.split('\n').filter((line) => line.trim());
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {lines.map((line, idx) => (
@@ -415,13 +418,19 @@ function ResultsPanel({ title, content, icon: Icon, onShare, aiConfirmedTypes })
   if (!content) return null;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(content);
+    navigator.clipboard.writeText(
+      typeof content === 'string' ? content : JSON.stringify(content, null, 2)
+    );
     if (onShare) {
       onShare();
     }
   };
 
-  const parsed = safeParseAiJson(content);
+  // Normalise content — the report page stores ai_insights as TEXT in
+  // Supabase (always a string), same as the live /analyze response. Both
+  // paths are strings in practice, but defend against an already-parsed
+  // object reaching here too rather than assuming one fixed shape.
+  const parsed = content && typeof content === 'object' ? content : safeParseAiJson(content);
   // A parsed JSON object with none of the known top-level keys isn't a
   // recognisable structured shape (e.g. an LLM that returned unrelated JSON)
   // — fall back to plain text rather than rendering an empty panel.
