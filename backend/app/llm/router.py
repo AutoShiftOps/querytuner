@@ -101,7 +101,10 @@ async def _call_openai(prompt: str, max_tokens: int, db_type: str) -> dict:
         system_content = (
             f"{dialect_context}\n\n"
             "Respond only with valid JSON as instructed. "
-            "No markdown fences, no extra text outside the JSON."
+            "No markdown fences, no extra text outside the JSON. "
+            "Use exactly these JSON keys: most_impactful_improvements, "
+            "recommended_indexes, rewritten_query, risky_assumptions. "
+            "No other top-level keys."
         )
 
         response = await client.chat.completions.create(

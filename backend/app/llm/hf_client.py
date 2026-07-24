@@ -80,7 +80,10 @@ async def _call_router(
     dialect_system = (
         f"{get_llm_context(db_type)}\n\n"
         "Respond only with valid JSON as instructed. "
-        "No markdown fences, no explanatory text outside the JSON."
+        "No markdown fences, no explanatory text outside the JSON. "
+        "Use exactly these JSON keys: most_impactful_improvements, "
+        "recommended_indexes, rewritten_query, risky_assumptions. "
+        "No other top-level keys."
     )
 
     payload = {
@@ -181,7 +184,10 @@ def _build_instruct_prompt(user_prompt: str, db_type: str = "postgresql") -> str
     system = (
         f"{get_llm_context(db_type)} "
         "Respond only with valid JSON as instructed. "
-        "No markdown fences, no extra text."
+        "No markdown fences, no extra text. "
+        "Use exactly these JSON keys: most_impactful_improvements, "
+        "recommended_indexes, rewritten_query, risky_assumptions. "
+        "No other top-level keys."
     )
     return f"<s>[INST] {system}\n\n{user_prompt} [/INST]"
 

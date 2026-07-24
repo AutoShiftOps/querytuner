@@ -1,5 +1,28 @@
 import { safeParseAiJson } from '../utils/aiInsights';
 
+// The LLM's top-level JSON schema drifts across providers/models — e.g.
+// OpenAI's gpt-4o-mini has returned "performance_improvements" where the
+// prompt asked for "most_impactful_improvements". Look up whichever key
+// name is actually present instead of trusting one fixed schema.
+function findKey(obj, candidates) {
+  if (!obj || typeof obj !== 'object') return null;
+  for (const key of candidates) {
+    if (obj[key] !== undefined) return obj[key];
+  }
+  return null;
+}
+
+const IMPROVEMENTS_KEYS = [
+  'most_impactful_improvements',
+  'performance_improvements',
+  'improvements',
+  'suggestions',
+  'recommendations',
+];
+const INDEXES_KEYS = ['recommended_indexes', 'indexes', 'index_recommendations', 'missing_indexes'];
+const REWRITTEN_QUERY_KEYS = ['rewritten_query', 'optimized_query', 'rewrite'];
+const RISKY_ASSUMPTIONS_KEYS = ['risky_assumptions', 'assumptions', 'risks', 'warnings'];
+
 // ── Token colours matching the design system (QueryDiagnosis.jsx, App.jsx) ──
 const SEVERITY_COLORS = {
   critical: '#f87171',
@@ -291,18 +314,20 @@ function RiskyAssumptionCard({ item }) {
 }
 
 function StructuredInsights({ data, aiConfirmedTypes }) {
-  const allImprovements = Array.isArray(data.most_impactful_improvements)
-    ? data.most_impactful_improvements
-    : [];
+  const improvementsRaw = findKey(data, IMPROVEMENTS_KEYS);
+  const allImprovements = Array.isArray(improvementsRaw) ? improvementsRaw : [];
   // Types already confirmed on a heuristic card (badged in OptimizationSuggestions)
   // are dropped here instead of repeating the same finding in both panels.
   const improvements =
     aiConfirmedTypes && aiConfirmedTypes.size > 0
       ? allImprovements.filter((item) => !aiConfirmedTypes.has(item?.type))
       : allImprovements;
-  const indexes = Array.isArray(data.recommended_indexes) ? data.recommended_indexes : [];
-  const rewritten = typeof data.rewritten_query === 'string' ? data.rewritten_query.trim() : '';
-  const risky = Array.isArray(data.risky_assumptions) ? data.risky_assumptions : [];
+  const indexesRaw = findKey(data, INDEXES_KEYS);
+  const indexes = Array.isArray(indexesRaw) ? indexesRaw : [];
+  const rewrittenRaw = findKey(data, REWRITTEN_QUERY_KEYS);
+  const rewritten = typeof rewrittenRaw === 'string' ? rewrittenRaw.trim() : '';
+  const riskyRaw = findKey(data, RISKY_ASSUMPTIONS_KEYS);
+  const risky = Array.isArray(riskyRaw) ? riskyRaw : [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -397,6 +422,14 @@ function ResultsPanel({ title, content, icon: Icon, onShare, aiConfirmedTypes })
   };
 
   const parsed = safeParseAiJson(content);
+  // A parsed JSON object with none of the known top-level keys isn't a
+  // recognisable structured shape (e.g. an LLM that returned unrelated JSON)
+  // — fall back to plain text rather than rendering an empty panel.
+  const hasStructuredContent =
+    parsed &&
+    (findKey(parsed, IMPROVEMENTS_KEYS) !== null ||
+      findKey(parsed, INDEXES_KEYS) !== null ||
+      findKey(parsed, REWRITTEN_QUERY_KEYS) !== null);
 
   const parts = title.split('(');
   const mainTitle = parts[0].trim();
@@ -477,7 +510,7 @@ function ResultsPanel({ title, content, icon: Icon, onShare, aiConfirmedTypes })
         </div>
       </div>
 
-      {parsed ? (
+      {hasStructuredContent ? (
         <StructuredInsights data={parsed} aiConfirmedTypes={aiConfirmedTypes} />
       ) : (
         <PlainTextInsights content={content} />
