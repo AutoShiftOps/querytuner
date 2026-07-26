@@ -24,10 +24,11 @@
 
 ---
 
-## 🗓️ Phase 1 — Core Engine Hardening (Week 2–3, May 5–16)
+## ✅ Phase 1 — Core Engine Hardening (Week 2–3, May 5–16)
 
 **Goal:** Make the heuristic engine production-grade. Zero false positives.
 **Exit criteria:** 20 real-world queries tested, all suggestions accurate.
+**Status:** Exceeded — engine now covers **16 heuristic rules** with 102 passing tests.
 
 | Day | Task | Priority |
 |---|---|---|
@@ -40,6 +41,15 @@
 | Day 5 | `query_parser.py` audit — ensure GROUP BY, ORDER BY, subquery count are always populated | 🔴 High |
 | Day 6 | Write 20 test fixtures (query → expected suggestions) using pytest | 🟡 Medium |
 | Day 7 | Wire pytest into GitHub Actions CI | 🟡 Medium |
+
+**Later additions (July 2026) — 4 new heuristics, bringing the total from 12 to 16:**
+
+| Task | Status |
+|---|---|
+| `not_in_nullable` heuristic — NOT IN with a nullable subquery returns zero rows | ✅ Done |
+| `case_in_predicate` heuristic — CASE expression in WHERE prevents index use | ✅ Done |
+| `or_expansion` heuristic — OR across different columns may force a full scan | ✅ Done |
+| `cte_multiple_references` heuristic — CTE referenced 2+ times may re-execute per reference | ✅ Done |
 
 ---
 
@@ -98,10 +108,10 @@ rewrites, and maintenance commands in each response.
 
 ---
 
-## 🗓️ Phase 2 — Schema-Aware Analysis (Week 4–5, May 19–30)
+## ✅ Phase 2 — Schema-Aware Analysis (Week 4–5, May 19–30)
 
 **Goal:** Users can paste DDL and get column-specific advice instead of generic warnings.
-**Exit criteria:** Index suggestion names the actual column (`idx_orders_created_at`).
+**Exit criteria met:** Index suggestion names the actual column (`idx_orders_created_at`).
 
 | Day | Task | Priority |
 |---|---|---|
@@ -114,10 +124,30 @@ rewrites, and maintenance commands in each response.
 
 ---
 
-## 🗓️ Phase 3 — LangGraph Agentic Pipeline (Week 6–8, June 2–20)
+## ✅ Post-Phase 2 — Report Page & Evidence System Hardening (July 2026)
+
+**Goal:** Close the gap between the main app and the shareable report page, and replace
+the binary confirmed/estimated flag with an honest three-tier evidence system.
+
+| Task | Commit | Status |
+|---|---|---|
+| Three-tier evidence labels (`deterministic` / `schema-verified` / `needs-runtime-evidence`) | `1fcb82a0` | ✅ Done |
+| Rollback DDL per dialect on all index recommendations | `ff9b05d` | ✅ Done |
+| Privacy warnings on share button and report page | `0735519` | ✅ Done |
+| `schema_verified` rename (replaces `confirmed` — doesn't imply the planner will use the index) | `2e3bad58` | ✅ Done |
+| Report page brought to full parity with the main app (evidence badges, DDL blocks, rollback toggles, Query Diagnosis) | `6eb3305c` | ✅ Done |
+| AI Insights persisted and rendered on the shareable report page | `05ea8c37` | ✅ Done |
+| `findKey()` resilient AI JSON parser — handles key-name variation across LLM providers | `e5197fb1` | ✅ Done |
+| CSS specificity fix for report page (`:where()` reset) | `530f278` | ✅ Done |
+
+---
+
+## ⏭ Phase 3 — LangGraph Agentic Pipeline (deliberately deferred — post revenue)
 
 **Goal:** Replace single analyze() call with a resumable multi-node agent graph.
 **Exit criteria:** LangGraph trace visible in LangSmith for each analysis.
+**Status:** Not started. Deliberately deferred until after Phase 4 (monetization) ships —
+no `langgraph` usage exists in the codebase yet. Issues #39–45 remain open and untouched.
 
 | Day | Task | Priority |
 |---|---|---|
@@ -155,16 +185,25 @@ rewrites, and maintenance commands in each response.
 **Goal:** Features that justify $299/mo team plan to engineering managers.
 **Exit criteria:** One pilot customer using the tool on their real queries.
 
-| Task | Priority |
-|---|---|
-| Query history — save + replay past analyses per user | 🔴 High |
-| Team workspaces — share queries + results with teammates | 🔴 High |
-| Slack integration — `/querytuner analyze <sql>` slash command | 🟡 Medium |
-| VS Code extension — analyze SQL from editor (Phase 5 stretch) | 🟡 Medium |
-| Live DB connection — connect real DB for EXPLAIN plan (not paste-in) | 🔴 High |
-| PDF/CSV export of analysis report | 🟡 Medium |
-| OpenAI GPT-4o upgrade for Pro tier | 🔴 High |
-| Custom branding / white-label for Enterprise tier | 🟢 Low |
+| Issue | Task | Priority |
+|---|---|---|
+| #54 | Query history — save + replay past analyses per user | 🔴 High |
+| #55 | Team workspaces — share queries + results with teammates | 🔴 High |
+| #56 | Slack integration — `/querytuner analyze <sql>` slash command | 🟡 Medium |
+| #59 | VS Code extension — analyze SQL from editor (Phase 5 stretch) | 🟡 Medium |
+| #57 | Live DB connection — connect real DB for EXPLAIN plan (not paste-in) | 🔴 High |
+| #58 | PDF/CSV export of analysis report | 🟡 Medium |
+| — | OpenAI GPT-4o upgrade for Pro tier | 🔴 High |
+| — | Custom branding / white-label for Enterprise tier | 🟢 Low |
+| #61 | EXPLAIN plan parser — parse PostgreSQL EXPLAIN output | 🔴 High |
+| #62 | EXPLAIN plan parser — parse MySQL EXPLAIN output | 🔴 High |
+| #63 | Cross-reference heuristics with parsed EXPLAIN plan | 🔴 High |
+| #115 | Batch workload analysis — detect conflicting indexes across multiple queries | 🔴 High |
+| #116 | URL expiration and deletion for shareable reports | 🟡 Medium |
+| #117 | Column order reasoning in composite index DDL proposals | 🟢 Low |
+| #118 | Write and storage cost estimate per index recommendation | 🟡 Medium |
+| #119 | Parameter sniffing detection — compiled vs runtime parameter values | 🔴 High |
+| #120 | Batch query input from Query Store / pg_stat_statements export | 🔴 High |
 
 ---
 
@@ -175,9 +214,11 @@ rewrites, and maintenance commands in each response.
 | ✅ Phase 0 — MVP | Apr 2026 | Live product at querytuner.com |
 | ✅ Phase 1.5 — MVP | May 2026 | Supabase setup + persistence |
 | ✅ Phase 1.6 — MVP | May 19-21 | UI Shell |
-| 🔄 Phase 1 — Engine | May 5–16 | 8 heuristics, 20 pytest fixtures, CI green |
-| Phase 2 — Schema | May 19–30 | Column-specific index suggestions |
-| Phase 3 — Agents | Jun 2–20 | LangGraph pipeline + LangSmith traces |
+| ✅ Phase 1.7 — Dialect Intelligence | May–Jun 2026 | Dialect-correct DDL, rewrites, LLM prompts |
+| ✅ Phase 1 — Engine | May 5–16 | 16 heuristics, 102 passing tests, CI green |
+| ✅ Phase 2 — Schema | May 19–30 | Column-specific index suggestions |
+| ✅ Post-Phase 2 — Hardening | Jul 2026 | Evidence system, rollback DDL, report page parity |
+| ⏭ Phase 3 — Agents (deferred) | Jun 2–20 | LangGraph pipeline + LangSmith traces |
 | Phase 4 — Monetize | Jun 23–Jul 4 | Stripe + Auth + Free/Pro tiers |
 | Phase 5 — Enterprise | July | Team plan, Slack, live DB |
 

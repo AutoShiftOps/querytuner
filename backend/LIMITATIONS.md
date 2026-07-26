@@ -37,8 +37,9 @@ honestly is part of the engineering discipline behind this project.
 
 ## LLM layer
 
-- AI insights depend on HuggingFace free tier availability. Cold starts (model
-  loading) can add 20-30 seconds of latency.
+- AI provider: OpenAI gpt-4o-mini is the recommended default. HuggingFace is available
+  as an alternative via the provider dropdown but is unreliable on the free tier
+  (402 Payment Required errors as of July 2026).
 - LLM output structure (JSON) is not guaranteed — the fallback renders plain text
   when JSON parsing fails.
 - The LLM does not have access to the database schema unless `schema_info` is

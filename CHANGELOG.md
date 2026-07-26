@@ -4,7 +4,41 @@ All notable changes to QueryTuner are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
+
+These changes will become v0.3.0 when Phase 4 ships.
+
+### Added
+- 4 new heuristic rules (total now 16):
+  - `not_in_nullable` (high, deterministic) — NOT IN with nullable subquery returns zero rows
+  - `case_in_predicate` (high, deterministic) — CASE in WHERE prevents index use
+  - `or_expansion` (medium, estimated) — OR on different columns may force full scan
+  - `cte_multiple_references` (medium, estimated) — CTE referenced 2+ times may re-execute
+- Three-tier evidence labelling system: deterministic / schema-verified / needs-runtime-evidence
+- Rollback DDL per dialect on all index recommendations (5 dialect-correct statements)
+- Privacy warning on share button and report page
+- AI Insights section on shareable report page
+- Report page brought to full parity with main app: evidence badges, DDL blocks, rollback
+  toggles, Query Diagnosis section, AI Insights
+- `findKey()` resilient JSON parser for AI output — handles key name variations across LLM
+  providers
+- OpenAI (recommended) label added to AI provider dropdown (UI label change only — provider
+  selection remains user's choice)
 - Phase 4: Authentication + Stripe payments
+
+### Fixed
+- `schema_verified` terminology replaces "confirmed" — more accurate, does not imply planner
+  will use the index
+- CSS wildcard reset specificity conflict on report page — was zeroing Tailwind utility
+  classes, fixed with `:where()` wrapper
+- Markdown fence regex anchoring in AI JSON parser — trailing LLM prose after closing fence
+  was causing raw JSON display
+- QueryInput help text updated to schema-verified
+
+### Tests
+- 102 passing tests (up from 94)
+- `test_comprehensive.py` — 22 tests covering 6 edge case categories
+- `test_schema_parser.py` — 43 tests; covers PostgreSQL, MySQL, Oracle, and SQL Server DDL
+  parsing (SQLite schema parsing not yet covered)
 
 ## [0.2.0] — 2026-07-20
 
