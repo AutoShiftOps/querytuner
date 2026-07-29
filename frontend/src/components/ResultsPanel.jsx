@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { safeParseAiJson } from '../utils/aiInsights';
+import { desanitize } from '../utils/sanitizer';
 
 // The LLM's top-level JSON schema drifts across providers/models — e.g.
 // OpenAI's gpt-4o-mini has returned "performance_improvements" where the
@@ -414,12 +416,25 @@ function PlainTextInsights({ content }) {
   );
 }
 
-function ResultsPanel({ title, content, icon: Icon, onShare, aiConfirmedTypes }) {
+function ResultsPanel({ title, content, icon: Icon, onShare, aiConfirmedTypes, substitutionMap }) {
+  const [restoreNames, setRestoreNames] = useState(false);
+
   if (!content) return null;
+
+  // When the source query was sanitized, ai_insights was generated from the
+  // table_a/col_a placeholders too — restoring here swaps them back to the
+  // real names for display, without ever having sent the real names to the
+  // backend.
+  const effectiveContent =
+    restoreNames && substitutionMap
+      ? desanitize(typeof content === 'string' ? content : JSON.stringify(content), substitutionMap)
+      : content;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(
-      typeof content === 'string' ? content : JSON.stringify(content, null, 2)
+      typeof effectiveContent === 'string'
+        ? effectiveContent
+        : JSON.stringify(effectiveContent, null, 2)
     );
     if (onShare) {
       onShare();
@@ -430,7 +445,10 @@ function ResultsPanel({ title, content, icon: Icon, onShare, aiConfirmedTypes })
   // Supabase (always a string), same as the live /analyze response. Both
   // paths are strings in practice, but defend against an already-parsed
   // object reaching here too rather than assuming one fixed shape.
-  const parsed = content && typeof content === 'object' ? content : safeParseAiJson(content);
+  const parsed =
+    effectiveContent && typeof effectiveContent === 'object'
+      ? effectiveContent
+      : safeParseAiJson(effectiveContent);
   // A parsed JSON object with none of the known top-level keys isn't a
   // recognisable structured shape (e.g. an LLM that returned unrelated JSON)
   // — fall back to plain text rather than rendering an empty panel.
@@ -513,6 +531,15 @@ function ResultsPanel({ title, content, icon: Icon, onShare, aiConfirmedTypes })
           >
             AI Generated
           </span>
+          {substitutionMap && (
+            <button
+              onClick={() => setRestoreNames((v) => !v)}
+              className={copyButtonClass}
+              style={restoreNames ? { color: '#34d399', borderColor: '#34d399' } : undefined}
+            >
+              {restoreNames ? 'Showing original names' : 'Restore names in AI output'}
+            </button>
+          )}
           <button onClick={handleCopy} className={copyButtonClass}>
             Copy
           </button>
@@ -522,7 +549,7 @@ function ResultsPanel({ title, content, icon: Icon, onShare, aiConfirmedTypes })
       {hasStructuredContent ? (
         <StructuredInsights data={parsed} aiConfirmedTypes={aiConfirmedTypes} />
       ) : (
-        <PlainTextInsights content={content} />
+        <PlainTextInsights content={effectiveContent} />
       )}
     </div>
   );

@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "lint": "eslint src --ext .js,.jsx",
     "lint:fix": "eslint src --ext .js,.jsx --fix",
-    "format": "prettier --write \"src/**/*.{js,jsx,css}\""
+    "format": "prettier --write \"src/**/*.{js,jsx,css}\"",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.19",
@@ -30,7 +31,8 @@
     "postcss": "^8.5.6",
     "prettier": "^3.8.3",
     "tailwindcss": "^3.4.19",
-    "vite": "^6.4.3"
+    "vite": "^6.4.3",
+    "vitest": "^4.1.10"
   },
   "eslintConfig": {
     "extends": [

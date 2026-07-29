@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Zap } from 'lucide-react';
+import { desanitize } from '../utils/sanitizer';
 
 function severityColor(sev) {
   const s = (sev || '').toLowerCase();
@@ -126,6 +127,72 @@ function RollbackToggle({ ddl }) {
   );
 }
 
+// Shown only when the query was sanitized before analysis — restores the
+// original table/column names into the sanitized ddl_hint so the user gets
+// copy-pasteable production DDL rather than the table_a/col_a placeholders.
+function RestoreNamesToggle({ ddl, substitutionMap }) {
+  const [open, setOpen] = useState(false);
+  const restored = desanitize(ddl, substitutionMap);
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="text-xs font-medium"
+        style={{
+          color: '#38bdf8',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          padding: 0,
+        }}
+      >
+        {open ? '▾' : '▸'} Restore original names
+      </button>
+      {open && (
+        <div className="mt-2">
+          <p className="text-xs" style={{ color: '#64748b' }}>
+            Original (sanitized):
+          </p>
+          <pre
+            className="mt-1 text-xs rounded p-2 overflow-x-auto"
+            style={{
+              background: '#0f172a',
+              color: '#7dd3fc',
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            {ddl}
+          </pre>
+          <div className="flex items-center justify-between mt-2">
+            <p className="text-xs" style={{ color: '#64748b' }}>
+              ↓ Restored names:
+            </p>
+            <button
+              type="button"
+              onClick={() => navigator.clipboard.writeText(restored)}
+              className="text-xs text-slate-400 hover:text-white border border-slate-600
+                         hover:border-slate-400 px-3 py-1 rounded transition-colors"
+            >
+              Copy
+            </button>
+          </div>
+          <pre
+            className="mt-1 text-xs rounded p-2 overflow-x-auto"
+            style={{
+              background: '#0f172a',
+              color: '#34d399',
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            {restored}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HeuristicHeader() {
   return (
     <div className="mb-4">
@@ -150,7 +217,11 @@ function HeuristicHeader() {
   );
 }
 
-export default function OptimizationSuggestions({ suggestions, aiConfirmedTypes }) {
+export default function OptimizationSuggestions({
+  suggestions,
+  aiConfirmedTypes,
+  substitutionMap,
+}) {
   const items = Array.isArray(suggestions) ? suggestions : [];
 
   if (items.length === 0) {
@@ -219,6 +290,10 @@ export default function OptimizationSuggestions({ suggestions, aiConfirmedTypes 
                 >
                   {s.ddl_hint}
                 </pre>
+              ) : null}
+
+              {s.ddl_hint && substitutionMap ? (
+                <RestoreNamesToggle ddl={s.ddl_hint} substitutionMap={substitutionMap} />
               ) : null}
 
               {s.rollback_ddl ? <RollbackToggle ddl={s.rollback_ddl} /> : null}

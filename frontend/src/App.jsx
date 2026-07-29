@@ -38,6 +38,9 @@ function App() {
   const [caps, setCaps] = useState(null);
   const [llmProvider, setLlmProvider] = useState('huggingface');
   const [useLlm, setUseLlm] = useState(false);
+  // Query sanitizer — null when not sanitized, substitution map when active.
+  // Session-only: never persisted to localStorage/sessionStorage/cookies.
+  const [substitutionMap, setSubstitutionMap] = useState(null);
   const { toasts, showToast, dismissToast } = useToast();
 
   // ── Analyze — defined first so useEffects below can reference it ────────
@@ -182,6 +185,8 @@ function App() {
               setExplainPlan={setExplainPlan}
               schemaDdl={schemaDdl}
               setSchemaDdl={setSchemaDdl}
+              substitutionMap={substitutionMap}
+              setSubstitutionMap={setSubstitutionMap}
             />
             {error && (
               <div className="p-4 bg-red-900/20 border border-red-500 rounded-lg flex gap-3">
@@ -257,6 +262,7 @@ function App() {
               <OptimizationSuggestions
                 suggestions={result.optimization_suggestions || []}
                 aiConfirmedTypes={aiConfirmedTypes}
+                substitutionMap={substitutionMap}
               />
 
               {/* AI Insights — only show when AI was actually used and returned content */}
@@ -270,6 +276,7 @@ function App() {
                   content={result.ai_insights}
                   icon={Zap}
                   aiConfirmedTypes={aiConfirmedTypes}
+                  substitutionMap={substitutionMap}
                   onShare={() => {
                     navigator.clipboard.writeText(result.ai_insights || '');
                     showToast('AI insights copied to clipboard', 'success');

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import SanitizerPanel from './SanitizerPanel';
 
 export default function QueryInput({
   query,
@@ -16,6 +17,8 @@ export default function QueryInput({
   setExplainPlan, // Issue #60: new prop — setter from parent
   schemaDdl, // Issue #8: new prop — raw CREATE TABLE DDL text
   setSchemaDdl, // Issue #8: new prop — setter from parent
+  substitutionMap, // query sanitizer — null when not sanitized, map when active
+  setSubstitutionMap, // query sanitizer — setter from parent
 }) {
   const openaiEnabled = !!caps?.providers?.openai;
   const hfEnabled = caps?.providers?.huggingface ?? true;
@@ -72,8 +75,19 @@ export default function QueryInput({
       <textarea
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        className="w-full h-40 bg-slate-900 text-white rounded border border-slate-600 p-3 font-mono text-sm"
+        className={`w-full h-40 bg-slate-900 text-white rounded border p-3 font-mono text-sm ${
+          substitutionMap ? 'border-emerald-500' : 'border-slate-600'
+        }`}
         placeholder="SELECT * FROM orders WHERE status = 'pending'"
+      />
+
+      <SanitizerPanel
+        query={query}
+        setQuery={setQuery}
+        explainPlan={explainPlan}
+        setExplainPlan={setExplainPlan}
+        substitutionMap={substitutionMap}
+        setSubstitutionMap={setSubstitutionMap}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
