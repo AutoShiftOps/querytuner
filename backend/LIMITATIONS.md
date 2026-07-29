@@ -61,3 +61,15 @@ honestly is part of the engineering discipline behind this project.
 - Stored procedures and functions
 - DDL statements (`CREATE`, `ALTER`, `DROP`) as the analysed query
 - Authentication and user accounts (Phase 4)
+
+## Privacy and data handling
+
+- Query text is sent to the backend for analysis and stored in Supabase when a
+  shareable URL is generated.
+- Use the client-side sanitizer to replace proprietary table and column names before
+  analysis if your organisation has policies against sending schema information to
+  third-party services.
+- The sanitizer substitution map is stored in browser memory only and is lost on page
+  refresh — this is intentional.
+- Shareable report URLs store the sanitized version of the query — original names are
+  never recoverable from the report URL.

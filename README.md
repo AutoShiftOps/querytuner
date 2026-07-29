@@ -54,6 +54,10 @@ QueryTuner analyzes SQL queries in two layers:
 - 📈 **Analytics** — Google Analytics 4 event tracking on every user action
 - 🛡️ **Security Scanning** — detects SQL injection patterns and unsafe constructs
 - 📊 **Readability Score** — quantifies query clarity for code review
+- 🔒 **Client-side query sanitizer** — replace proprietary table and column names with
+  dummy values before analysis runs. Your real schema names never leave your browser.
+  One click restores original names in DDL output after analysis. Substitution map
+  lives in browser memory only — gone on page refresh, never persisted.
 - 🔌 **REST API** — integrable into CI/CD pipelines and developer tooling
 - 🚫 **No DB Connection Needed** — works entirely from pasted query text (schema DDL is optional,
   only needed to unlock confirmed mode)
@@ -231,10 +235,13 @@ sql-query-analyzer/
 │   │   │   ├── Toast.jsx            # Notification system
 │   │   │   ├── ShareButton.jsx      # Share analysis URL
 │   │   │   ├── QueryDiagnosis.jsx   # Structured plain-explanation renderer
-│   │   │   └── ReportPage.jsx       # Shareable /report/:id read-only page
+│   │   │   ├── ReportPage.jsx       # Shareable /report/:id read-only page
+│   │   │   └── SanitizerPanel.jsx   # Three-state sanitizer UI
 │   │   ├── utils/
 │   │   │   ├── analytics.js         # GA4 event tracking
-│   │   │   └── aiInsights.js        # Shared AI-JSON parsing (App.jsx + ResultsPanel.jsx)
+│   │   │   ├── aiInsights.js        # Shared AI-JSON parsing (App.jsx + ResultsPanel.jsx)
+│   │   │   └── sanitizer.js         # Client-side query sanitizer (substitution map,
+│   │   │                            #   sanitize/desanitize/buildDiff)
 │   │   └── App.jsx
 │   └── package.json
 ├── docs/

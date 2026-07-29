@@ -8,6 +8,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 These changes will become v0.3.0 when Phase 4 ships.
 
 ### Added
+- Client-side query sanitizer (commit 042a23fd):
+  - Table and column names replaced with dummy values (`table_a`, `col_b`) in browser
+    before any data sent to server. Real schema names never reach QueryTuner's backend
+    or Supabase.
+  - Substitution map stored in React `useState` only — never localStorage, never
+    server, gone on page refresh.
+  - "Restore original names" button on DDL output applies reverse substitution —
+    produces copy-pasteable DDL with real table names.
+  - Same map applied to EXPLAIN plan if provided, for consistency.
+  - 15 tests via vitest.
 - 4 new heuristic rules (total now 16):
   - `not_in_nullable` (high, deterministic) — NOT IN with nullable subquery returns zero rows
   - `case_in_predicate` (high, deterministic) — CASE in WHERE prevents index use

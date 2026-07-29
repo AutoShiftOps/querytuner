@@ -1,9 +1,25 @@
-// Client-side query sanitizer — replaces table/column names with deterministic
-// dummy values (table_a, col_a, ...) so proprietary schema never leaves the
-// browser. This is a regex-based heuristic, not a full SQL AST parser: it is
-// tuned to catch the common clause shapes (FROM/JOIN/INTO/UPDATE, SELECT
-// lists, WHERE/ON/HAVING, GROUP BY/ORDER BY, SET) across the 5 supported
-// dialects without adding a parser dependency to the frontend bundle.
+/**
+ * sanitizer.js — Client-side query sanitizer
+ *
+ * Replaces proprietary table and column names with deterministic dummy
+ * values before any SQL is sent to the QueryTuner backend.
+ *
+ * Privacy guarantee: the substitution map lives only in React useState (via
+ * App.jsx). It is never written to localStorage, sessionStorage, or any
+ * server. It is lost on page refresh — by design.
+ *
+ * Boundary matching: uses custom alnum-boundary regex (not \b) so that
+ * compound identifiers like pinacle_id are correctly substituted as
+ * table_a_id while pinnacle is untouched.
+ *
+ * Implementation note: this is a regex-based heuristic, not a full SQL AST
+ * parser — it is tuned to catch the common clause shapes (FROM/JOIN/
+ * INTO/UPDATE, SELECT lists, WHERE/ON/HAVING, GROUP BY/ORDER BY, SET) across
+ * the 5 supported dialects without adding a parser dependency to the
+ * frontend bundle.
+ *
+ * @module sanitizer
+ */
 
 // ── SQL keyword / function exclusion list (covers postgresql, mysql, oracle,
 // sqlserver, sqlite) — never substituted, even though they appear next to
