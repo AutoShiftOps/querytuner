@@ -73,3 +73,8 @@ honestly is part of the engineering discipline behind this project.
   refresh — this is intentional.
 - Shareable report URLs store the sanitized version of the query — original names are
   never recoverable from the report URL.
+- If a query was sanitized using the client-side sanitizer before analysis, the shared
+  report URL will display dummy table and column names (table_a, col_b etc). This is
+  correct and intentional — original names are never stored anywhere and cannot be
+  recovered from the report URL. The substitution map exists only in the browser
+  session that ran the analysis.
