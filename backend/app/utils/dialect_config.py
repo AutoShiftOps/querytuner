@@ -123,7 +123,12 @@ DIALECTS: dict[str, DialectConfig] = {
             "EXPLAIN (ANALYZE, BUFFERS), partial indexes, CONCURRENTLY index creation, "
             "CTEs with MATERIALIZED hint (PG14+), and the pg_trgm extension for LIKE optimisation. "
             "Never suggest MySQL or Oracle syntax. "
-            "Index DDL must use CREATE INDEX CONCURRENTLY."
+            "Index DDL must use CREATE INDEX CONCURRENTLY. "
+            "For queries filtering on a PRIMARY KEY or UNIQUE constraint column, do NOT "
+            "recommend additional indexes — these queries already use the optimal access "
+            "path. Only recommend indexes when there is clear evidence of a missing index "
+            "on a non-key column used in a WHERE, JOIN, or ORDER BY clause that is not "
+            "already covered by an existing index in the provided schema."
         ),
         unsupported=[
             "FORCE INDEX hints (use pg_hint_plan extension instead)",
@@ -161,7 +166,12 @@ DIALECTS: dict[str, DialectConfig] = {
             "the slow query log, pt-query-digest for query analysis, and "
             "pt-online-schema-change for production index creation. "
             "Never suggest CONCURRENTLY (PostgreSQL only) or DBMS_STATS (Oracle only). "
-            "Index DDL must use ALTER TABLE ... ADD INDEX."
+            "Index DDL must use ALTER TABLE ... ADD INDEX. "
+            "For queries filtering on a PRIMARY KEY or UNIQUE constraint column, do NOT "
+            "recommend additional indexes — these queries already use the optimal access "
+            "path. Only recommend indexes when there is clear evidence of a missing index "
+            "on a non-key column used in a WHERE, JOIN, or ORDER BY clause that is not "
+            "already covered by an existing index in the provided schema."
         ),
         unsupported=[
             "CREATE INDEX CONCURRENTLY (PostgreSQL only)",
@@ -204,7 +214,12 @@ DIALECTS: dict[str, DialectConfig] = {
             "function-based indexes, and NOLOGGING for bulk operations. "
             "Never suggest CONCURRENTLY (PostgreSQL only), LIMIT (use FETCH FIRST or ROWNUM), "
             "or ALTER TABLE ADD INDEX (Oracle uses CREATE INDEX). "
-            "Index DDL must use: CREATE INDEX name ON table(col) NOLOGGING;"
+            "Index DDL must use: CREATE INDEX name ON table(col) NOLOGGING; "
+            "For queries filtering on a PRIMARY KEY or UNIQUE constraint column, do NOT "
+            "recommend additional indexes — these queries already use the optimal access "
+            "path. Only recommend indexes when there is clear evidence of a missing index "
+            "on a non-key column used in a WHERE, JOIN, or ORDER BY clause that is not "
+            "already covered by an existing index in the provided schema."
         ),
         unsupported=[
             "CREATE INDEX CONCURRENTLY (PostgreSQL only)",
@@ -249,7 +264,12 @@ DIALECTS: dict[str, DialectConfig] = {
             "and OPTION query hints. "
             "Never suggest CONCURRENTLY (PostgreSQL only), LIMIT (use OFFSET/FETCH), "
             "or DBMS_STATS (Oracle only). "
-            "Index DDL must use: CREATE NONCLUSTERED INDEX name ON table(col) WITH (ONLINE=ON);"
+            "Index DDL must use: CREATE NONCLUSTERED INDEX name ON table(col) WITH (ONLINE=ON); "
+            "For queries filtering on a PRIMARY KEY or UNIQUE constraint column, do NOT "
+            "recommend additional indexes — these queries already use the optimal access "
+            "path. Only recommend indexes when there is clear evidence of a missing index "
+            "on a non-key column used in a WHERE, JOIN, or ORDER BY clause that is not "
+            "already covered by an existing index in the provided schema."
         ),
         unsupported=[
             "CREATE INDEX CONCURRENTLY (PostgreSQL only)",
@@ -289,7 +309,12 @@ DIALECTS: dict[str, DialectConfig] = {
             "SQLite has no CONCURRENTLY — index creation locks the database file. "
             "Never suggest ALTER TABLE ADD INDEX (use CREATE INDEX), "
             "or stored procedures (not supported). "
-            "Index DDL must use: CREATE INDEX IF NOT EXISTS name ON table(col);"
+            "Index DDL must use: CREATE INDEX IF NOT EXISTS name ON table(col); "
+            "For queries filtering on a PRIMARY KEY or UNIQUE constraint column, do NOT "
+            "recommend additional indexes — these queries already use the optimal access "
+            "path. Only recommend indexes when there is clear evidence of a missing index "
+            "on a non-key column used in a WHERE, JOIN, or ORDER BY clause that is not "
+            "already covered by an existing index in the provided schema."
         ),
         unsupported=[
             "CREATE INDEX CONCURRENTLY (not supported — locks DB file)",
