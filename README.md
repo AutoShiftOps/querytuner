@@ -5,7 +5,7 @@
 # QueryTuner — AI-Powered SQL Query Diagnostics
 
 [![Version](https://img.shields.io/badge/version-0.2.0-blue)](CHANGELOG.md)
-[![Backend](https://img.shields.io/badge/backend-FastAPI-009688?logo=fastapi)](https://sql-query-analyzer-ekbk.onrender.com/docs)
+[![Backend](https://img.shields.io/badge/backend-FastAPI-009688?logo=fastapi)](https://api.querytuner.com/docs)
 [![Frontend](https://img.shields.io/badge/frontend-React-61DAFB?logo=react)](https://querytuner.com)
 [![AI](https://img.shields.io/badge/AI-HuggingFace%20%7C%20OpenAI-FFD21F?logo=huggingface)](https://huggingface.co)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -20,7 +20,7 @@
 **No database connection required. Paste-in and analyze.**
 
 🔗 **Live Demo → [querytuner.com](https://querytuner.com)**
-📖 **API Docs → [/docs](https://sql-query-analyzer-ekbk.onrender.com/docs)**
+📖 **API Docs → [/docs](https://api.querytuner.com/docs)**
 
 ---
 
@@ -68,7 +68,7 @@ QueryTuner analyzes SQL queries in two layers:
 
 ```bash
 # Analyze a query (heuristics only, no API key needed)
-curl -X POST https://sql-query-analyzer-ekbk.onrender.com/analyze \
+curl -X POST https://api.querytuner.com/analyze \
   -H "Content-Type: application/json" \
   -d '{
     "query": "SELECT * FROM orders WHERE customer_id = 42 ORDER BY created_at DESC",
@@ -77,7 +77,7 @@ curl -X POST https://sql-query-analyzer-ekbk.onrender.com/analyze \
   }'
 
 # With AI insights (requires HF_API_KEY on server)
-curl -X POST https://sql-query-analyzer-ekbk.onrender.com/analyze \
+curl -X POST https://api.querytuner.com/analyze \
   -H "Content-Type: application/json" \
   -d '{
     "query": "SELECT u.id, COUNT(o.id) FROM users u LEFT JOIN orders o ON o.user_id = u.id WHERE YEAR(o.created_at) = 2025 GROUP BY u.id",
@@ -112,14 +112,14 @@ curl -X POST https://sql-query-analyzer-ekbk.onrender.com/analyze \
 }
 ```
 
-Full schema at [`/docs`](https://sql-query-analyzer-ekbk.onrender.com/docs).
+Full schema at [`/docs`](https://api.querytuner.com/docs).
 
 ---
 
 ## Architecture
 
 ```
-querytuner.com (Vercel)          sql-query-analyzer-ekbk.onrender.com (Render)
+querytuner.com (Vercel)          api.querytuner.com (Render)
      │                                          │
      │  POST /analyze                           │
      └─────────────────────────────────────────►│

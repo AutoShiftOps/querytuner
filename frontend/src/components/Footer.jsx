@@ -46,7 +46,7 @@ export default function Footer() {
             <span className="qt-footer-name">QueryTuner</span>
           </div>
           <a
-            href="https://sql-query-analyzer-ekbk.onrender.com/docs"
+            href="https://api.querytuner.com/docs"
             target="_blank"
             rel="noopener noreferrer"
             className="qt-footer-link"
