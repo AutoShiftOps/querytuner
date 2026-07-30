@@ -325,6 +325,45 @@ def test_named_constraint_primary_key_detected():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# get_indexed_columns — Issue #125: SQL Server CONSTRAINT ... PRIMARY KEY
+# CLUSTERED (...) with no comma before it (SSMS-scripted DDL commonly looks
+# like this — the constraint clause is glued onto the last column
+# definition instead of being its own comma-separated table-level item).
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+_ISSUE_125_DDL = """
+    CREATE TABLE [dbo].[tbl1](
+        [pk] [uniqueidentifier] NOT NULL,
+        [col1] [varchar](50) NOT NULL
+        CONSTRAINT PK_tbl1 PRIMARY KEY CLUSTERED
+        (
+            [pk] ASC
+        )
+        WITH (STATISTICS_NORECOMPUTE = OFF,
+              IGNORE_DUP_KEY = OFF,
+              OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF)
+        ON [PRIMARY]
+    ) ON [PRIMARY]
+"""
+
+
+def test_sqlserver_constraint_clustered_with_missing_comma_detects_real_pk():
+    # The explicit column list on the CONSTRAINT clause (pk) is authoritative
+    # — not the column whose definition it happens to trail (col1).
+    indexed = get_indexed_columns(_ISSUE_125_DDL)
+    assert indexed == {"tbl1": {"pk"}}
+    assert "col1" not in indexed["tbl1"]
+
+
+def test_sqlserver_constraint_clustered_with_missing_comma_no_index_suggestion():
+    query = "UPDATE tbl1 SET col1 = 'x' WHERE pk = '585dd9d6-c770-4964-836f-4633c11dd9ec'"
+    parsed = QueryParser().parse(query)
+    suggestions = IndexRecommender().recommend(query, parsed, db_type="sqlserver", schema_info=_ISSUE_125_DDL)
+    assert suggestions == []
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # get_indexed_columns — UNIQUE (inline + table-level)
 # ═══════════════════════════════════════════════════════════════════════════
 

@@ -548,6 +548,19 @@ def _is_constraint_or_index_line(part: str) -> bool:
     return m.group(1).upper() in _CONSTRAINT_KEYWORDS
 
 
+# Matches a PRIMARY KEY/UNIQUE clause's own explicit column list, e.g.
+# "PRIMARY KEY CLUSTERED ([pk] ASC)" or "UNIQUE NONCLUSTERED (a, b)". Used to
+# find a constraint's column list wherever it appears in a body line — not
+# just when the line starts with PRIMARY/UNIQUE/CONSTRAINT — because real
+# SQL Server DDL sometimes omits the comma before a table-level
+# "CONSTRAINT ... PRIMARY KEY CLUSTERED (...)" clause, gluing it onto the
+# end of the preceding column definition instead.
+_INLINE_PK_UNIQUE_RE = re.compile(
+    r"\b(?:PRIMARY\s+KEY|UNIQUE)\b(?:\s+CLUSTERED\b|\s+NONCLUSTERED\b)?\s*\(([^)]*)\)",
+    re.IGNORECASE,
+)
+
+
 def _constraint_indexed_columns(part: str) -> set[str]:
     """Column names covered by a table-level PRIMARY KEY / UNIQUE / bare KEY|INDEX line.
 
@@ -642,7 +655,17 @@ def get_indexed_columns(ddl: str) -> dict[str, set[str]]:
                 continue
             col_name = next(g for g in cm.group(1, 2, 3, 4) if g is not None)
             rest = cm.group(5)
-            if re.search(r"\bPRIMARY\s+KEY\b", rest, re.IGNORECASE) or re.search(r"\bUNIQUE\b", rest, re.IGNORECASE):
+
+            inline_m = _INLINE_PK_UNIQUE_RE.search(rest)
+            if inline_m:
+                # An explicit column list on the constraint clause is
+                # authoritative — the indexed column(s) may not be the one
+                # this definition line happens to start with (see
+                # _INLINE_PK_UNIQUE_RE docstring above).
+                cols = {_clean_identifier(c) for c in inline_m.group(1).split(",") if c.strip()}
+                if cols:
+                    indexed.setdefault(table, set()).update(cols)
+            elif re.search(r"\bPRIMARY\s+KEY\b", rest, re.IGNORECASE) or re.search(r"\bUNIQUE\b", rest, re.IGNORECASE):
                 indexed.setdefault(table, set()).add(col_name)
 
     return indexed
