@@ -1,6 +1,30 @@
+import { useEffect } from 'react';
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+// Official GitHub Buttons widget (buttons.github.io) — renders a live star
+// count + one-click star action inside a cross-origin iframe. Loaded once,
+// async+defer, so it never blocks first paint. The script itself watches
+// the DOM for `.github-button` elements (it doesn't require being loaded
+// before the markup exists), so a plain one-time inject in an effect is
+// enough even though React owns the DOM.
+const GITHUB_BUTTONS_SCRIPT_ID = 'gh-buttons-widget-script';
+
+function injectGithubButtonsScript() {
+  if (document.getElementById(GITHUB_BUTTONS_SCRIPT_ID)) return;
+  const script = document.createElement('script');
+  script.id = GITHUB_BUTTONS_SCRIPT_ID;
+  script.src = 'https://buttons.github.io/buttons.js';
+  script.async = true;
+  script.defer = true;
+  document.body.appendChild(script);
+}
+
 export default function Header() {
+  useEffect(() => {
+    injectGithubButtonsScript();
+  }, []);
+
   return (
     <>
       <style>{`
@@ -70,6 +94,10 @@ export default function Header() {
           font-weight: 600; margin-left: 6px;
         }
         .qt-header-pro:hover { background: #7dd3fc; }
+        .qt-header-star {
+          display: inline-flex; align-items: center;
+          margin-left: 6px; line-height: 0;
+        }
         @media (max-width: 640px) {
           .qt-header-hide-mobile { display: none; }
           .qt-header-signin { display: none; }
@@ -115,13 +143,17 @@ export default function Header() {
           <button className="qt-header-btn qt-header-signin" disabled title="Coming soon">
             Sign in
           </button>
-          <button
-            className="qt-header-btn qt-header-pro"
-            onClick={() => window.open('https://github.com/AutoShiftOps/querytuner', '_blank')}
-            title="Star us on GitHub"
-          >
-            ★ Star
-          </button>
+          <span className="qt-header-star">
+            <a
+              className="github-button"
+              href="https://github.com/AutoShiftOps/querytuner"
+              data-icon="octicon-star"
+              data-show-count="true"
+              aria-label="Star AutoShiftOps/querytuner on GitHub"
+            >
+              Star
+            </a>
+          </span>
         </nav>
       </header>
     </>
