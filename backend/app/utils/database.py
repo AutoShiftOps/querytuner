@@ -31,7 +31,7 @@ def hash_query(query: str) -> str:
 # Columns added after the initial schema (001) — a given Supabase project may
 # not have run the corresponding migration yet. Retried one at a time below
 # rather than losing the whole analysis record (PGRST204: unknown column).
-_OPTIONAL_COLUMNS = ("plain_explanation", "ai_insights", "ai_provider")
+_OPTIONAL_COLUMNS = ("plain_explanation", "ai_insights", "ai_provider", "security_issues")
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +93,7 @@ async def save_analysis(payload: dict[str, Any]) -> str | None:
         "plain_explanation": payload.get("plain_explanation"),
         "ai_insights": payload.get("ai_insights") or None,
         "ai_provider": payload.get("ai_provider") or None,
+        "security_issues": payload.get("security_issues") or [],
     }
 
     data = await _insert_with_fallback(row)

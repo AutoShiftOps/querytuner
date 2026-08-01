@@ -9,6 +9,7 @@ All files are idempotent — safe to re-run.
 | 002_phase2_schema_info.sql | 2 | schema_info column for schema-aware analysis |
 | 003_plain_explanation.sql | Phase 2 polish | add plain_explanation column for Query Diagnosis on report page |
 | 004_ai_insights.sql | Phase 2 polish | add ai_insights and ai_provider columns for AI Insights on report page |
+| 005_security_issues.sql | Phase 2 polish | add security_issues column for Security Issues section on report page |
 
 ## Disaster recovery
 1. Create a new Supabase project

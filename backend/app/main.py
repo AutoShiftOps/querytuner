@@ -188,6 +188,7 @@ async def get_report(analysis_id: str):
             "db_type": record["db_type"],
             "original_query": record["original_query"],
             "optimization_suggestions": record["findings"],
+            "security_issues": record.get("security_issues") or [],
             "severity": record["severity"],
             "optimized_query": record.get("optimized_query"),
             "plain_explanation": record.get("plain_explanation"),

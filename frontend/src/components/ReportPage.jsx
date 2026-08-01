@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { Zap } from 'lucide-react';
+import { Shield, Zap } from 'lucide-react';
 import { trackPageView, trackReportViewed } from '../utils/analytics';
 import QueryDiagnosis from './QueryDiagnosis';
 import ResultsPanel from './ResultsPanel';
@@ -704,6 +704,33 @@ export default function ReportPage() {
             </div>
           )}
         </div>
+
+        {/* ── Security Issues — only when the array is non-empty; no placeholder ── */}
+        {Array.isArray(report.security_issues) && report.security_issues.length > 0 && (
+          <div className="qt-section">
+            <div className="qt-section-label">
+              <Shield size={12} style={{ color: T.red }} />
+              Security Issues
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {report.security_issues.map((issue, i) => (
+                <div
+                  key={i}
+                  style={{
+                    background: 'rgba(248,113,113,0.06)',
+                    border: '1px solid rgba(248,113,113,0.2)',
+                    borderRadius: 8,
+                    padding: '10px 16px',
+                    color: '#f87171',
+                    fontSize: 13,
+                  }}
+                >
+                  {issue}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── AI Insights — only when AI was actually used and returned content ── */}
         {report.used_ai && report.ai_insights && (
