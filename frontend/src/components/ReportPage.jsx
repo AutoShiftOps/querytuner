@@ -15,6 +15,7 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { Shield, Zap } from 'lucide-react';
 import { trackPageView, trackReportViewed } from '../utils/analytics';
+import { getAiConfirmedTypes } from '../utils/aiInsights';
 import QueryDiagnosis from './QueryDiagnosis';
 import ResultsPanel from './ResultsPanel';
 
@@ -472,6 +473,14 @@ export default function ReportPage() {
   if (!report) return null;
 
   const findings = report.optimization_suggestions ?? [];
+  // Mirrors App.jsx: types the AI's most_impactful_improvements also flagged
+  // get a "✓ Confirmed by AI" badge on the heuristic card below and are
+  // suppressed from the AI Insights panel instead of repeating the same
+  // finding in both places.
+  const aiConfirmedTypes =
+    report.used_ai && report.ai_insights
+      ? getAiConfirmedTypes(findings, report.ai_insights)
+      : new Set();
   const topSev = (report.severity ?? 'low').toLowerCase();
   const sevConfig = SEV[topSev] ?? SEV.low;
   const dbType = report.db_type?.toUpperCase() ?? 'SQL';
@@ -648,6 +657,7 @@ export default function ReportPage() {
               {findings.map((f, i) => {
                 const sev = (f.severity ?? 'low').toLowerCase();
                 const cfg = SEV[sev] ?? SEV.low;
+                const confirmedByAi = Boolean(aiConfirmedTypes?.has?.(f.type));
                 return (
                   <div
                     key={i}
@@ -672,6 +682,19 @@ export default function ReportPage() {
                         >
                           {cfg.label}
                         </span>
+                        {confirmedByAi && (
+                          <span
+                            className="qt-chip"
+                            style={{
+                              color: T.textMuted,
+                              background: 'rgba(127,163,196,0.1)',
+                              border: '1px solid rgba(127,163,196,0.3)',
+                              fontSize: 10,
+                            }}
+                          >
+                            ✓ Confirmed by AI
+                          </span>
+                        )}
                         <EvidenceBadge level={f.evidence_level} />
                         {f.type && <span className="qt-finding-type">{typeLabel(f.type)}</span>}
                       </div>
@@ -717,6 +740,7 @@ export default function ReportPage() {
               }`}
               content={report.ai_insights}
               icon={Zap}
+              aiConfirmedTypes={aiConfirmedTypes}
             />
           </div>
         )}
