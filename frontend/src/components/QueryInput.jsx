@@ -1,25 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, forwardRef } from 'react';
 import SanitizerPanel from './SanitizerPanel';
 
-export default function QueryInput({
-  query,
-  setQuery,
-  dbType,
-  setDbType,
-  llmProvider,
-  setLlmProvider,
-  useLlm,
-  setUseLlm,
-  onAnalyze,
-  loading,
-  caps,
-  explainPlan, // Issue #60: new prop — raw EXPLAIN output text
-  setExplainPlan, // Issue #60: new prop — setter from parent
-  schemaDdl, // Issue #8: new prop — raw CREATE TABLE DDL text
-  setSchemaDdl, // Issue #8: new prop — setter from parent
-  substitutionMap, // query sanitizer — null when not sanitized, map when active
-  setSubstitutionMap, // query sanitizer — setter from parent
-}) {
+const QueryInput = forwardRef(function QueryInput(
+  {
+    query,
+    setQuery,
+    dbType,
+    setDbType,
+    llmProvider,
+    setLlmProvider,
+    useLlm,
+    setUseLlm,
+    onAnalyze,
+    loading,
+    caps,
+    explainPlan, // Issue #60: new prop — raw EXPLAIN output text
+    setExplainPlan, // Issue #60: new prop — setter from parent
+    schemaDdl, // Issue #8: new prop — raw CREATE TABLE DDL text
+    setSchemaDdl, // Issue #8: new prop — setter from parent
+    substitutionMap, // query sanitizer — null when not sanitized, map when active
+    setSubstitutionMap, // query sanitizer — setter from parent
+    highlightAnalyze, // new prop — whether to highlight the Analyze button
+  },
+  ref
+) {
   const openaiEnabled = !!caps?.providers?.openai;
   const hfEnabled = caps?.providers?.huggingface ?? true;
   const anyAiEnabled = hfEnabled || openaiEnabled;
@@ -254,15 +258,18 @@ export default function QueryInput({
       </div>
 
       <button
+        ref={ref}
         onClick={onAnalyze}
         disabled={loading || !query.trim()}
-        className="mt-4 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white px-6 py-2 rounded font-medium"
+        className={`mt-4 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white px-6 py-2 rounded font-medium transition-all ${
+          highlightAnalyze ? 'ring-4 ring-blue-400 animate-pulse' : ''
+        }`}
       >
         {loading ? 'Analyzing...' : 'Analyze'}
       </button>
     </div>
   );
-}
+});
 
 function ChevronIcon({ open }) {
   return (
@@ -284,3 +291,5 @@ function ChevronIcon({ open }) {
     </svg>
   );
 }
+
+export default QueryInput;
