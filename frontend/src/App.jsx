@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import ShareButton from './components/ShareButton';
 import QueryDiagnosis from './components/QueryDiagnosis';
 import { AlertCircle, Zap, Shield } from 'lucide-react';
@@ -42,6 +42,8 @@ function App() {
   // Session-only: never persisted to localStorage/sessionStorage/cookies.
   const [substitutionMap, setSubstitutionMap] = useState(null);
   const { toasts, showToast, dismissToast } = useToast();
+  const analyzeBtnRef = useRef(null);
+  const [highlightAnalyze, setHighlightAnalyze] = useState(false);
 
   // ── Analyze — defined first so useEffects below can reference it ────────
   const handleAnalyze = useCallback(async () => {
@@ -164,9 +166,17 @@ function App() {
                 setQuery(sql);
                 setDbType(db);
                 trackSampleQuerySelected(sql.slice(0, 40), db);
+
+                // Scroll Analyze button into view + pulse highlight
+                setTimeout(() => {
+                  analyzeBtnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  setHighlightAnalyze(true);
+                  setTimeout(() => setHighlightAnalyze(false), 1600);
+                }, 100);
               }}
             />
             <QueryInput
+              ref={analyzeBtnRef}
               query={query}
               setQuery={setQuery}
               dbType={dbType}
@@ -187,6 +197,7 @@ function App() {
               setSchemaDdl={setSchemaDdl}
               substitutionMap={substitutionMap}
               setSubstitutionMap={setSubstitutionMap}
+              highlightAnalyze={highlightAnalyze}
             />
             {error && (
               <div className="p-4 bg-red-900/20 border border-red-500 rounded-lg flex gap-3">
