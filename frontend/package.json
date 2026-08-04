@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.61.3",
     "@tailwindcss/typography": "^0.5.20",
     "axios": "^1.16.0",
     "lucide-react": "^0.575.0",

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
+import { useUser, useAuth } from '@clerk/clerk-react';
 import ShareButton from './components/ShareButton';
 import QueryDiagnosis from './components/QueryDiagnosis';
 import { AlertCircle, Zap, Shield } from 'lucide-react';
@@ -10,6 +11,7 @@ import SampleQueries from './components/SampleQueries';
 import Header from './components/Header';
 import Hero from './components/Hero';
 import Footer from './components/Footer';
+import UpgradeModal from './components/UpgradeModal';
 import { ToastContainer, useToast } from './components/Toast';
 import { getAiConfirmedTypes } from './utils/aiInsights';
 import {
@@ -45,8 +47,52 @@ function App() {
   const analyzeBtnRef = useRef(null);
   const [highlightAnalyze, setHighlightAnalyze] = useState(false);
 
+  // ── Phase 4: Clerk auth + usage tracking ─────────────────────────────────
+  const { isSignedIn } = useUser();
+  const { getToken } = useAuth();
+  const [usageCount, setUsageCount] = useState(0);
+  const [isPro, setIsPro] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const FREE_LIMIT = 10;
+
+  const canAnalyze = useCallback(() => {
+    // Anonymous users: honour system for now (server-side enforcement is
+    // keyed off the verified Clerk user_id, so anonymous requests have
+    // nothing to enforce against yet — same limitation the backend has).
+    if (!isSignedIn) return true;
+    if (isPro) return true;
+    if (usageCount >= FREE_LIMIT) return false;
+    return true;
+  }, [isSignedIn, isPro, usageCount]);
+
+  // Hydrate usageCount/isPro from the backend's authoritative monthly count
+  // on sign-in — without this, refreshing the page would silently reset the
+  // free-tier counter back to 0 since React state doesn't persist reloads.
+  useEffect(() => {
+    if (!isSignedIn) return;
+    (async () => {
+      try {
+        const token = await getToken();
+        const r = await axios.get(`${API_BASE_URL}/usage`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        setUsageCount(r.data?.count ?? 0);
+        setIsPro(!!r.data?.is_pro);
+      } catch {
+        // Usage endpoint unavailable — fall back to the local honour-system
+        // count already held in state rather than blocking the UI.
+      }
+    })();
+  }, [isSignedIn, getToken]);
+
   // ── Analyze — defined first so useEffects below can reference it ────────
   const handleAnalyze = useCallback(async () => {
+    if (!canAnalyze()) {
+      showToast('Free limit reached — upgrade to Pro for unlimited analyses', 'warning');
+      setShowUpgradeModal(true);
+      return;
+    }
+
     // Track intent before the API call
     trackAnalysisRun({
       db_type: dbType,
@@ -58,19 +104,28 @@ function App() {
     try {
       setLoading(true);
       setError(null);
-      const response = await axios.post(`${API_BASE_URL}/analyze`, {
-        query,
-        db_type: dbType,
-        llm_provider: llmProvider,
-        use_llm: useLlm,
-        focus: 'performance',
-        explain_plan: explainPlan,
-        schema_info: schemaDdl || null,
-      });
+      const token = isSignedIn ? await getToken() : null;
+      const response = await axios.post(
+        `${API_BASE_URL}/analyze`,
+        {
+          query,
+          db_type: dbType,
+          llm_provider: llmProvider,
+          use_llm: useLlm,
+          focus: 'performance',
+          explain_plan: explainPlan,
+          schema_info: schemaDdl || null,
+        },
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
 
       const data = response.data;
       setResult(data);
       showToast('Analysis complete · share link ready', 'success');
+
+      if (isSignedIn && !isPro) {
+        setUsageCount((prev) => prev + 1);
+      }
 
       // Track successful result with outcome metrics
       trackAnalysisSuccess({
@@ -91,7 +146,19 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [query, dbType, llmProvider, useLlm, explainPlan, schemaDdl, showToast]);
+  }, [
+    query,
+    dbType,
+    llmProvider,
+    useLlm,
+    explainPlan,
+    schemaDdl,
+    showToast,
+    canAnalyze,
+    isSignedIn,
+    isPro,
+    getToken,
+  ]);
 
   // ── Cmd/Ctrl + Enter shortcut ───────────────────────────────────────────
   useEffect(() => {
@@ -147,6 +214,11 @@ function App() {
       style={{ background: '#0f172a' }} // flat — matches Header, Hero, Footer, ReportPage
     >
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      <UpgradeModal
+        isOpen={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+        usageCount={usageCount}
+      />
       <Header />
       <Hero />
 

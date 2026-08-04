@@ -36,6 +36,25 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_anon_key: str = ""
 
+    # -------------------------------------------------------------------------
+    # Clerk auth — Phase 4
+    # clerk_publishable_key is the same value shipped to the frontend
+    # (VITE_CLERK_PUBLISHABLE_KEY) — publishable keys are safe to hold
+    # server-side too and are used to derive the Clerk JWKS URL for verifying
+    # session tokens. clerk_secret_key is reserved for future use of Clerk's
+    # backend API (e.g. fetching user profile data) — the JWT verification
+    # in main.py only needs the publishable key.
+    # -------------------------------------------------------------------------
+    clerk_publishable_key: str = ""
+    clerk_secret_key: str = ""
+
+    # -------------------------------------------------------------------------
+    # Stripe billing — Phase 4
+    # -------------------------------------------------------------------------
+    stripe_secret_key: str = ""
+    stripe_price_id: str = ""
+    stripe_webhook_secret: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,

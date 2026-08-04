@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { SignedIn, SignedOut, UserButton, SignInButton, SignUpButton } from '@clerk/clerk-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -139,10 +140,32 @@ export default function Header() {
 
           <div className="qt-header-divider qt-header-hide-mobile" />
 
-          {/* Phase 4 placeholder — wire to Clerk/Supabase Auth when ready */}
-          <button className="qt-header-btn qt-header-signin" disabled title="Coming soon">
-            Sign in
-          </button>
+          {/* Phase 4: Clerk auth. Re-uses the existing .qt-header-signin /
+              .qt-header-pro button styles so signed-out and signed-in states
+              stay visually consistent with the rest of the header instead of
+              introducing a second, duplicated inline style. */}
+          <SignedOut>
+            <SignInButton mode="modal">
+              <button className="qt-header-btn qt-header-signin">Sign in</button>
+            </SignInButton>
+            <SignUpButton mode="modal">
+              <button className="qt-header-btn qt-header-pro">Sign up free</button>
+            </SignUpButton>
+          </SignedOut>
+          <SignedIn>
+            <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center' }}>
+              <UserButton
+                appearance={{
+                  elements: {
+                    avatarBox: {
+                      width: 32,
+                      height: 32,
+                    },
+                  },
+                }}
+              />
+            </span>
+          </SignedIn>
           <span className="qt-header-star">
             <a
               className="github-button"
