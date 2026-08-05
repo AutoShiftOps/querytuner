@@ -24,7 +24,12 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
 
     default_llm_provider: str = "huggingface"
-    ai_max_tokens: int = 800
+    # 800 was too tight for structured JSON responses on verbose queries
+    # (long rewritten_query + multiple findings) — the model would get cut
+    # off mid-generation, producing invalid JSON that the frontend could
+    # only render as raw text. See sql_analyzer.py's _try_llm for the fix
+    # that actually wires this value through to the LLM call.
+    ai_max_tokens: int = 1500
     max_query_chars: int = 32_000
 
     # -------------------------------------------------------------------------

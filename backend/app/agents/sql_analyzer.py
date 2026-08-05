@@ -14,6 +14,7 @@ from app.schemas.models import QueryRequest as QR
 from app.tools.execution_planner import collect_facts
 from app.tools.index_recommender import IndexRecommender
 from app.tools.query_parser import QueryParser
+from app.utils.config import settings
 from app.utils.dialect_config import get_llm_context
 
 logger = logging.getLogger(__name__)
@@ -287,6 +288,11 @@ class SQLAnalyzerAgent:
             bool(parsed.get("order_by"))
             and not bool(re.search(r"\blimit\b", ql))
             and not bool(re.search(r"\bfetch\s+first\b", ql))
+            # SQL Server pagination: OFFSET @n ROWS FETCH NEXT @n ROWS ONLY.
+            # Without this, every paginated SQL Server query using its native
+            # syntax (instead of the PostgreSQL/Oracle-style FETCH FIRST)
+            # falsely fires "missing pagination".
+            and not bool(re.search(r"\boffset\b.*\bfetch\s+next\b", ql, re.DOTALL))
         ):
             suggestions.append(
                 self._suggest(
@@ -677,6 +683,13 @@ Keep it concise and actionable.
                 prompt=prompt,
                 provider=llm_provider,
                 db_type=db_type,  # Issue #74: dialect context injection
+                # Was never passed — every call silently used router.py's
+                # own hardcoded default (600) instead of AI_MAX_TOKENS, and
+                # 600 is tight enough that a verbose query's structured JSON
+                # response (long rewritten_query + multiple findings) can
+                # get cut off mid-generation, producing invalid JSON that
+                # the frontend then has no choice but to render as raw text.
+                max_tokens=settings.ai_max_tokens,
             )
             text = result.get("text")
             model = result.get("model")
