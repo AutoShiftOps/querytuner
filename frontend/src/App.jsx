@@ -53,6 +53,9 @@ function App() {
   const [usageCount, setUsageCount] = useState(0);
   const [isPro, setIsPro] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  // null = default "N free analyses used" copy (monthly limit trigger).
+  // {title, subtitle} = custom copy for the query-too-large trigger.
+  const [upgradeModalCopy, setUpgradeModalCopy] = useState(null);
   const FREE_LIMIT = 10;
 
   const canAnalyze = useCallback(() => {
@@ -89,6 +92,7 @@ function App() {
   const handleAnalyze = useCallback(async () => {
     if (!canAnalyze()) {
       showToast('Free limit reached — upgrade to Pro for unlimited analyses', 'warning');
+      setUpgradeModalCopy(null);
       setShowUpgradeModal(true);
       return;
     }
@@ -139,9 +143,29 @@ function App() {
       });
     } catch (err) {
       setResult(null);
-      const detail = err.response?.data?.detail || 'Analysis failed';
+      // query_too_large has its own {error, message, upgrade_available}
+      // shape (not the usual {detail} FastAPI HTTPException shape).
+      // upgrade_available is only true for free/anonymous users who hit the
+      // smaller per-query character limit — that's Pro's actual pitch, so
+      // show the upgrade modal instead of a toast the user just dismisses.
+      const isQueryTooLarge = err.response?.data?.error === 'query_too_large';
+      const upgradeAvailable = isQueryTooLarge && err.response?.data?.upgrade_available === true;
+      const detail = isQueryTooLarge
+        ? err.response.data.message
+        : err.response?.data?.detail || 'Analysis failed';
       setError(detail);
-      showToast('Analysis failed — please check your query', 'error');
+      if (upgradeAvailable) {
+        setUpgradeModalCopy({
+          title: 'Your query is too large for the free tier',
+          subtitle:
+            'QueryTuner Pro supports queries up to 32,000 characters — covering real production SQL.',
+        });
+        setShowUpgradeModal(true);
+      } else if (isQueryTooLarge) {
+        showToast(detail, 'warning');
+      } else {
+        showToast('Analysis failed — please check your query', 'error');
+      }
       trackAnalysisError(err.response ? 'backend' : 'network', dbType);
     } finally {
       setLoading(false);
@@ -218,6 +242,8 @@ function App() {
         isOpen={showUpgradeModal}
         onClose={() => setShowUpgradeModal(false)}
         usageCount={usageCount}
+        title={upgradeModalCopy?.title}
+        subtitle={upgradeModalCopy?.subtitle}
       />
       <Header />
       <Hero />

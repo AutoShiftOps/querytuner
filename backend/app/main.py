@@ -179,20 +179,65 @@ async def analyze_query(request: QueryRequest, user_id: str | None = Depends(get
         if not request.query or len(request.query.strip()) < 5:
             raise HTTPException(status_code=400, detail="Query too short")
 
-        # Phase 4: server-side free-tier enforcement. The frontend already
-        # gates this client-side (canAnalyze() in App.jsx), but that's an
-        # honour system anyone could bypass by calling this endpoint
-        # directly — user_id here comes from a verified JWT, so this is the
-        # check that actually matters. Anonymous requests (user_id is None)
-        # are unaffected, same as the frontend's honour-system comment says.
+        # Phase 4: resolve tier once — drives both the per-query character
+        # limit below and the monthly analysis-count limit further down.
+        # user_id comes from a verified JWT (get_current_user), so this is
+        # the check that actually matters — the frontend's canAnalyze() is
+        # only an honour-system UX nicety anyone could bypass by calling
+        # this endpoint directly.
         usage_month = datetime.now(UTC).strftime("%Y-%m")
+        usage = None
+        is_pro = False
         if user_id:
             usage = await get_user_usage(user_id, usage_month)
-            if not usage["is_pro"] and usage["count"] >= FREE_TIER_MONTHLY_LIMIT:
-                raise HTTPException(
-                    status_code=402,
-                    detail="Free tier limit reached — upgrade to Pro for unlimited analyses",
+            is_pro = bool(usage.get("is_pro", False))
+
+        # Tier-based query size limit. Checked here (not just inside
+        # analyzer.analyze()) so an oversized query returns a clean 400 with
+        # actionable detail instead of bubbling up as a ValueError that the
+        # broad except below turns into an opaque 500 — this was the actual
+        # cause of the production 500s (Render logs: "Analysis error: Query
+        # too large (>20000 chars)"). Free/anonymous users get a smaller
+        # ceiling than Pro — not just anti-abuse, this doubles as the
+        # upgrade prompt itself (upgrade_available, read by the frontend to
+        # show UpgradeModal instead of a generic error toast).
+        max_chars = settings.max_query_chars if is_pro else settings.free_tier_max_query_chars
+        if len(request.query) > max_chars:
+            logger.warning(
+                "Query too large: %d chars (max %d, is_pro=%s)",
+                len(request.query),
+                max_chars,
+                is_pro,
+            )
+            message = (
+                f"Query exceeds maximum length of {max_chars:,} characters. "
+                "For very large queries, try analyzing the slowest subquery or CTE separately."
+                if is_pro
+                else (
+                    f"Query too large for free tier (>{max_chars:,} chars). "
+                    f"Upgrade to QueryTuner Pro for queries up to {settings.max_query_chars:,} characters."
                 )
+            )
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "query_too_large",
+                    "message": message,
+                    "query_length": len(request.query),
+                    "max_length": max_chars,
+                    "is_pro": is_pro,
+                    "upgrade_available": not is_pro,
+                },
+            )
+
+        # Phase 4: server-side monthly free-tier enforcement — separate from
+        # the per-query size limit above (that caps how big one query can
+        # be; this caps how many analyses per month).
+        if user_id and not is_pro and usage["count"] >= FREE_TIER_MONTHLY_LIMIT:
+            raise HTTPException(
+                status_code=402,
+                detail="Free tier limit reached — upgrade to Pro for unlimited analyses",
+            )
 
         logger.info(f"Analyzing query: {request.query[:50]}...")
         logger.info(
@@ -239,6 +284,7 @@ async def analyze_query(request: QueryRequest, user_id: str | None = Depends(get
             "ai_model": result.get("ai_model"),
             "ai_insights": result.get("ai_insights"),
             "ai_error": result.get("ai_error"),
+            "ai_truncated": bool(result.get("ai_truncated", False)),
             "db_type": db_type_str,
             "original_query": request.query,
             "schema_info": request.schema_info,
@@ -264,10 +310,11 @@ async def analyze_query(request: QueryRequest, user_id: str | None = Depends(get
 
         return QueryAnalysisResult(**response_payload)
     except HTTPException:
-        # Let intentional client errors (400 query-too-short, 429 rate limit,
-        # 402 free-tier limit, ...) through as-is — the bare `except
-        # Exception` below is only for genuinely unexpected failures, and
-        # would otherwise flatten every deliberate status code to 500.
+        # Let intentional client errors (400 query-too-short/too-large, 429
+        # rate limit, 402 free-tier limit, ...) through as-is — confirmed by
+        # testing that the bare `except Exception` below was flattening
+        # these to 500 too, the same bug class as the reported
+        # query_too_large incident.
         raise
     except Exception as e:
         logger.error(f"Analysis error: {str(e)}")

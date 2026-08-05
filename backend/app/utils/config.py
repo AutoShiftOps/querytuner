@@ -24,8 +24,20 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
 
     default_llm_provider: str = "huggingface"
-    ai_max_tokens: int = 800
-    max_query_chars: int = 20_000
+    # 800 was too tight for structured JSON responses on verbose queries
+    # (long rewritten_query + multiple findings) — the model would get cut
+    # off mid-generation, producing invalid JSON that the frontend could
+    # only render as raw text. See sql_analyzer.py's _try_llm for the fix
+    # that actually wires this value through to the LLM call.
+    ai_max_tokens: int = 1500
+    # Pro-tier / absolute ceiling. See free_tier_max_query_chars below for
+    # the smaller limit applied to free and anonymous users.
+    max_query_chars: int = 32_000
+    # Phase 4: free/anonymous users get a smaller per-query character limit
+    # than Pro — this doubles as an upgrade prompt (main.py's /analyze
+    # returns upgrade_available: true when this is what rejected the
+    # query), not just an anti-abuse measure.
+    free_tier_max_query_chars: int = 8_000
 
     # -------------------------------------------------------------------------
     # Supabase — NEW (Issue #68)
@@ -58,6 +70,16 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,
+        # pydantic-settings defaults to extra="forbid" — any env var present
+        # in .env / the process environment that isn't declared as a field
+        # above crashes Settings() at import time, taking the whole app down
+        # before it can even serve /health. Found this the hard way: env
+        # vars added ahead of an unmerged branch (e.g. Phase 4's Clerk/
+        # Stripe keys, added to Render in advance of that code landing) are
+        # exactly this scenario on master today. Ignoring unknown vars is
+        # the safe default for a service where env vars and deployed code
+        # don't always change in lockstep.
+        extra="ignore",
     )
 
 

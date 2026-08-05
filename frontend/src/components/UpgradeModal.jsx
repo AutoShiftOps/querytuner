@@ -17,10 +17,17 @@ const FEATURES = [
   { icon: Sparkles, text: 'Priority AI (OpenAI)' },
 ];
 
-export default function UpgradeModal({ isOpen, onClose, usageCount }) {
+export default function UpgradeModal({ isOpen, onClose, usageCount, title, subtitle }) {
   const { user } = useUser();
 
   if (!isOpen) return null;
+
+  // title/subtitle let callers customize the pitch for the trigger that
+  // opened the modal (monthly analysis count vs. a single query exceeding
+  // the free-tier character limit) — default to the monthly-limit copy.
+  const modalTitle =
+    title ?? `You’ve used your ${usageCount >= 10 ? usageCount : 10} free analyses`;
+  const modalSubtitle = subtitle ?? 'Upgrade to QueryTuner Pro for unlimited analyses';
 
   // Stripe Payment Links pass client_reference_id straight through to the
   // resulting Checkout Session — the backend webhook reads it off
@@ -86,11 +93,9 @@ export default function UpgradeModal({ isOpen, onClose, usageCount }) {
           id="upgrade-modal-title"
           style={{ fontSize: 18, fontWeight: 600, color: '#e2e8f0', margin: 0 }}
         >
-          You&rsquo;ve used your {usageCount >= 10 ? usageCount : 10} free analyses
+          {modalTitle}
         </h2>
-        <p style={{ fontSize: 13, color: '#7fa3c4', margin: '8px 0 20px' }}>
-          Upgrade to QueryTuner Pro for unlimited analyses
-        </p>
+        <p style={{ fontSize: 13, color: '#7fa3c4', margin: '8px 0 20px' }}>{modalSubtitle}</p>
 
         <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 12 }}>
           {FEATURES.map(({ icon: Icon, text }) => (

@@ -50,6 +50,12 @@ honestly is part of the engineering discipline behind this project.
 - Analysis time includes LLM latency when AI is enabled. Heuristic-only analysis is
   typically under 200ms.
 - Rate limit: 10 requests per IP per minute (in-memory, resets on server restart).
+- Query size: the heuristic engine analyses queries up to 32,000 characters
+  (`MAX_QUERY_CHARS`). Queries over that limit are rejected with a `400
+  query_too_large` response rather than a raw error. Queries over 8,000 characters
+  are truncated for the AI call only (with a note appended so the LLM knows the
+  query was shortened) — the full query is still analysed by the heuristic engine
+  regardless of AI truncation.
 - Supabase free tier pauses after 7 days of inactivity. A GitHub Actions keep-alive
   workflow (`.github/workflows/keep-supabase-alive.yml`) pings it every 3 days.
 
