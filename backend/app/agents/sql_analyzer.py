@@ -38,13 +38,20 @@ _DETERMINISTIC_TYPES = frozenset(
 
 @dataclass
 class AnalyzerConfig:
-    max_query_chars: int = 20000
+    max_query_chars: int = 32000
 
     @staticmethod
     def from_env() -> AnalyzerConfig:
         return AnalyzerConfig(
-            max_query_chars=int(os.getenv("MAX_QUERY_CHARS", "20000")),
+            max_query_chars=int(os.getenv("MAX_QUERY_CHARS", "32000")),
         )
+
+
+# Above this length, only the heuristic engine sees the full query — the LLM
+# call gets a truncated copy so oversized-but-under-the-hard-cap queries
+# still get AI insights instead of failing outright or costing a fortune in
+# tokens.
+AI_QUERY_TRUNCATE_CHARS = 8000
 
 
 class SQLAnalyzerAgent:
@@ -110,11 +117,21 @@ class SQLAnalyzerAgent:
         ai_insights, ai_model, ai_error = None, None, None
         ai_attempted = False
         used_ai = False
+        ai_truncated = False
 
         if use_llm:
             ai_attempted = True
+            llm_query = query
+            if len(query) > AI_QUERY_TRUNCATE_CHARS:
+                # Heuristics above already ran against the full query — only
+                # what's sent to the LLM is shortened.
+                llm_query = (
+                    query[:AI_QUERY_TRUNCATE_CHARS]
+                    + "\n-- [Query truncated for AI analysis. Full query analyzed by heuristic engine.]"
+                )
+                ai_truncated = True
             prompt = self._build_llm_prompt(
-                query=query,
+                query=llm_query,
                 db_type=db_type,
                 schema_info=schema_info,
                 explain_plan=explain_plan,  # Issue #60: pass EXPLAIN plan into LLM context
@@ -162,6 +179,7 @@ class SQLAnalyzerAgent:
             "ai_provider": llm_provider if use_llm else None,
             "used_ai": used_ai,
             "ai_error": ai_error,
+            "ai_truncated": ai_truncated,
         }
 
     # -------------------------

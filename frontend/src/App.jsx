@@ -84,9 +84,20 @@ function App() {
       });
     } catch (err) {
       setResult(null);
-      const detail = err.response?.data?.detail || 'Analysis failed';
+      // query_too_large has its own {error, message} shape (not the usual
+      // {detail} FastAPI HTTPException shape) — surface it as a helpful
+      // warning with the backend's own actionable message, not a generic
+      // red error.
+      const isQueryTooLarge = err.response?.data?.error === 'query_too_large';
+      const detail = isQueryTooLarge
+        ? err.response.data.message
+        : err.response?.data?.detail || 'Analysis failed';
       setError(detail);
-      showToast('Analysis failed — please check your query', 'error');
+      if (isQueryTooLarge) {
+        showToast(detail, 'warning');
+      } else {
+        showToast('Analysis failed — please check your query', 'error');
+      }
       trackAnalysisError(err.response ? 'backend' : 'network', dbType);
     } finally {
       setLoading(false);

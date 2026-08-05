@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
     default_llm_provider: str = "huggingface"
     ai_max_tokens: int = 800
-    max_query_chars: int = 20_000
+    max_query_chars: int = 32_000
 
     # -------------------------------------------------------------------------
     # Supabase — NEW (Issue #68)
@@ -39,6 +39,16 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,
+        # pydantic-settings defaults to extra="forbid" — any env var present
+        # in .env / the process environment that isn't declared as a field
+        # above crashes Settings() at import time, taking the whole app down
+        # before it can even serve /health. Found this the hard way: env
+        # vars added ahead of an unmerged branch (e.g. Phase 4's Clerk/
+        # Stripe keys, added to Render in advance of that code landing) are
+        # exactly this scenario on master today. Ignoring unknown vars is
+        # the safe default for a service where env vars and deployed code
+        # don't always change in lockstep.
+        extra="ignore",
     )
 
 

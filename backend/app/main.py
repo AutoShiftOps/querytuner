@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse  # noqa: E402
 
 from .agents.sql_analyzer import SQLAnalyzerAgent  # noqa: E402
 from .schemas.models import QueryAnalysisResult, QueryRequest  # noqa: E402
+from .utils.config import settings  # noqa: E402
 from .utils.database import get_analysis, save_analysis  # noqa: E402
 
 # Configure logging
@@ -97,6 +98,30 @@ async def analyze_query(request: QueryRequest):
         if not request.query or len(request.query.strip()) < 5:
             raise HTTPException(status_code=400, detail="Query too short")
 
+        # Checked here (not just inside analyzer.analyze()) so an oversized
+        # query returns a clean 400 with actionable detail instead of
+        # bubbling up as a ValueError that the broad except below turns into
+        # an opaque 500 — this was the actual cause of the production
+        # 500s (Render logs: "Analysis error: Query too large (>20000 chars)").
+        if len(request.query) > settings.max_query_chars:
+            logger.warning(
+                "Query too large: %d chars (max %d)",
+                len(request.query),
+                settings.max_query_chars,
+            )
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "query_too_large",
+                    "message": (
+                        f"Query exceeds maximum length of {settings.max_query_chars:,} characters. "
+                        "For very large queries, try analyzing the slowest subquery or CTE separately."
+                    ),
+                    "query_length": len(request.query),
+                    "max_length": settings.max_query_chars,
+                },
+            )
+
         logger.info(f"Analyzing query: {request.query[:50]}...")
         logger.info(
             "Analyze: db=%s use_llm=%s provider=%s focus=%s",
@@ -142,6 +167,7 @@ async def analyze_query(request: QueryRequest):
             "ai_model": result.get("ai_model"),
             "ai_insights": result.get("ai_insights"),
             "ai_error": result.get("ai_error"),
+            "ai_truncated": bool(result.get("ai_truncated", False)),
             "db_type": db_type_str,
             "original_query": request.query,
             "schema_info": request.schema_info,
@@ -156,6 +182,12 @@ async def analyze_query(request: QueryRequest):
         response_payload.pop("db_type", None)
 
         return QueryAnalysisResult(**response_payload)
+    except HTTPException:
+        # Let intentional client errors (400 query-too-short, 429 rate
+        # limit, ...) through as-is — confirmed by testing that the bare
+        # `except Exception` below was flattening these to 500 too, the
+        # same bug class as the reported query_too_large incident.
+        raise
     except Exception as e:
         logger.error(f"Analysis error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) from None
