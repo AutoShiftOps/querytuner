@@ -183,10 +183,11 @@ it does not use Vite's default 5173)
 | `OPENAI_API_KEY` | No | — | Enables OpenAI provider |
 | `OPENAI_MODEL` | No | `gpt-4o-mini` | OpenAI model to use |
 | `DEFAULT_LLM_PROVIDER` | No | `huggingface` | Default AI provider |
-| `AI_MAX_TOKENS` | No | `800` | Max tokens per LLM response |
-| `MAX_QUERY_CHARS` | No | `20000` | Max query input size |
-| `SUPABASE_URL`      | No  | —  | Supabase project URL — enables shareable report URLs |
-| `SUPABASE_ANON_KEY` | No  | —  | Supabase anon key — enables analysis persistence     |
+| `AI_MAX_TOKENS` | No | `1500` | Max tokens per LLM response |
+| `MAX_QUERY_CHARS` | No | `32000` | Max query input size (Pro tier / absolute ceiling) |
+| `SUPABASE_URL`      | No  | —  | Supabase project URL — enables shareable report URLs and persistence |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes (for persistence) | — | Supabase service_role key — required for all backend reads/writes to `analyses`/`user_usage` now that RLS is enabled on both tables. Bypasses RLS; **never** expose to the frontend. |
+| `SUPABASE_ANON_KEY` | No  | —  | Supabase anon key. Not currently used by the backend (RLS-protected tables need service_role, and the frontend never talks to Supabase directly) — kept for reference/future public-read use cases. |
 
 Create a `.env` file in `/backend` using `.env.example` as the template.
 
