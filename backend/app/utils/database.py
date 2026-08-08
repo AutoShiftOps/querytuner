@@ -13,10 +13,22 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _supabase_configured() -> bool:
+    return bool(settings.supabase_url and settings.supabase_service_role_key)
+
+
 def _supabase_headers() -> dict[str, str]:
+    # service_role, not anon — RLS is enabled on both analyses and
+    # user_usage, and service_role is the only key that bypasses it without
+    # requiring custom policies. This used to be the anon key, which only
+    # appeared to work because analyses had RLS disabled; user_usage always
+    # had RLS enabled and every POST/PATCH here 401'd (GET happened to
+    # succeed — RLS's default deny-all still allows reads under some
+    # configurations, but never writes). Never send this key to the
+    # frontend — it's backend-only, on purpose.
     return {
-        "apikey": settings.supabase_anon_key,
-        "Authorization": f"Bearer {settings.supabase_anon_key}",
+        "apikey": settings.supabase_service_role_key,
+        "Authorization": f"Bearer {settings.supabase_service_role_key}",
         "Content-Type": "application/json",
         "Prefer": "return=representation",  # returns the inserted row
     }
@@ -74,7 +86,7 @@ async def save_analysis(payload: dict[str, Any]) -> str | None:
     Returns the UUID of the inserted row, or None on failure.
     Failures are logged but never raised — analysis results still returned to user.
     """
-    if not settings.supabase_url or not settings.supabase_anon_key:
+    if not _supabase_configured():
         logger.debug("Supabase not configured — skipping persistence")
         return None
 
@@ -111,7 +123,7 @@ async def get_analysis(analysis_id: str) -> dict[str, Any] | None:
     Retrieve a stored analysis by UUID.
     Returns None if not found or Supabase is not configured.
     """
-    if not settings.supabase_url or not settings.supabase_anon_key:
+    if not _supabase_configured():
         return None
 
     try:
@@ -141,7 +153,7 @@ async def get_user_usage(user_id: str, month: str) -> dict[str, Any]:
     configured, the request fails, or no row exists yet for this user/month.
     """
     default = {"count": 0, "is_pro": False, "limit": 10}
-    if not settings.supabase_url or not settings.supabase_anon_key:
+    if not _supabase_configured():
         return default
 
     try:
@@ -183,7 +195,7 @@ async def increment_user_usage(user_id: str, month: str) -> None:
     make this atomic; not worth an extra migration for a v1 free-tier
     counter where the worst case is a user getting 1-2 extra free analyses.
     """
-    if not settings.supabase_url or not settings.supabase_anon_key:
+    if not _supabase_configured():
         return
     try:
         current = await get_user_usage(user_id, month)
@@ -207,7 +219,7 @@ async def link_stripe_customer(user_id: str, stripe_customer_id: str, month: str
     customer.subscription.* webhook event — which only carries the Stripe
     customer_id, not the Clerk user_id — has a row it can find and update.
     """
-    if not settings.supabase_url or not settings.supabase_anon_key:
+    if not _supabase_configured():
         return
     try:
         headers = _supabase_headers()
@@ -233,7 +245,7 @@ async def update_user_pro_status(stripe_customer_id: str, is_pro: bool) -> None:
     yet, so the next subscription.updated event (or a manual reconciliation)
     is what would need to catch it.
     """
-    if not settings.supabase_url or not settings.supabase_anon_key:
+    if not _supabase_configured():
         return
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:

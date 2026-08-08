@@ -41,12 +41,26 @@ class Settings(BaseSettings):
 
     # -------------------------------------------------------------------------
     # Supabase — NEW (Issue #68)
-    # Add these two lines to your .env and Render environment:
+    # Add these lines to your .env and Render environment:
     #   SUPABASE_URL=https://xxxx.supabase.co
     #   SUPABASE_ANON_KEY=eyJ...
+    #   SUPABASE_SERVICE_ROLE_KEY=eyJ...
+    #
+    # supabase_service_role_key is what the backend actually authenticates
+    # every analyses/user_usage read+write with (see database.py's
+    # _supabase_headers()) — RLS is enabled on both tables now, and
+    # service_role is the only key that bypasses it without needing custom
+    # policies. NEVER send this key to the frontend/browser; it grants
+    # unrestricted read/write on every RLS-protected table in the project,
+    # unlike the anon key. supabase_anon_key is kept only because it's a
+    # harmless, already-public value (Supabase's own docs call it safe to
+    # ship client-side) — nothing in this codebase currently uses it for
+    # anything, since the frontend never talks to Supabase directly (the
+    # shareable report page goes through GET /report/{id} on this backend).
     # -------------------------------------------------------------------------
     supabase_url: str = ""
     supabase_anon_key: str = ""
+    supabase_service_role_key: str = ""
 
     # -------------------------------------------------------------------------
     # Clerk auth — Phase 4
