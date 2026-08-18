@@ -1,4 +1,5 @@
 import React, { useState, forwardRef } from 'react';
+import { SignInButton } from '@clerk/clerk-react';
 import SanitizerPanel from './SanitizerPanel';
 
 const QueryInput = forwardRef(function QueryInput(
@@ -21,6 +22,7 @@ const QueryInput = forwardRef(function QueryInput(
     substitutionMap, // query sanitizer — null when not sanitized, map when active
     setSubstitutionMap, // query sanitizer — setter from parent
     highlightAnalyze, // new prop — whether to highlight the Analyze button
+    isSignedIn, // anonymous-AI-gap fix — gates the "Use AI insights" checkbox client-side
   },
   ref
 ) {
@@ -130,16 +132,57 @@ const QueryInput = forwardRef(function QueryInput(
           )}
         </div>
 
-        <div className="flex items-end gap-3">
-          <label className="text-slate-300 text-sm flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={useLlm}
-              disabled={!anyAiEnabled}
-              onChange={(e) => setUseLlm(e.target.checked)}
-            />
-            Use AI insights
-          </label>
+        {/* Same label-above-control shape as the Database/AI Provider columns
+            beside it (rather than the old bottom-anchored `items-end` row),
+            so the checkbox sits at the same vertical position as the two
+            selects instead of floating at the bottom of a taller row. */}
+        <div>
+          <label className="block text-sm font-medium text-slate-300 mb-2">AI Insights</label>
+          {isSignedIn ? (
+            <label className="w-full bg-slate-900 text-slate-300 rounded border border-slate-600 p-2 flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useLlm}
+                disabled={!anyAiEnabled}
+                onChange={(e) => setUseLlm(e.target.checked)}
+                className="w-4 h-4 accent-qt-accent disabled:opacity-50"
+              />
+              Use AI insights
+            </label>
+          ) : (
+            // Anonymous callers can't reach the AI path server-side (the
+            // OpenAI-backed call requires sign-in — see backend/app/main.py's
+            // /analyze anonymous gate). Telling them that only after they've
+            // checked the box and clicked Analyze is a dead end, so the
+            // checkbox is disabled up front and this row doubles as the
+            // sign-in trigger — same SignInButton pattern Header.jsx uses for
+            // the header's "Sign in" button, just wrapping this row instead
+            // of a <button>. Deliberately a <span>, not a <label>: a <label>
+            // whose associated control is disabled is treated as
+            // non-interactive for clicks by Chromium (verified — clicking it
+            // silently did nothing, no modal), which would've made this
+            // whole "click to sign in" affordance dead on arrival. A plain
+            // span has no such control-forwarding relationship, so the row
+            // stays genuinely clickable. The inline notice in App.jsx stays
+            // as a fallback for any state where this client-side gate is
+            // bypassed or out of sync — the backend check is the one that's
+            // authoritative.
+            <SignInButton mode="modal">
+              <span
+                className="w-full bg-slate-900 text-slate-400 rounded border border-slate-700 p-2 flex items-center gap-2 text-sm cursor-pointer hover:text-slate-300 hover:border-slate-600"
+                title="Sign in to use AI insights"
+              >
+                <input
+                  type="checkbox"
+                  checked={false}
+                  disabled
+                  readOnly
+                  className="w-4 h-4 accent-qt-accent opacity-50"
+                />
+                Use AI insights <span className="text-slate-500">(sign in required)</span>
+              </span>
+            </SignInButton>
+          )}
         </div>
       </div>
 

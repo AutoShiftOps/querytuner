@@ -339,6 +339,7 @@ function App() {
               substitutionMap={substitutionMap}
               setSubstitutionMap={setSubstitutionMap}
               highlightAnalyze={highlightAnalyze}
+              isSignedIn={isSignedIn}
             />
             {error && (
               <div className="p-4 bg-red-900/20 border border-red-500 rounded-lg flex gap-3">
