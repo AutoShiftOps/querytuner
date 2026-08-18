@@ -49,7 +49,14 @@ honestly is part of the engineering discipline behind this project.
 
 - Analysis time includes LLM latency when AI is enabled. Heuristic-only analysis is
   typically under 200ms.
-- Rate limit: 10 requests per IP per minute (in-memory, resets on server restart).
+- Rate limit: 10 requests per IP per minute, plus 5 analyses/day/IP for
+  anonymous (signed-out) callers. Both are in-memory (`defaultdict` state in
+  `app/main.py`) — they reset on every deploy/restart and are per-process, so
+  they would stop working correctly (each instance would enforce its own
+  separate quota instead of one shared one) if this service is ever scaled to
+  more than one Render instance. Acceptable for the current single-instance
+  Starter deployment; revisit with a shared store (e.g. Redis) before scaling
+  horizontally.
 - Query size: the heuristic engine analyses queries up to 32,000 characters
   (`MAX_QUERY_CHARS`). Queries over that limit are rejected with a `400
   query_too_large` response rather than a raw error. Queries over 8,000 characters
