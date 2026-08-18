@@ -30,7 +30,14 @@ class Settings(BaseSettings):
     # only render as raw text. See sql_analyzer.py's _try_llm for the fix
     # that actually wires this value through to the LLM call.
     ai_max_tokens: int = 1500
+    # Pro-tier / absolute ceiling. See free_tier_max_query_chars below for
+    # the smaller limit applied to free and anonymous users.
     max_query_chars: int = 32_000
+    # Phase 4: free/anonymous users get a smaller per-query character limit
+    # than Pro — this doubles as an upgrade prompt (main.py's /analyze
+    # returns upgrade_available: true when this is what rejected the
+    # query), not just an anti-abuse measure.
+    free_tier_max_query_chars: int = 8_000
 
     # -------------------------------------------------------------------------
     # Supabase — NEW (Issue #68)
@@ -54,6 +61,25 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_anon_key: str = ""
     supabase_service_role_key: str = ""
+
+    # -------------------------------------------------------------------------
+    # Clerk auth — Phase 4
+    # clerk_publishable_key is the same value shipped to the frontend
+    # (VITE_CLERK_PUBLISHABLE_KEY) — publishable keys are safe to hold
+    # server-side too and are used to derive the Clerk JWKS URL for verifying
+    # session tokens. clerk_secret_key is reserved for future use of Clerk's
+    # backend API (e.g. fetching user profile data) — the JWT verification
+    # in main.py only needs the publishable key.
+    # -------------------------------------------------------------------------
+    clerk_publishable_key: str = ""
+    clerk_secret_key: str = ""
+
+    # -------------------------------------------------------------------------
+    # Stripe billing — Phase 4
+    # -------------------------------------------------------------------------
+    stripe_secret_key: str = ""
+    stripe_price_id: str = ""
+    stripe_webhook_secret: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

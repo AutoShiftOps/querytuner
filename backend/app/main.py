@@ -1,22 +1,36 @@
+import base64
 import logging
 import os
 import time
 from collections import defaultdict
+from datetime import UTC, datetime
 
+import jwt
+import stripe
 from dotenv import load_dotenv
+from jwt import PyJWKClient
 
 # Must run before any local import that triggers Settings instantiation
 # (app.utils.config reads env vars at import time via a module-level singleton).
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Request  # noqa: E402
+from fastapi import Depends, FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 
 from .agents.sql_analyzer import SQLAnalyzerAgent  # noqa: E402
 from .schemas.models import QueryAnalysisResult, QueryRequest  # noqa: E402
 from .utils.config import settings  # noqa: E402
-from .utils.database import get_analysis, save_analysis  # noqa: E402
+from .utils.database import (  # noqa: E402
+    get_analysis,
+    get_user_usage,
+    increment_user_usage,
+    link_stripe_customer,
+    save_analysis,
+    update_user_pro_status,
+)
+
+FREE_TIER_MONTHLY_LIMIT = 10
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -43,6 +57,73 @@ analyzer = SQLAnalyzerAgent()
 
 # Simple in-memory rate limiter (use Redis for production)
 rate_limit_store = defaultdict(list)
+
+
+# -----------------------------------------------------------------------------
+# Phase 4: Clerk auth
+#
+# IMPORTANT: this verifies the JWT signature against Clerk's own JWKS before
+# trusting anything in the token — earlier drafts of this feature used
+# jwt.decode(token, options={"verify_signature": False}), which accepts ANY
+# token with ANY `sub` claim and would let a caller impersonate an arbitrary
+# user_id (fake Pro status, forge another user's usage counter, etc). Do not
+# reintroduce that pattern.
+#
+# The Clerk JWKS URL is derived from the publishable key (not a secret —
+# it's the same value shipped to the browser as VITE_CLERK_PUBLISHABLE_KEY),
+# which Clerk itself base64-encodes the Frontend API domain into. This is
+# the same derivation Clerk's own SDKs perform.
+# -----------------------------------------------------------------------------
+
+_jwks_client: PyJWKClient | None = None
+
+
+def _clerk_jwks_url() -> str | None:
+    pk = settings.clerk_publishable_key
+    if not pk or "_" not in pk:
+        return None
+    try:
+        b64_part = pk.split("_", 2)[2]
+        padded = b64_part + "=" * (-len(b64_part) % 4)
+        domain = base64.b64decode(padded).decode().rstrip("$")
+        if not domain:
+            return None
+        return f"https://{domain}/.well-known/jwks.json"
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def get_current_user(request: Request) -> str | None:
+    """
+    Extract and verify a Clerk session JWT from the Authorization header.
+
+    Returns the Clerk user_id (JWT `sub` claim) once the token's signature,
+    issuer-derived key, and expiry have all checked out — or None for any
+    unauthenticated / invalid / expired request. Never trusts token contents
+    without verifying the signature first.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return None
+    token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        return None
+
+    jwks_url = _clerk_jwks_url()
+    if not jwks_url:
+        logger.warning("CLERK_PUBLISHABLE_KEY not configured — cannot verify auth tokens")
+        return None
+
+    try:
+        global _jwks_client
+        if _jwks_client is None:
+            _jwks_client = PyJWKClient(jwks_url, cache_keys=True)
+        signing_key = _jwks_client.get_signing_key_from_jwt(token)
+        decoded = jwt.decode(token, signing_key.key, algorithms=["RS256"])
+        return decoded.get("sub")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Clerk token verification failed: %s", exc)
+        return None
 
 
 @app.middleware("http")
@@ -82,7 +163,7 @@ async def capabilities():
 
 
 @app.post("/analyze", response_model=QueryAnalysisResult)
-async def analyze_query(request: QueryRequest):
+async def analyze_query(request: QueryRequest, user_id: str | None = Depends(get_current_user)):
     """
     Analyze SQL query for optimization opportunities
 
@@ -98,28 +179,64 @@ async def analyze_query(request: QueryRequest):
         if not request.query or len(request.query.strip()) < 5:
             raise HTTPException(status_code=400, detail="Query too short")
 
-        # Checked here (not just inside analyzer.analyze()) so an oversized
-        # query returns a clean 400 with actionable detail instead of
-        # bubbling up as a ValueError that the broad except below turns into
-        # an opaque 500 — this was the actual cause of the production
-        # 500s (Render logs: "Analysis error: Query too large (>20000 chars)").
-        if len(request.query) > settings.max_query_chars:
+        # Phase 4: resolve tier once — drives both the per-query character
+        # limit below and the monthly analysis-count limit further down.
+        # user_id comes from a verified JWT (get_current_user), so this is
+        # the check that actually matters — the frontend's canAnalyze() is
+        # only an honour-system UX nicety anyone could bypass by calling
+        # this endpoint directly.
+        usage_month = datetime.now(UTC).strftime("%Y-%m")
+        usage = None
+        is_pro = False
+        if user_id:
+            usage = await get_user_usage(user_id, usage_month)
+            is_pro = bool(usage.get("is_pro", False))
+
+        # Tier-based query size limit. Checked here (not just inside
+        # analyzer.analyze()) so an oversized query returns a clean 400 with
+        # actionable detail instead of bubbling up as a ValueError that the
+        # broad except below turns into an opaque 500 — this was the actual
+        # cause of the production 500s (Render logs: "Analysis error: Query
+        # too large (>20000 chars)"). Free/anonymous users get a smaller
+        # ceiling than Pro — not just anti-abuse, this doubles as the
+        # upgrade prompt itself (upgrade_available, read by the frontend to
+        # show UpgradeModal instead of a generic error toast).
+        max_chars = settings.max_query_chars if is_pro else settings.free_tier_max_query_chars
+        if len(request.query) > max_chars:
             logger.warning(
-                "Query too large: %d chars (max %d)",
+                "Query too large: %d chars (max %d, is_pro=%s)",
                 len(request.query),
-                settings.max_query_chars,
+                max_chars,
+                is_pro,
+            )
+            message = (
+                f"Query exceeds maximum length of {max_chars:,} characters. "
+                "For very large queries, try analyzing the slowest subquery or CTE separately."
+                if is_pro
+                else (
+                    f"Query too large for free tier (>{max_chars:,} chars). "
+                    f"Upgrade to QueryTuner Pro for queries up to {settings.max_query_chars:,} characters."
+                )
             )
             return JSONResponse(
                 status_code=400,
                 content={
                     "error": "query_too_large",
-                    "message": (
-                        f"Query exceeds maximum length of {settings.max_query_chars:,} characters. "
-                        "For very large queries, try analyzing the slowest subquery or CTE separately."
-                    ),
+                    "message": message,
                     "query_length": len(request.query),
-                    "max_length": settings.max_query_chars,
+                    "max_length": max_chars,
+                    "is_pro": is_pro,
+                    "upgrade_available": not is_pro,
                 },
+            )
+
+        # Phase 4: server-side monthly free-tier enforcement — separate from
+        # the per-query size limit above (that caps how big one query can
+        # be; this caps how many analyses per month).
+        if user_id and not is_pro and usage["count"] >= FREE_TIER_MONTHLY_LIMIT:
+            raise HTTPException(
+                status_code=402,
+                detail="Free tier limit reached — upgrade to Pro for unlimited analyses",
             )
 
         logger.info(f"Analyzing query: {request.query[:50]}...")
@@ -171,26 +288,100 @@ async def analyze_query(request: QueryRequest):
             "db_type": db_type_str,
             "original_query": request.query,
             "schema_info": request.schema_info,
+            "user_id": user_id,  # Phase 4: None for anonymous/unauthenticated requests
         }
         # Persist asynchronously — failure never blocks the response
         analysis_id = await save_analysis(response_payload)
+
+        # Phase 4: count this analysis against the user's free-tier limit.
+        # Pro users still get counted (harmless — the limit check above
+        # already exempts is_pro) so the number stays meaningful if they
+        # ever downgrade.
+        if user_id:
+            await increment_user_usage(user_id, usage_month)
 
         # Attach the shareable ID (None if Supabase not configured)
         response_payload["analysis_id"] = analysis_id
         response_payload["share_url"] = f"https://querytuner.com/report/{analysis_id}" if analysis_id else None
         response_payload.pop("original_query", None)
         response_payload.pop("db_type", None)
+        # Not part of the response schema — only needed above for persistence.
+        response_payload.pop("user_id", None)
 
         return QueryAnalysisResult(**response_payload)
     except HTTPException:
-        # Let intentional client errors (400 query-too-short, 429 rate
-        # limit, ...) through as-is — confirmed by testing that the bare
-        # `except Exception` below was flattening these to 500 too, the
-        # same bug class as the reported query_too_large incident.
+        # Let intentional client errors (400 query-too-short/too-large, 429
+        # rate limit, 402 free-tier limit, ...) through as-is — confirmed by
+        # testing that the bare `except Exception` below was flattening
+        # these to 500 too, the same bug class as the reported
+        # query_too_large incident.
         raise
     except Exception as e:
         logger.error(f"Analysis error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) from None
+
+
+@app.get("/usage")
+async def get_usage(user_id: str | None = Depends(get_current_user)):
+    """
+    GET /usage — the authoritative monthly analysis count + Pro status for
+    the signed-in user, backing the free-tier limit in the frontend (which
+    otherwise only has a client-side counter that resets on page refresh).
+
+    Anonymous/unauthenticated requests get the default free-tier shape back
+    rather than a 401 — there's nothing to enforce against yet for them.
+    """
+    if not user_id:
+        return {"count": 0, "is_pro": False, "limit": 10}
+
+    month = datetime.now(UTC).strftime("%Y-%m")
+    return await get_user_usage(user_id, month)
+
+
+@app.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    """
+    Stripe webhook — keeps user_usage.is_pro in sync with subscription
+    status, and links a Clerk user_id to its Stripe customer_id the moment
+    checkout completes (checkout.session.completed carries both, via the
+    client_reference_id the Upgrade modal's payment link is set up to pass).
+    Without that link, later customer.subscription.* events would only have
+    a customer_id to go on and could never find which user to update.
+    """
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+
+    if not settings.stripe_webhook_secret:
+        logger.warning("STRIPE_WEBHOOK_SECRET not configured — rejecting webhook")
+        raise HTTPException(status_code=400, detail="Webhook not configured") from None
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, settings.stripe_webhook_secret)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid webhook signature") from None
+
+    event_type = event["type"]
+    data = event["data"]["object"]
+
+    if event_type == "checkout.session.completed":
+        user_id = data.get("client_reference_id")
+        customer_id = data.get("customer")
+        if user_id and customer_id:
+            month = datetime.now(UTC).strftime("%Y-%m")
+            await link_stripe_customer(user_id, customer_id, month)
+        else:
+            logger.warning(
+                "checkout.session.completed missing client_reference_id or customer — "
+                "cannot link user to Stripe customer"
+            )
+
+    elif event_type in ("customer.subscription.created", "customer.subscription.updated"):
+        customer_id = data.get("customer")
+        is_pro = data.get("status") == "active"
+        if customer_id:
+            await update_user_pro_status(customer_id, is_pro)
+
+    return {"status": "ok"}
 
 
 @app.get("/report/{analysis_id}", tags=["Reports"])
