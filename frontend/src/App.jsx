@@ -54,19 +54,31 @@ function App() {
   const [isPro, setIsPro] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   // null = default "N free analyses used" copy (monthly limit trigger).
-  // {title, subtitle} = custom copy for the query-too-large trigger.
+  // {title, subtitle} = custom copy for the query-too-large / anonymous-
+  // limit / sign-in-required triggers.
   const [upgradeModalCopy, setUpgradeModalCopy] = useState(null);
   const FREE_LIMIT = 10;
+  // Anonymous usage — session-only, resets on refresh, purely for immediate
+  // UI feedback. Mirrors backend/app/main.py's ANONYMOUS_DAILY_LIMIT, but
+  // isn't the source of truth: unlike usageCount (rehydrated from GET
+  // /usage for signed-in users), there's no user_id to key an anonymous
+  // count by, so this can't survive a refresh or be enforced for real —
+  // the backend's own per-IP check is what actually matters here, same as
+  // every other limit in this app.
+  const [anonymousCount, setAnonymousCount] = useState(0);
+  const ANONYMOUS_DAILY_LIMIT = 5;
 
   const canAnalyze = useCallback(() => {
-    // Anonymous users: honour system for now (server-side enforcement is
-    // keyed off the verified Clerk user_id, so anonymous requests have
-    // nothing to enforce against yet — same limitation the backend has).
-    if (!isSignedIn) return true;
+    if (!isSignedIn) {
+      // AI insights require signing in outright — heuristic-only stays
+      // open, capped at the same daily count the backend enforces.
+      if (useLlm) return false;
+      return anonymousCount < ANONYMOUS_DAILY_LIMIT;
+    }
     if (isPro) return true;
     if (usageCount >= FREE_LIMIT) return false;
     return true;
-  }, [isSignedIn, isPro, usageCount]);
+  }, [isSignedIn, isPro, usageCount, useLlm, anonymousCount]);
 
   // Hydrate usageCount/isPro from the backend's authoritative monthly count
   // on sign-in — without this, refreshing the page would silently reset the
@@ -91,6 +103,21 @@ function App() {
   // ── Analyze — defined first so useEffects below can reference it ────────
   const handleAnalyze = useCallback(async () => {
     if (!canAnalyze()) {
+      if (!isSignedIn && useLlm) {
+        showToast(
+          'Sign in to use AI insights. Heuristic analysis is available without an account.',
+          'info'
+        );
+        return;
+      }
+      if (!isSignedIn) {
+        setUpgradeModalCopy({
+          title: "You've used today's free limit",
+          subtitle: `Sign in for ${FREE_LIMIT} free analyses every month, or upgrade to Pro for unlimited.`,
+        });
+        setShowUpgradeModal(true);
+        return;
+      }
       showToast('Free limit reached — upgrade to Pro for unlimited analyses', 'warning');
       setUpgradeModalCopy(null);
       setShowUpgradeModal(true);
@@ -129,6 +156,8 @@ function App() {
 
       if (isSignedIn && !isPro) {
         setUsageCount((prev) => prev + 1);
+      } else if (!isSignedIn) {
+        setAnonymousCount((prev) => prev + 1);
       }
 
       // Track successful result with outcome metrics
@@ -143,14 +172,20 @@ function App() {
       });
     } catch (err) {
       setResult(null);
-      // query_too_large has its own {error, message, upgrade_available}
-      // shape (not the usual {detail} FastAPI HTTPException shape).
+      // query_too_large, sign_in_required, and anonymous_limit_reached all
+      // share a {error, message, ...} shape (not the usual {detail}
+      // FastAPI HTTPException shape) — a structured, toast/modal-friendly
+      // body rather than a generic 401/429 the frontend can't act on.
+      const errorCode = err.response?.data?.error;
+      const isQueryTooLarge = errorCode === 'query_too_large';
+      const isSignInRequired = errorCode === 'sign_in_required';
+      const isAnonymousLimitReached = errorCode === 'anonymous_limit_reached';
+      const hasStructuredError = isQueryTooLarge || isSignInRequired || isAnonymousLimitReached;
       // upgrade_available is only true for free/anonymous users who hit the
       // smaller per-query character limit — that's Pro's actual pitch, so
       // show the upgrade modal instead of a toast the user just dismisses.
-      const isQueryTooLarge = err.response?.data?.error === 'query_too_large';
       const upgradeAvailable = isQueryTooLarge && err.response?.data?.upgrade_available === true;
-      const detail = isQueryTooLarge
+      const detail = hasStructuredError
         ? err.response.data.message
         : err.response?.data?.detail || 'Analysis failed';
       setError(detail);
@@ -161,6 +196,14 @@ function App() {
             'QueryTuner Pro supports queries up to 32,000 characters — covering real production SQL.',
         });
         setShowUpgradeModal(true);
+      } else if (isAnonymousLimitReached) {
+        setUpgradeModalCopy({
+          title: "You've used today's free limit",
+          subtitle: `Sign in for ${FREE_LIMIT} free analyses every month, or upgrade to Pro for unlimited.`,
+        });
+        setShowUpgradeModal(true);
+      } else if (isSignInRequired) {
+        showToast(detail, 'info');
       } else if (isQueryTooLarge) {
         showToast(detail, 'warning');
       } else {

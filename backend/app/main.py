@@ -58,6 +58,20 @@ analyzer = SQLAnalyzerAgent()
 # Simple in-memory rate limiter (use Redis for production)
 rate_limit_store = defaultdict(list)
 
+# Anonymous-usage daily cap — separate from rate_limit_store above, which is
+# a per-minute anti-burst-abuse throttle applied to every caller regardless
+# of auth. Before this, unauthenticated callers had genuinely no usage limit
+# at all: the per-minute guard doesn't cap total usage, and only signed-in
+# free users were capped (FREE_TIER_MONTHLY_LIMIT/month, enforced further
+# down). Same in-memory sliding-window approach as rate_limit_store — this
+# app has no rate-limiting library dependency (no slowapi, fastapi-limiter,
+# redis-backed limiter, ...), so extending the existing idiom keeps one
+# pattern in the codebase instead of introducing a second one for what's
+# structurally the same problem.
+anonymous_daily_store: dict[str, list[float]] = defaultdict(list)
+ANONYMOUS_DAILY_LIMIT = 5
+_ONE_DAY_SECONDS = 24 * 60 * 60
+
 
 # -----------------------------------------------------------------------------
 # Phase 4: Clerk auth
@@ -163,7 +177,7 @@ async def capabilities():
 
 
 @app.post("/analyze", response_model=QueryAnalysisResult)
-async def analyze_query(request: QueryRequest, user_id: str | None = Depends(get_current_user)):
+async def analyze_query(request: QueryRequest, http_request: Request, user_id: str | None = Depends(get_current_user)):
     """
     Analyze SQL query for optimization opportunities
 
@@ -191,6 +205,41 @@ async def analyze_query(request: QueryRequest, user_id: str | None = Depends(get
         if user_id:
             usage = await get_user_usage(user_id, usage_month)
             is_pro = bool(usage.get("is_pro", False))
+
+        # Anonymous callers: AI insights require signing in (the OpenAI-backed
+        # path costs real money per call — heuristic-only analysis is free to
+        # run and stays open), and a daily cap replaces what was previously no
+        # limit at all. Structured JSON body (not a bare 401) so the frontend
+        # can render an actionable prompt instead of a generic auth error.
+        if not user_id:
+            if request.use_llm:
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "error": "sign_in_required",
+                        "message": ("Sign in to use AI insights. Heuristic analysis is available without an account."),
+                        "sign_in_required": True,
+                    },
+                )
+
+            client_ip = http_request.client.host if http_request.client else "unknown"
+            now = time.time()
+            anonymous_daily_store[client_ip] = [
+                t for t in anonymous_daily_store[client_ip] if now - t < _ONE_DAY_SECONDS
+            ]
+            if len(anonymous_daily_store[client_ip]) >= ANONYMOUS_DAILY_LIMIT:
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "error": "anonymous_limit_reached",
+                        "message": (
+                            f"Free anonymous limit reached ({ANONYMOUS_DAILY_LIMIT}/day). "
+                            "Sign in for 10 free analyses/month, or upgrade to Pro for unlimited."
+                        ),
+                        "sign_in_available": True,
+                    },
+                )
+            anonymous_daily_store[client_ip].append(now)
 
         # Tier-based query size limit. Checked here (not just inside
         # analyzer.analyze()) so an oversized query returns a clean 400 with
