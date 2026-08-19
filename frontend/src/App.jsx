@@ -15,6 +15,11 @@ import UpgradeModal from './components/UpgradeModal';
 import { ToastContainer, useToast } from './components/Toast';
 import { getAiConfirmedTypes } from './utils/aiInsights';
 import {
+  buildUrlWithoutUpgradedParam,
+  hasUpgradedParam,
+  pollForProStatus,
+} from './utils/upgradeRedirect';
+import {
   trackAnalysisRun,
   trackAnalysisSuccess,
   trackAnalysisError,
@@ -68,6 +73,18 @@ function App() {
   const [anonymousCount, setAnonymousCount] = useState(0);
   const ANONYMOUS_DAILY_LIMIT = 5;
 
+  // Stripe Checkout redirect (?upgraded=true) — captured once, synchronously,
+  // on the very first render, so it survives the URL being stripped and
+  // isSignedIn changing as Clerk resolves auth state (both would otherwise
+  // make a naive re-check of window.location.search below miss it).
+  // upgradedRedirectHandledRef additionally guards against processing it
+  // more than once (StrictMode's double effect-invoke in dev, or isSignedIn
+  // changing again later).
+  const hadUpgradedParamRef = useRef(
+    typeof window !== 'undefined' && hasUpgradedParam(window.location.search)
+  );
+  const upgradedRedirectHandledRef = useRef(false);
+
   const canAnalyze = useCallback(() => {
     if (!isSignedIn) {
       // AI insights require signing in outright — heuristic-only stays
@@ -99,6 +116,69 @@ function App() {
       }
     })();
   }, [isSignedIn, getToken]);
+
+  // ── Stripe Checkout redirect (?upgraded=true) ────────────────────────────
+  // The redirect back to the site and Stripe's webhook (which is what
+  // actually flips is_pro in Supabase — see backend/app/main.py's
+  // stripe_webhook()) are two independent async paths from the same
+  // checkout. Landing here doesn't mean the webhook has finished yet, so
+  // this doesn't just trust the query param — it re-fetches GET /usage and
+  // retries with a short backoff before either confirming Pro or falling
+  // back to a softer "this can take a moment" message. Runs once
+  // hadUpgradedParamRef was set on mount and isSignedIn has resolved to a
+  // real boolean (not Clerk's transient undefined-while-loading state).
+  useEffect(() => {
+    if (!hadUpgradedParamRef.current || upgradedRedirectHandledRef.current) return;
+    if (isSignedIn === undefined) return;
+    upgradedRedirectHandledRef.current = true;
+
+    // Strip the param regardless of what happens next, so a refresh doesn't
+    // re-trigger this whole flow (toast + polling) a second time.
+    window.history.replaceState({}, '', buildUrlWithoutUpgradedParam(window.location.href));
+
+    if (!isSignedIn) return; // Checkout requires being signed in — shouldn't happen, but nothing to poll for without a user.
+
+    // No cleanup-driven cancellation here on purpose: upgradedRedirectHandledRef
+    // above is already the sole "run this once" guard. A `cancelled` flag set
+    // from this effect's own cleanup would get flipped true by React
+    // StrictMode's dev-only mount -> cleanup -> mount cycle before the async
+    // work below resolves, silently discarding the one real result every
+    // time (caught via visual verification, not theoretical — the toast
+    // never appeared under StrictMode with this pattern). React 18+ already
+    // no-ops state updates on an unmounted component, so there's nothing to
+    // guard against by tracking cancellation ourselves.
+    (async () => {
+      const fetchUsage = async () => {
+        const token = await getToken();
+        const r = await axios.get(`${API_BASE_URL}/usage`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        return r.data;
+      };
+
+      const result = await pollForProStatus(fetchUsage);
+
+      if (result.success) {
+        setUsageCount(result.usage?.count ?? 0);
+        setIsPro(true);
+        showToast('Welcome to QueryTuner Pro! Unlimited analyses, unlocked.', 'success');
+      } else {
+        // Don't claim Pro status that isn't actually active — Stripe's
+        // webhook may just be slow, or it may have failed outright. Either
+        // way this is worth being able to find in the logs rather than
+        // only ever surfacing as a user complaint with no trail.
+        console.warn(
+          '[QueryTuner] Checkout redirect: is_pro was still false after retrying GET /usage — ' +
+            'the Stripe webhook may be delayed or failed. See backend/app/main.py stripe_webhook().'
+        );
+        showToast(
+          "Payment received — this can take a moment to activate. Refresh shortly if Pro isn't showing yet.",
+          'info'
+        );
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignedIn]);
 
   // ── Analyze — defined first so useEffects below can reference it ────────
   const handleAnalyze = useCallback(async () => {
