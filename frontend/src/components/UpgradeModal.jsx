@@ -121,7 +121,6 @@ export default function UpgradeModal({ isOpen, onClose, usageCount, title, subti
         {PAYMENT_LINK ? (
           <a
             href={paymentUrl}
-            target="_blank"
             rel="noopener noreferrer"
             style={{
               display: 'block',
