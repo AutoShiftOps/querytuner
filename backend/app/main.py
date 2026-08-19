@@ -410,7 +410,18 @@ async def stripe_webhook(request: Request):
         raise HTTPException(status_code=400, detail="Invalid webhook signature") from None
 
     event_type = event["type"]
-    data = event["data"]["object"]
+    # event["data"]["object"] is a stripe.StripeObject, not a plain dict —
+    # it supports __getitem__ (event["type"] above works) but NOT .get():
+    # `.get` isn't a real attribute or key, so StripeObject.__getattr__
+    # falls through to self["get"], which raises KeyError, re-raised as
+    # AttributeError: get. Every .get(...) call below crashed with exactly
+    # that, uncaught, for every real webhook delivery — 500 on both
+    # checkout.session.completed and customer.subscription.created/updated.
+    # Reproduced locally by sending a correctly-signed synthetic event
+    # through this exact handler before writing this fix. .to_dict() is
+    # StripeObject's own documented conversion, so .get() works as expected
+    # from here on.
+    data = event["data"]["object"].to_dict()
 
     if event_type == "checkout.session.completed":
         user_id = data.get("client_reference_id")
