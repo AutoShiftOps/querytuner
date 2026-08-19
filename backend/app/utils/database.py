@@ -146,16 +146,45 @@ async def get_analysis(analysis_id: str) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 
+async def _get_user_account(user_id: str) -> dict[str, Any] | None:
+    """
+    Fetch this user's user_accounts row (is_pro, stripe_customer_id) — a
+    dedicated per-user row (migration 007), not scoped to a calendar month
+    the way user_usage is. Returns None if the row doesn't exist yet
+    (never subscribed), Supabase isn't configured, or the request fails.
+    """
+    if not _supabase_configured():
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{settings.supabase_url}/rest/v1/user_accounts",
+                headers=_supabase_headers(),
+                params={"user_id": f"eq.{user_id}", "select": "*", "limit": "1"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data[0] if data else None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to fetch account for user %s: %s", user_id, exc)
+        return None
+
+
 async def get_user_usage(user_id: str, month: str) -> dict[str, Any]:
     """
-    Look up a user's analysis count and Pro status for a given 'YYYY-MM'
-    month. Returns the free-tier defaults (never raises) when Supabase isn't
-    configured, the request fails, or no row exists yet for this user/month.
+    Look up a user's analysis count for a given 'YYYY-MM' month plus their
+    (not month-scoped) Pro status. Two independent lookups — user_usage for
+    analysis_count, user_accounts for is_pro (migration 007; see that
+    migration's header for why is_pro moved out of user_usage) — kept
+    independent rather than one combined try/except so a failure fetching
+    one doesn't zero out the other: a real Pro user hitting the paywall
+    because the monthly-count fetch alone flaked would be a worse failure
+    mode than analysis_count reading 0 for one request.
     """
-    default = {"count": 0, "is_pro": False, "limit": 10}
     if not _supabase_configured():
-        return default
+        return {"count": 0, "is_pro": False, "limit": 10}
 
+    count = 0
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(
@@ -164,23 +193,21 @@ async def get_user_usage(user_id: str, month: str) -> dict[str, Any]:
                 params={
                     "user_id": f"eq.{user_id}",
                     "month": f"eq.{month}",
-                    "select": "*",
+                    "select": "analysis_count",
                     "limit": "1",
                 },
             )
             resp.raise_for_status()
             data = resp.json()
-            if not data:
-                return default
-            row = data[0]
-            return {
-                "count": row.get("analysis_count", 0),
-                "is_pro": bool(row.get("is_pro", False)),
-                "limit": 10,
-            }
+            if data:
+                count = data[0].get("analysis_count", 0)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to fetch usage for user %s: %s", user_id, exc)
-        return default
+        logger.warning("Failed to fetch usage count for user %s: %s", user_id, exc)
+
+    account = await _get_user_account(user_id)
+    is_pro = bool(account.get("is_pro", False)) if account else False
+
+    return {"count": count, "is_pro": is_pro, "limit": 10}
 
 
 async def increment_user_usage(user_id: str, month: str) -> None:
@@ -194,6 +221,10 @@ async def increment_user_usage(user_id: str, month: str) -> None:
     concurrent requests from the same user. A Postgres RPC function would
     make this atomic; not worth an extra migration for a v1 free-tier
     counter where the worst case is a user getting 1-2 extra free analyses.
+
+    Only ever writes analysis_count — is_pro/stripe_customer_id live on
+    user_accounts now (migration 007), not on this monthly row, and this
+    function never touched those fields even before that split.
     """
     if not _supabase_configured():
         return
@@ -225,51 +256,30 @@ async def increment_user_usage(user_id: str, month: str) -> None:
 async def get_user_stripe_customer_id(user_id: str) -> str | None:
     """
     Look up this user's Stripe customer_id, for opening a Billing Portal
-    session (POST /billing-portal). Deliberately NOT scoped to the current
-    month the way get_user_usage() is: stripe_customer_id is only ever
-    written once, by link_stripe_customer() at the original checkout, onto
-    whichever (user_id, month) row existed that month — a later month's row
-    (created fresh by increment_user_usage()) never carries it forward. Only
-    searching the current month's row would make this silently return None
-    for any Pro user whose checkout happened in an earlier month, so this
-    searches across all of this user's rows instead and takes the most
-    recent non-null value.
-
-    Note: is_pro itself has this exact same per-month-row limitation
-    (update_user_pro_status() only PATCHes rows that already carry a
-    matching stripe_customer_id) and isn't fixed by this helper — that's a
-    separate, pre-existing gap in how Pro status is tracked across month
-    boundaries, out of scope here.
+    session (POST /billing-portal). Direct lookup on user_accounts by
+    user_id (its primary key) — migration 007 moved stripe_customer_id off
+    the monthly user_usage rows onto this dedicated per-user table, so this
+    no longer has to search across all of a user's monthly rows for the
+    most recent non-null value the way it used to.
     """
-    if not _supabase_configured():
-        return None
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"{settings.supabase_url}/rest/v1/user_usage",
-                headers=_supabase_headers(),
-                params={
-                    "user_id": f"eq.{user_id}",
-                    "stripe_customer_id": "not.is.null",
-                    "select": "stripe_customer_id",
-                    "order": "created_at.desc",
-                    "limit": "1",
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data[0]["stripe_customer_id"] if data else None
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to fetch Stripe customer id for user %s: %s", user_id, exc)
-        return None
+    account = await _get_user_account(user_id)
+    return account.get("stripe_customer_id") if account else None
 
 
-async def link_stripe_customer(user_id: str, stripe_customer_id: str, month: str) -> None:
+async def link_stripe_customer(user_id: str, stripe_customer_id: str) -> None:
     """
     Associate a Clerk user_id with the Stripe customer_id created at
-    checkout, upserting the (user_id, month) row so a later
+    checkout, upserting into user_accounts (migration 007) so a later
     customer.subscription.* webhook event — which only carries the Stripe
     customer_id, not the Clerk user_id — has a row it can find and update.
+
+    No `month` parameter anymore: user_accounts is one row per user, not
+    one row per user per month, so there's nothing to scope by. Still needs
+    on_conflict for the upsert to actually take effect (resolution=
+    merge-duplicates alone is a no-op without it — see increment_user_usage's
+    history for the bug that taught this), but it's a true single-column
+    primary-key upsert (on_conflict=user_id) now instead of the composite
+    on_conflict=user_id,month user_usage needed.
     """
     if not _supabase_configured():
         return
@@ -278,15 +288,10 @@ async def link_stripe_customer(user_id: str, stripe_customer_id: str, month: str
         headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.post(
-                f"{settings.supabase_url}/rest/v1/user_usage",
+                f"{settings.supabase_url}/rest/v1/user_accounts",
                 headers=headers,
-                # Same upsert-needs-on_conflict requirement as
-                # increment_user_usage above — without it this also 409s
-                # (silently, caught below) on the second checkout for the
-                # same (user_id, month), e.g. a user who upgrades, cancels,
-                # then re-subscribes within the same month.
-                params={"on_conflict": "user_id,month"},
-                json={"user_id": user_id, "month": month, "stripe_customer_id": stripe_customer_id},
+                params={"on_conflict": "user_id"},
+                json={"user_id": user_id, "stripe_customer_id": stripe_customer_id},
             )
             resp.raise_for_status()
     except Exception as exc:  # noqa: BLE001
@@ -295,20 +300,26 @@ async def link_stripe_customer(user_id: str, stripe_customer_id: str, month: str
 
 async def update_user_pro_status(stripe_customer_id: str, is_pro: bool) -> None:
     """
-    Flip is_pro on whichever user_usage row(s) match this Stripe customer_id
-    — set by link_stripe_customer() at checkout time. A customer with no
-    linked row yet (e.g. this event arrived before checkout.session.completed
-    was processed) is silently a no-op; Stripe retries failed/ignored
-    webhooks, but this one doesn't even fail — there's just nothing to match
-    yet, so the next subscription.updated event (or a manual reconciliation)
-    is what would need to catch it.
+    Flip is_pro on whichever user_accounts row matches this Stripe
+    customer_id — set by link_stripe_customer() at checkout time. A
+    customer with no linked row yet (e.g. this event arrived before
+    checkout.session.completed was processed) is silently a no-op; Stripe
+    retries failed/ignored webhooks, but this one doesn't even fail —
+    there's just nothing to match yet, so the next subscription.updated
+    event (or a manual reconciliation) is what would need to catch it.
+
+    This is the fix for is_pro no longer living on a monthly user_usage
+    row: user_accounts has exactly one row per user, so there's no new
+    month's row for this update to miss — the same row this PATCHes today
+    is still the row get_user_usage() reads is_pro from next month, and
+    every month after.
     """
     if not _supabase_configured():
         return
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.patch(
-                f"{settings.supabase_url}/rest/v1/user_usage",
+                f"{settings.supabase_url}/rest/v1/user_accounts",
                 headers=_supabase_headers(),
                 params={"stripe_customer_id": f"eq.{stripe_customer_id}"},
                 json={"is_pro": is_pro},

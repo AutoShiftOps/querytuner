@@ -11,6 +11,7 @@ All files are idempotent — safe to re-run.
 | 004_ai_insights.sql | Phase 2 polish | add ai_insights and ai_provider columns for AI Insights on report page |
 | 005_security_issues.sql | Phase 2 polish | add security_issues column for Security Issues section on report page |
 | 006_user_accounts.sql | 4 | user_id column on analyses + user_usage table (monthly analysis count, is_pro, stripe_customer_id) for Clerk auth + Stripe billing |
+| 007_user_accounts_table.sql | 4 | user_accounts table (is_pro, stripe_customer_id — one row per user, not per user per month) + backfill from user_usage; fixes Pro status silently lapsing every calendar month. Non-destructive: user_usage keeps its (now vestigial) is_pro/stripe_customer_id columns for now |
 
 ## Disaster recovery
 1. Create a new Supabase project

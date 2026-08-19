@@ -449,12 +449,13 @@ async def create_billing_portal_session(user_id: str | None = Depends(get_curren
 @app.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
     """
-    Stripe webhook — keeps user_usage.is_pro in sync with subscription
-    status, and links a Clerk user_id to its Stripe customer_id the moment
-    checkout completes (checkout.session.completed carries both, via the
-    client_reference_id the Upgrade modal's payment link is set up to pass).
-    Without that link, later customer.subscription.* events would only have
-    a customer_id to go on and could never find which user to update.
+    Stripe webhook — keeps user_accounts.is_pro (migration 007) in sync
+    with subscription status, and links a Clerk user_id to its Stripe
+    customer_id the moment checkout completes (checkout.session.completed
+    carries both, via the client_reference_id the Upgrade modal's payment
+    link is set up to pass). Without that link, later customer.subscription.*
+    events would only have a customer_id to go on and could never find
+    which user to update.
     """
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
@@ -486,8 +487,7 @@ async def stripe_webhook(request: Request):
         user_id = data.get("client_reference_id")
         customer_id = data.get("customer")
         if user_id and customer_id:
-            month = datetime.now(UTC).strftime("%Y-%m")
-            await link_stripe_customer(user_id, customer_id, month)
+            await link_stripe_customer(user_id, customer_id)
         else:
             logger.warning(
                 "checkout.session.completed missing client_reference_id or customer — "

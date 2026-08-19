@@ -97,8 +97,8 @@ def test_checkout_session_completed_returns_200_not_500(monkeypatch):
     with an uncaught AttributeError before the fix."""
     calls = []
 
-    async def fake_link_stripe_customer(user_id, stripe_customer_id, month):
-        calls.append((user_id, stripe_customer_id, month))
+    async def fake_link_stripe_customer(user_id, stripe_customer_id):
+        calls.append((user_id, stripe_customer_id))
 
     monkeypatch.setattr("app.main.link_stripe_customer", fake_link_stripe_customer)
 
