@@ -151,7 +151,22 @@ async def rate_limit_middleware(request: Request, call_next):
 
         # Check limit (10 requests per minute per IP)
         if len(rate_limit_store[client_ip]) >= 10:
-            raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again in 1 minute.") from None
+            # NOT `raise HTTPException(...)` — exceptions raised inside an
+            # @app.middleware("http") function are not routed through
+            # FastAPI's normal exception handlers (that machinery only
+            # wraps route handlers), so a raised HTTPException here always
+            # propagated uncaught and surfaced to the client as a generic
+            # 500, never the intended 429. Returning a JSONResponse
+            # directly is the correct way to short-circuit from middleware.
+            # Shape matches the anonymous-limit 429 elsewhere in this file
+            # ({error, message, ...}) for one consistent 429 shape.
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "rate_limit_exceeded",
+                    "message": "Rate limit exceeded. Try again in 1 minute.",
+                },
+            )
 
         rate_limit_store[client_ip].append(now)
 

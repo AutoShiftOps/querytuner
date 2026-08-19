@@ -19,7 +19,13 @@ provider.
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import ANONYMOUS_DAILY_LIMIT, anonymous_daily_store, app, get_current_user, rate_limit_store
+from app.main import (
+    ANONYMOUS_DAILY_LIMIT,
+    anonymous_daily_store,
+    app,
+    get_current_user,
+    rate_limit_store,
+)
 from app.utils import database as database_module
 
 SIMPLE_QUERY = "SELECT * FROM orders WHERE id = 1"
@@ -167,5 +173,39 @@ def test_signed_in_pro_unaffected_by_anonymous_gates(client, monkeypatch):
         )
         assert resp.status_code == 200, resp.text
         assert anonymous_daily_store == {}
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_rate_limit_middleware_11th_request_returns_429_not_500(client, monkeypatch):
+    """rate_limit_middleware() raises HTTPException(429, ...) directly
+    inside an @app.middleware("http") function — Starlette does not route
+    exceptions raised in middleware through FastAPI's normal exception
+    handlers, so this always surfaced as a generic 500, not the intended
+    429. Pro tier + high monthly count so all 10 warm-up requests succeed
+    cleanly (200) and only the 11th exercises the middleware's own
+    10-per-minute cap, isolated from the free-tier/anonymous gates."""
+    _patch_persistence(monkeypatch, is_pro=True, count=0)
+    app.dependency_overrides[get_current_user] = lambda: "user_ratelimit_test"
+    try:
+        for i in range(10):
+            resp = client.post(
+                "/analyze",
+                json={"query": SIMPLE_QUERY, "db_type": "postgresql", "use_llm": False},
+            )
+            assert resp.status_code == 200, f"warm-up request {i + 1}/10 failed: {resp.text}"
+
+        resp = client.post(
+            "/analyze",
+            json={"query": SIMPLE_QUERY, "db_type": "postgresql", "use_llm": False},
+        )
+        assert resp.status_code == 429, f"expected 429, got {resp.status_code}: {resp.text}"
+        body = resp.json()
+        # Matches the anonymous-limit 429 shape elsewhere in this app
+        # ({error, message, ...} — see anonymous_limit_reached) rather than
+        # FastAPI's default HTTPException {"detail": ...} shape, so the
+        # frontend can handle every 429 the same structured way.
+        assert body["error"] == "rate_limit_exceeded"
+        assert "message" in body
     finally:
         app.dependency_overrides.clear()
