@@ -205,6 +205,16 @@ async def increment_user_usage(user_id: str, month: str) -> None:
             resp = await client.post(
                 f"{settings.supabase_url}/rest/v1/user_usage",
                 headers=headers,
+                # PostgREST only treats resolution=merge-duplicates as an
+                # upsert when on_conflict names the unique constraint to
+                # merge against — without it, every call past the first for
+                # a given (user_id, month) falls through to a plain INSERT
+                # and 409s against user_usage_user_month_unique (migration
+                # 006), silently caught below. That left analysis_count
+                # stuck at 1 forever after the first analysis, so the
+                # free-tier paywall never triggered. Confirmed live against
+                # Supabase before this fix and re-verified after.
+                params={"on_conflict": "user_id,month"},
                 json={"user_id": user_id, "month": month, "analysis_count": current["count"] + 1},
             )
             resp.raise_for_status()
@@ -228,6 +238,12 @@ async def link_stripe_customer(user_id: str, stripe_customer_id: str, month: str
             resp = await client.post(
                 f"{settings.supabase_url}/rest/v1/user_usage",
                 headers=headers,
+                # Same upsert-needs-on_conflict requirement as
+                # increment_user_usage above — without it this also 409s
+                # (silently, caught below) on the second checkout for the
+                # same (user_id, month), e.g. a user who upgrades, cancels,
+                # then re-subscribes within the same month.
+                params={"on_conflict": "user_id,month"},
                 json={"user_id": user_id, "month": month, "stripe_customer_id": stripe_customer_id},
             )
             resp.raise_for_status()
