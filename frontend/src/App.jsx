@@ -368,7 +368,7 @@ function App() {
         title={upgradeModalCopy?.title}
         subtitle={upgradeModalCopy?.subtitle}
       />
-      <Header />
+      <Header isPro={isPro} showToast={showToast} />
       <Hero />
 
       {/* ── Main two-column grid ── */}

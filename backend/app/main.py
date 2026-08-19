@@ -23,6 +23,7 @@ from .schemas.models import QueryAnalysisResult, QueryRequest  # noqa: E402
 from .utils.config import settings  # noqa: E402
 from .utils.database import (  # noqa: E402
     get_analysis,
+    get_user_stripe_customer_id,
     get_user_usage,
     increment_user_usage,
     link_stripe_customer,
@@ -31,6 +32,15 @@ from .utils.database import (  # noqa: E402
 )
 
 FREE_TIER_MONTHLY_LIMIT = 10
+
+# stripe.Webhook.construct_event() (used below) is local signature
+# verification and doesn't need this, but every other stripe.* call — like
+# billing_portal.Session.create() in POST /billing-portal — is a real
+# authenticated API call and does. Nothing in this codebase set this before
+# now: the existing checkout flow goes through a pre-made Stripe Payment
+# Link URL the frontend links to directly, so the backend never had to
+# authenticate to Stripe's API until this.
+stripe.api_key = settings.stripe_secret_key
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -400,6 +410,40 @@ async def get_usage(user_id: str | None = Depends(get_current_user)):
 
     month = datetime.now(UTC).strftime("%Y-%m")
     return await get_user_usage(user_id, month)
+
+
+@app.post("/billing-portal")
+async def create_billing_portal_session(user_id: str | None = Depends(get_current_user)):
+    """
+    Creates a Stripe Billing Portal session so a Pro user can manage their
+    own subscription (payment method, cancel, invoices) — deliberately no
+    custom billing UI in this app; Stripe's hosted portal handles all of
+    that. Auth-required: unlike /analyze, there's no useful anonymous path
+    here (no subscription to manage without being signed in).
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Sign in required")
+
+    customer_id = await get_user_stripe_customer_id(user_id)
+    if not customer_id:
+        # Shouldn't normally happen if the frontend only shows "Manage
+        # subscription" to is_pro users, but is_pro and stripe_customer_id
+        # are tracked independently (see get_user_stripe_customer_id's
+        # docstring) — a clear 400 here instead of letting a bare
+        # stripe.billing_portal.Session.create(customer=None) call surface
+        # a confusing Stripe API error to the frontend.
+        raise HTTPException(status_code=400, detail="No active subscription found for this account")
+
+    try:
+        session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=settings.frontend_url,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Failed to create billing portal session for user %s: %s", user_id, exc)
+        raise HTTPException(status_code=502, detail="Could not open billing portal — try again shortly") from None
+
+    return {"url": session.url}
 
 
 @app.post("/webhook/stripe")

@@ -222,6 +222,48 @@ async def increment_user_usage(user_id: str, month: str) -> None:
         logger.warning("Failed to increment usage for user %s: %s", user_id, exc)
 
 
+async def get_user_stripe_customer_id(user_id: str) -> str | None:
+    """
+    Look up this user's Stripe customer_id, for opening a Billing Portal
+    session (POST /billing-portal). Deliberately NOT scoped to the current
+    month the way get_user_usage() is: stripe_customer_id is only ever
+    written once, by link_stripe_customer() at the original checkout, onto
+    whichever (user_id, month) row existed that month — a later month's row
+    (created fresh by increment_user_usage()) never carries it forward. Only
+    searching the current month's row would make this silently return None
+    for any Pro user whose checkout happened in an earlier month, so this
+    searches across all of this user's rows instead and takes the most
+    recent non-null value.
+
+    Note: is_pro itself has this exact same per-month-row limitation
+    (update_user_pro_status() only PATCHes rows that already carry a
+    matching stripe_customer_id) and isn't fixed by this helper — that's a
+    separate, pre-existing gap in how Pro status is tracked across month
+    boundaries, out of scope here.
+    """
+    if not _supabase_configured():
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{settings.supabase_url}/rest/v1/user_usage",
+                headers=_supabase_headers(),
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "stripe_customer_id": "not.is.null",
+                    "select": "stripe_customer_id",
+                    "order": "created_at.desc",
+                    "limit": "1",
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data[0]["stripe_customer_id"] if data else None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to fetch Stripe customer id for user %s: %s", user_id, exc)
+        return None
+
+
 async def link_stripe_customer(user_id: str, stripe_customer_id: str, month: str) -> None:
     """
     Associate a Clerk user_id with the Stripe customer_id created at

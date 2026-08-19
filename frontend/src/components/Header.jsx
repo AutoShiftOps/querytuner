@@ -1,5 +1,13 @@
-import { useEffect } from 'react';
-import { SignedIn, SignedOut, UserButton, SignInButton, SignUpButton } from '@clerk/clerk-react';
+import { useEffect, useState } from 'react';
+import {
+  SignedIn,
+  SignedOut,
+  UserButton,
+  SignInButton,
+  SignUpButton,
+  useAuth,
+} from '@clerk/clerk-react';
+import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -21,10 +29,41 @@ function injectGithubButtonsScript() {
   document.body.appendChild(script);
 }
 
-export default function Header() {
+export default function Header({ isPro = false, showToast } = {}) {
   useEffect(() => {
     injectGithubButtonsScript();
   }, []);
+
+  const { getToken } = useAuth();
+  const [portalLoading, setPortalLoading] = useState(false);
+
+  // POST /billing-portal, then redirect the browser to the Stripe-hosted
+  // Billing Portal session it returns — no custom billing UI in this app.
+  // Only ever called from the "Manage subscription" link below, which only
+  // renders for isPro users, but the backend can still legitimately 400
+  // (e.g. is_pro and stripe_customer_id are tracked independently — see
+  // get_user_stripe_customer_id's docstring in backend/app/utils/database.py)
+  // or fail outright, so this doesn't let a raw error surface either way.
+  const handleManageSubscription = async () => {
+    setPortalLoading(true);
+    try {
+      const token = await getToken();
+      const r = await axios.post(
+        `${API_BASE_URL}/billing-portal`,
+        {},
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      window.location.href = r.data.url;
+    } catch (err) {
+      const message =
+        err.response?.data?.detail || "Couldn't open billing portal — please try again shortly.";
+      showToast?.(message, 'error');
+      setPortalLoading(false);
+    }
+    // No finally-reset on success: navigating away makes it moot, and
+    // leaving the button in its loading state until then avoids a second
+    // click firing a duplicate portal-session request mid-redirect.
+  };
 
   return (
     <>
@@ -61,6 +100,19 @@ export default function Header() {
           text-transform: uppercase; letter-spacing: 0.04em;
           margin-left: 2px;
         }
+        /* Same pill/accent-color language as .qt-header-version above, on
+           the signed-in user's own tier rather than the app's version —
+           separate class (not .qt-header-pro, which is the filled "Sign up
+           free" CTA button) since this is a small badge, not a button. */
+        .qt-header-pro-badge {
+          font-size: 9px; font-weight: 600;
+          padding: 2px 6px; border-radius: 4px;
+          background: rgba(56,189,248,0.1);
+          color: #38bdf8;
+          border: 1px solid rgba(56,189,248,0.2);
+          text-transform: uppercase; letter-spacing: 0.04em;
+          margin-right: 6px;
+        }
         .qt-header-nav {
           display: flex; align-items: center; gap: 2px;
         }
@@ -73,6 +125,13 @@ export default function Header() {
         }
         .qt-header-link:hover {
           color: #e2e8f0; background: #1e293b;
+        }
+        .qt-header-manage-sub {
+          background: none; border: none;
+          font-family: inherit;
+        }
+        .qt-header-manage-sub:disabled {
+          opacity: 0.5; cursor: default;
         }
         .qt-header-divider {
           width: 1px; height: 18px; background: #1e3a5f; margin: 0 4px;
@@ -154,6 +213,19 @@ export default function Header() {
           </SignedOut>
           <SignedIn>
             <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center' }}>
+              {isPro && (
+                <>
+                  <span className="qt-header-pro-badge">Pro</span>
+                  <button
+                    onClick={handleManageSubscription}
+                    disabled={portalLoading}
+                    className="qt-header-link qt-header-hide-mobile qt-header-manage-sub"
+                  >
+                    {portalLoading ? 'Opening…' : 'Manage subscription'}
+                  </button>
+                  <div className="qt-header-divider qt-header-hide-mobile" />
+                </>
+              )}
               <UserButton
                 appearance={{
                   elements: {

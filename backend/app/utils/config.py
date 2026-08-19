@@ -80,6 +80,12 @@ class Settings(BaseSettings):
     stripe_secret_key: str = ""
     stripe_price_id: str = ""
     stripe_webhook_secret: str = ""
+    # Where Stripe's hosted Billing Portal sends the user back to after they
+    # close it (billing_portal.Session.create's return_url) — defaults to
+    # production so this doesn't need a Render env var in the common case,
+    # but is overridable for local dev (e.g. FRONTEND_URL=http://localhost:3000)
+    # so the redirect-back actually lands somewhere real while testing.
+    frontend_url: str = "https://querytuner.com"
 
     model_config = SettingsConfigDict(
         env_file=".env",
