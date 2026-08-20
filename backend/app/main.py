@@ -23,6 +23,7 @@ from .schemas.models import QueryAnalysisResult, QueryRequest  # noqa: E402
 from .utils.config import settings  # noqa: E402
 from .utils.database import (  # noqa: E402
     get_analysis,
+    get_analysis_history,
     get_user_stripe_customer_id,
     get_user_usage,
     increment_user_usage,
@@ -32,6 +33,9 @@ from .utils.database import (  # noqa: E402
 )
 
 FREE_TIER_MONTHLY_LIMIT = 10
+# Phase 5 (backlog #54): GET /history pagination bounds.
+HISTORY_PAGE_SIZE_DEFAULT = 20
+HISTORY_PAGE_SIZE_MAX = 100
 
 # stripe.Webhook.construct_event() (used below) is local signature
 # verification and doesn't need this, but every other stripe.* call — like
@@ -410,6 +414,68 @@ async def get_usage(user_id: str | None = Depends(get_current_user)):
 
     month = datetime.now(UTC).strftime("%Y-%m")
     return await get_user_usage(user_id, month)
+
+
+@app.get("/history")
+async def get_history(
+    user_id: str | None = Depends(get_current_user),
+    limit: int = HISTORY_PAGE_SIZE_DEFAULT,
+    offset: int = 0,
+):
+    """
+    GET /history — Phase 5 (backlog #54): a Pro-only, paginated list of the
+    signed-in user's past analyses. UpgradeModal.jsx has advertised "Query
+    history" as a Pro perk since Phase 4; this is what actually backs it.
+
+    Gates the *data*, not just the UI — mirrors /analyze's own is_pro check
+    (via get_user_usage) rather than trusting the frontend to only call
+    this for Pro users:
+      - not signed in -> 401 sign_in_required
+      - signed in but not Pro -> 403 pro_required
+      - signed in and Pro -> the actual paginated history
+
+    Both rejection cases use the same structured {error, message, ...}
+    body shape as /analyze's other structured errors (query_too_large,
+    sign_in_required, anonymous_limit_reached) rather than FastAPI's
+    default {"detail": ...} shape, so the frontend can render an actionable
+    prompt (sign in / upgrade) instead of a generic error.
+    """
+    if not user_id:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "error": "sign_in_required",
+                "message": "Sign in to view your query history.",
+                "sign_in_required": True,
+            },
+        )
+
+    usage_month = datetime.now(UTC).strftime("%Y-%m")
+    usage = await get_user_usage(user_id, usage_month)
+    if not usage.get("is_pro", False):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "error": "pro_required",
+                "message": "Query history is a Pro feature. Upgrade to QueryTuner Pro to see your saved analyses.",
+                "upgrade_available": True,
+            },
+        )
+
+    limit = max(1, min(limit, HISTORY_PAGE_SIZE_MAX))
+    offset = max(0, offset)
+
+    items = await get_analysis_history(user_id, limit=limit, offset=offset)
+    return {
+        "items": items,
+        "limit": limit,
+        "offset": offset,
+        # Simple v1 pagination signal per the design doc — a full page back
+        # means there might be more, not a guarantee (would need a separate
+        # COUNT query to know for certain). Good enough for a "Load more"
+        # button; not attempting cursor-based pagination yet.
+        "has_more": len(items) == limit,
+    }
 
 
 @app.post("/billing-portal")

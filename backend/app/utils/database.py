@@ -141,6 +141,67 @@ async def get_analysis(analysis_id: str) -> dict[str, Any] | None:
         return None
 
 
+# Longest a history-list query snippet is allowed to be before truncating
+# with an ellipsis — this is a *list* row, not the detail view (GET
+# /report/{id} already returns the full original_query on click-through),
+# so keeping this short is deliberate, not a size limit workaround.
+_HISTORY_SNIPPET_CHARS = 200
+
+
+async def get_analysis_history(user_id: str, *, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
+    """
+    Phase 5 (backlog #54): a lightweight, paginated summary of a user's
+    past analyses for the History page (GET /history) — id, db_type, a
+    truncated query snippet, severity, issue count, created_at. NOT the
+    full record (execution plan, AI insights, schema_info, ...) — that's
+    what GET /report/{id} already returns on click-through, so this
+    deliberately avoids `select=*` to keep the list response light.
+
+    Returns an empty list (never raises) when Supabase isn't configured,
+    the request fails, or the user has no analyses yet — callers can't
+    distinguish "no history" from "fetch failed" from this alone, but
+    /history's empty-state copy reads fine either way ("Your analyses will
+    show up here").
+    """
+    if not _supabase_configured():
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{settings.supabase_url}/rest/v1/analyses",
+                headers=_supabase_headers(),
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "select": "id,db_type,original_query,severity,findings,created_at",
+                    "order": "created_at.desc",
+                    "limit": str(limit),
+                    "offset": str(offset),
+                },
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to fetch analysis history for user %s: %s", user_id, exc)
+        return []
+
+    summaries = []
+    for row in rows:
+        query = row.get("original_query") or ""
+        snippet = query if len(query) <= _HISTORY_SNIPPET_CHARS else query[:_HISTORY_SNIPPET_CHARS].rstrip() + "…"
+        findings = row.get("findings")
+        summaries.append(
+            {
+                "id": row.get("id"),
+                "db_type": row.get("db_type"),
+                "query_snippet": snippet,
+                "severity": row.get("severity"),
+                "issue_count": len(findings) if isinstance(findings, list) else 0,
+                "created_at": row.get("created_at"),
+            }
+        )
+    return summaries
+
+
 # ---------------------------------------------------------------------------
 # Phase 4: user usage / Stripe billing status
 # ---------------------------------------------------------------------------

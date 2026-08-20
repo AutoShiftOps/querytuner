@@ -213,6 +213,17 @@ export default function Header({ isPro = false, showToast } = {}) {
           </SignedOut>
           <SignedIn>
             <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center' }}>
+              {/* Phase 5 (backlog #54): shown to every signed-in user, Pro
+                  or not — unlike "Manage subscription" below, which is
+                  Pro-only. A free user who clicks through lands on
+                  HistoryPage.jsx's own locked state (reuses UpgradeModal's
+                  pitch) rather than the link disappearing outright; the
+                  data itself is still gated server-side by GET /history
+                  regardless of what this link does. */}
+              <a href="/history" className="qt-header-link qt-header-hide-mobile">
+                History
+              </a>
+              <div className="qt-header-divider qt-header-hide-mobile" />
               {isPro && (
                 <>
                   <span className="qt-header-pro-badge">Pro</span>

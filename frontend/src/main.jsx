@@ -5,6 +5,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ClerkProvider } from '@clerk/clerk-react';
 import { dark } from '@clerk/themes';
 import ReportPage from './components/ReportPage';
+import HistoryPage from './components/HistoryPage';
 import App from './App';
 
 // Phase 4: Clerk auth — publishable key is safe to expose client-side by
@@ -40,6 +41,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <BrowserRouter>
         <Routes>
           <Route path="/report/:id" element={<ReportPage />} />
+          <Route path="/history" element={<HistoryPage />} />
           <Route path="/" element={<App />} />
         </Routes>
       </BrowserRouter>
