@@ -22,6 +22,7 @@ from .agents.sql_analyzer import SQLAnalyzerAgent  # noqa: E402
 from .schemas.models import QueryAnalysisResult, QueryRequest  # noqa: E402
 from .utils.config import settings  # noqa: E402
 from .utils.database import (  # noqa: E402
+    expire_analysis,
     get_analysis,
     get_analysis_history,
     get_user_stripe_customer_id,
@@ -610,6 +611,38 @@ async def get_report(analysis_id: str):
             "share_url": f"https://querytuner.com/report/{record['id']}",
         }
     )
+
+
+@app.delete("/report/{analysis_id}", tags=["Reports"])
+async def delete_report(analysis_id: str, user_id: str | None = Depends(get_current_user)):
+    """
+    DELETE /report/{analysis_id} — Phase 5 (backlog #116): lets a
+    signed-in user revoke their own shared report link early, rather than
+    waiting out the default expiration window (see
+    database.py's ANALYSIS_EXPIRATION_DAYS). Soft-delete — see
+    expire_analysis()'s docstring for why this isn't a hard DELETE.
+
+    Anonymous-authored analyses (user_id IS NULL) have no owner to
+    authorize a delete against, so there's nothing for anyone to delete
+    via this endpoint for those in v1 — expiration is the only mechanism
+    that applies to them, same as the design doc's explicit scope.
+    """
+    if not analysis_id or len(analysis_id) < 10:
+        raise HTTPException(status_code=400, detail="Invalid analysis ID")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Sign in required")
+
+    deleted = await expire_analysis(analysis_id, user_id)
+    if not deleted:
+        # Same shape as GET /report/{id}'s 404 — deliberately doesn't
+        # distinguish "doesn't exist" from "exists but isn't yours" from
+        # "already expired", for the same reason get_analysis() doesn't:
+        # not leaking which of those is actually true.
+        raise HTTPException(
+            status_code=404,
+            detail="Analysis not found. It may have expired, already been deleted, or isn't owned by this account.",
+        )
+    return {"status": "deleted"}
 
 
 @app.get("/docs")

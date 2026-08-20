@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -43,7 +44,20 @@ def hash_query(query: str) -> str:
 # Columns added after the initial schema (001) — a given Supabase project may
 # not have run the corresponding migration yet. Retried one at a time below
 # rather than losing the whole analysis record (PGRST204: unknown column).
-_OPTIONAL_COLUMNS = ("plain_explanation", "ai_insights", "ai_provider", "security_issues", "user_id")
+_OPTIONAL_COLUMNS = (
+    "plain_explanation",
+    "ai_insights",
+    "ai_provider",
+    "security_issues",
+    "user_id",
+    "expires_at",  # Issue #116, migration 008
+)
+
+# Issue #116: default shareable-link lifetime, set at write time in
+# save_analysis(). A named constant, not a magic literal scattered at the
+# call site — pick a different number here if 90 days turns out wrong,
+# nothing else needs to change.
+ANALYSIS_EXPIRATION_DAYS = 90
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +121,11 @@ async def save_analysis(payload: dict[str, Any]) -> str | None:
         "ai_provider": payload.get("ai_provider") or None,
         "security_issues": payload.get("security_issues") or [],
         "user_id": payload.get("user_id") or None,
+        # Issue #116: every newly-created analysis gets a default
+        # expiration window from creation. Existing rows (created before
+        # migration 008 shipped) keep expires_at NULL — never expiring —
+        # since this INSERT path is the only place that sets it.
+        "expires_at": (datetime.now(UTC) + timedelta(days=ANALYSIS_EXPIRATION_DAYS)).isoformat(),
     }
 
     data = await _insert_with_fallback(row)
@@ -118,10 +137,31 @@ async def save_analysis(payload: dict[str, Any]) -> str | None:
     return inserted_id
 
 
+def _is_expired(expires_at: str | None) -> bool:
+    """expires_at IS NULL means "never expires" (rows written before
+    migration 008, or before this app started setting it) — only a
+    present, past timestamp counts as expired."""
+    if not expires_at:
+        return False
+    try:
+        expiry = datetime.fromisoformat(expires_at)
+    except (TypeError, ValueError):
+        return False
+    return expiry <= datetime.now(UTC)
+
+
 async def get_analysis(analysis_id: str) -> dict[str, Any] | None:
     """
     Retrieve a stored analysis by UUID.
-    Returns None if not found or Supabase is not configured.
+    Returns None if not found, expired, or Supabase is not configured.
+
+    Issue #116: expiration is enforced here rather than in the /report/{id}
+    route handler — the route's existing 404 ("Analysis not found. It may
+    have expired or the link is incorrect.") already anticipated this case
+    and needs no change; an expired analysis just looks exactly like a
+    nonexistent one to every caller, deliberately (no separate "this link
+    expired" vs "this link never existed" distinction — that would leak
+    whether a given UUID was ever valid).
     """
     if not _supabase_configured():
         return None
@@ -135,10 +175,56 @@ async def get_analysis(analysis_id: str) -> dict[str, Any] | None:
             )
             resp.raise_for_status()
             data = resp.json()
-            return data[0] if data else None
+            if not data:
+                return None
+            record = data[0]
+            if _is_expired(record.get("expires_at")):
+                return None
+            return record
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to fetch analysis %s: %s", analysis_id, exc)
         return None
+
+
+async def expire_analysis(analysis_id: str, user_id: str) -> bool:
+    """
+    Issue #116: DELETE /report/{id} — lets a signed-in user revoke their
+    own shared link early instead of waiting out the default expiration
+    window. Soft-delete (sets expires_at to now(), same mechanism the
+    default expiration already uses), not a hard DELETE — accomplishes
+    the same user-facing outcome (the link stops working immediately) with
+    less risk, per the design doc's explicit v1 choice.
+
+    Both id AND user_id are in the PATCH filter — the WHERE clause is the
+    actual authorization check, not just a pre-check in application code,
+    so this can never touch a row that isn't both the right analysis and
+    owned by the caller, regardless of what the caller claims. An
+    anonymous-authored analysis (user_id IS NULL in the row) can never
+    match `user_id=eq.<caller>` for any real caller, so it's naturally
+    unreachable through this function — consistent with the v1 scope of
+    "anonymous analyses: expiration-only, no explicit delete".
+
+    Returns True if a row was actually updated (found and owned by this
+    user), False otherwise — the route handler turns False into a 404
+    without needing to know why (not found vs. not owned looks the same
+    to the caller, same reasoning as get_analysis()'s 404).
+    """
+    if not _supabase_configured():
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.patch(
+                f"{settings.supabase_url}/rest/v1/analyses",
+                headers=_supabase_headers(),
+                params={"id": f"eq.{analysis_id}", "user_id": f"eq.{user_id}"},
+                json={"expires_at": datetime.now(UTC).isoformat()},
+            )
+            resp.raise_for_status()
+            updated = resp.json()
+            return bool(updated)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to expire analysis %s for user %s: %s", analysis_id, user_id, exc)
+        return False
 
 
 # Longest a history-list query snippet is allowed to be before truncating
