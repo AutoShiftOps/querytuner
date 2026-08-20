@@ -342,6 +342,14 @@ function injectStyles() {
       margin-top: 6px; font-size: 11px; font-weight: 500;
       font-family: 'JetBrains Mono', monospace; color: ${T.accent};
     }
+    /* Issue #118: the write/storage cost counterpart to .qt-finding-impact's
+       read-side benefit — amber, not accent blue, so the trade-off is
+       visually distinguishable at a glance, not just textually adjacent. */
+    .qt-finding-cost {
+      display: inline-flex; align-items: center; gap-4px;
+      margin-top: 4px; font-size: 11px; font-weight: 500;
+      font-family: 'JetBrains Mono', monospace; color: ${T.yellow};
+    }
 
     /* Footer */
     .qt-footer {
@@ -702,6 +710,11 @@ export default function ReportPage() {
                       {f.reason && <p className="qt-finding-reason">{f.reason}</p>}
                       {f.estimated_improvement && (
                         <span className="qt-finding-impact">↑ {f.estimated_improvement}</span>
+                      )}
+                      {f.cost_estimate && (
+                        <div>
+                          <span className="qt-finding-cost">↓ {f.cost_estimate}</span>
+                        </div>
                       )}
                       {f.ddl_hint && (
                         <pre

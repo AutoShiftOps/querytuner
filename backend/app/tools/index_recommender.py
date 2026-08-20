@@ -298,6 +298,79 @@ def _is_low_cardinality(col_name: str) -> bool:
     return bool(_LOW_CARDINALITY_PATTERNS.search(col_name))
 
 
+# Issue #118: write/storage cost estimate — the counterpart to
+# estimated_improvement, which only ever states the read-side benefit.
+# Heuristic-only, v1: no live DB access means no real row counts or
+# EXPLAIN output to back a byte-precise estimate with, so this is
+# deliberately coarse, based only on what's actually knowable at
+# suggestion time — column count and (when schema_info was pasted)
+# column data type.
+# Matched against schema[table][col] AS STORED — i.e. already run through
+# query_parser.py's _normalize_type(), not the raw DDL text. That matters:
+# _normalize_type() (a) strips length specs entirely, so VARCHAR(20) and
+# VARCHAR(2000) are indistinguishable by the time anything sees them, and
+# (b) _TYPE_ALIAS_GROUPS collapses varchar/varchar2/nvarchar/char/nchar/
+# text/clob/nclob ALL into one canonical bucket, "text". That means "text"
+# can't be trusted as a large-column signal here — it's exactly as likely
+# to be a 1-character status flag as an unbounded free-text column.
+# Confirmed empirically during manual verification: matching "text" as a
+# substring flagged a VARCHAR(20) status column as "large-text... adds
+# storage overhead per row", which is simply wrong. Only types that stay
+# genuinely distinguishable after normalization are treated as large:
+# canonical "json" (json/jsonb get their own bucket, not collapsed into
+# "text"), and blob/xml/image variants, which _TYPE_ALIAS_GROUPS doesn't
+# alias at all and so pass through _normalize_type() unchanged. Extending
+# query_parser.py to preserve length or split varchar from text is
+# explicitly out of scope for #118 ("no new parsing pass needed") —
+# this list is deliberately what's honestly knowable from the existing
+# normalized schema, not a wishlist of "large" SQL types in general.
+_LARGE_NORMALIZED_TYPES = frozenset({"json", "blob", "longblob", "mediumblob", "tinyblob", "xml", "image"})
+
+
+def _is_large_column_type(col_type: str | None) -> bool:
+    if not col_type:
+        return False
+    return col_type.strip().lower() in _LARGE_NORMALIZED_TYPES
+
+
+def _estimate_index_cost(
+    columns: list[str],
+    table_ph: str,
+    schema: dict[str, dict[str, str]],
+) -> str:
+    """
+    A simple three-tier write/storage cost label:
+      - 1 column, no large-text type -> "Low write cost"
+      - 2-3 columns, or a large-text column involved -> "Moderate write cost"
+      - 4+ columns -> "Higher write cost — N-column composite"
+    More columns means more write amplification (every INSERT/UPDATE/DELETE
+    touches every column in the index) and a larger index; a large-text
+    column (TEXT/VARCHAR/JSON/...) costs more storage per row than a plain
+    int/date, so it bumps an otherwise-low tier up one level. table_ph is
+    reused as the schema lookup key as-is — when it's a real resolved table
+    name this finds real column types; when it's an unresolved
+    "<alias_table>" placeholder, the lookup just finds nothing and this
+    falls back to the count-only estimate, which is exactly the intended
+    fallback (no separate "is this schema-verified" branch needed).
+    """
+    n = len(columns)
+    table_schema = schema.get(table_ph, {}) if schema else {}
+    large_type_cols = [c for c in columns if _is_large_column_type(table_schema.get(c))]
+
+    if n >= 4:
+        label = f"Higher write cost — {n}-column composite"
+    elif n >= 2 or large_type_cols:
+        label = f"Moderate write cost — {n}-column composite" if n >= 2 else "Moderate write cost"
+    else:
+        label = "Low write cost"
+
+    if large_type_cols:
+        cols_label = ", ".join(f"`{c}`" for c in large_type_cols)
+        label += f" ({cols_label} is a large-text column — adds storage overhead per row)"
+
+    return label
+
+
 class IndexRecommender:
     def recommend(
         self,
@@ -350,6 +423,7 @@ class IndexRecommender:
                     alias=alias,
                     col=col,
                     table_ph=table_ph,
+                    schema=schema,
                 )
             )
 
@@ -382,6 +456,7 @@ class IndexRecommender:
                         alias=alias,
                         col=col,
                         table_ph=table_ph,
+                        schema=schema,
                     )
                 )
             else:
@@ -401,6 +476,7 @@ class IndexRecommender:
                         alias=alias,
                         col=col,
                         table_ph=table_ph,
+                        schema=schema,
                     )
                 )
 
@@ -432,6 +508,7 @@ class IndexRecommender:
                     alias=alias,
                     col=col,
                     table_ph=table_ph,
+                    schema=schema,
                 )
             )
 
@@ -461,6 +538,7 @@ class IndexRecommender:
                     alias=alias,
                     col=col,
                     table_ph=table_ph,
+                    schema=schema,
                 )
             )
 
@@ -469,6 +547,8 @@ class IndexRecommender:
         for comp in composites:
             alias = comp["table_alias"]
             cols = comp["columns"]
+            real_table = self._real_table(alias, schema)
+            table_ph = real_table if real_table else f"<{alias}_table>"
             suggestions.append(
                 self._make(
                     index_type="composite_index",
@@ -479,6 +559,9 @@ class IndexRecommender:
                     estimated="Often the highest-ROI index change for multi-column queries",
                     ddl_hint=comp["ddl_hint"],
                     ddl_note=comp.get("ddl_note", ""),
+                    table_ph=table_ph,
+                    schema=schema,
+                    composite_bare_columns=cols,
                 )
             )
 
@@ -552,6 +635,8 @@ class IndexRecommender:
         col: str = "",
         table_ph: str = "",
         evidence_level: str | None = None,
+        schema: dict[str, dict[str, str]] | None = None,
+        composite_bare_columns: list[str] | None = None,
     ):
         if evidence_level is None:
             evidence_level = "schema-verified" if schema_verified else "needs-runtime-evidence"
@@ -568,6 +653,12 @@ class IndexRecommender:
         }
         if ddl_note:
             result["ddl_note"] = ddl_note
+        # Issue #118: bare (non-alias-qualified) column names for the
+        # schema type lookup — composite_bare_columns for composite_index
+        # suggestions (already bare), [col] for every single-column type.
+        bare_columns = composite_bare_columns if composite_bare_columns is not None else ([col] if col else None)
+        if bare_columns:
+            result["cost_estimate"] = _estimate_index_cost(bare_columns, table_ph, schema or {})
         if col and table_ph:
             cfg = get_dialect(db_type)
             result["rollback_ddl"] = cfg.rollback_index.format(

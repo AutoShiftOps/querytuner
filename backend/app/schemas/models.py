@@ -69,6 +69,12 @@ class OptimizationSuggestion(BaseModel):
     # boolean used for schema cross-reference logic; this is the label.
     # Values: "deterministic" | "schema-verified" | "needs-runtime-evidence"
     evidence_level: str | None = None
+    # Issue #118: the write/storage-cost counterpart to estimated_improvement
+    # (which only ever states the read-side benefit). Same free-text pattern
+    # deliberately, not a structured numeric model — there's no live DB/row-count
+    # access to back a byte-precise estimate with. None for non-index
+    # suggestion types, which don't carry a write/storage cost of their own.
+    cost_estimate: str | None = None
 
 
 class ExecutionPlan(BaseModel):

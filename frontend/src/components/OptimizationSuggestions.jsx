@@ -279,6 +279,14 @@ export default function OptimizationSuggestions({
                 <p className="mt-2 text-sm opacity-90">Estimate: {s.estimated_improvement}</p>
               ) : null}
 
+              {/* Issue #118: the write/storage cost counterpart to the read-side
+                  estimate above — rendered right under it so the trade-off reads
+                  together, not just the upside. Index suggestions only
+                  (cost_estimate is None for every other suggestion type). */}
+              {s.cost_estimate ? (
+                <p className="mt-1 text-sm opacity-90">Cost: {s.cost_estimate}</p>
+              ) : null}
+
               {s.ddl_hint ? (
                 <pre
                   className="mt-2 text-xs rounded p-2 overflow-x-auto"
