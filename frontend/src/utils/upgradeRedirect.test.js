@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildUrlWithoutUpgradedParam,
   hasUpgradedParam,
   pollForProStatus,
 } from './upgradeRedirect';
+import { trackUpgradeConversion } from './analytics';
 
 describe('hasUpgradedParam', () => {
   it('detects ?upgraded=true', () => {
@@ -92,5 +93,57 @@ describe('pollForProStatus', () => {
 
     expect(result.success).toBe(false);
     expect(fetchUsage).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('trackUpgradeConversion wiring (App.jsx pollForProStatus branch)', () => {
+  // Mirrors App.jsx's actual `if (result.success) { ...; trackUpgradeConversion(); }`
+  // branch exactly — this project has no component-mounting test setup
+  // (no @testing-library/react/jsdom, same reason pollForProStatus itself
+  // was extracted as a plain function above), so this asserts the real
+  // trackUpgradeConversion()/gtag() behavior against pollForProStatus's
+  // actual result rather than mounting App.jsx.
+  const instant = () => Promise.resolve();
+
+  // This project's vitest runs in a plain Node environment (no jsdom
+  // dependency installed), so there's no ambient `window` global the way
+  // there would be in a browser — define a minimal stand-in with just the
+  // shape analytics.js's gtag() wrapper checks for
+  // (typeof window.gtag === 'function'), matching how a real page would
+  // look to it, without pulling in a new jsdom dependency for two tests.
+  afterEach(() => {
+    delete globalThis.window;
+  });
+
+  it('fires the GA4 purchase event exactly once when Pro is confirmed', async () => {
+    const gtagSpy = vi.fn();
+    globalThis.window = { gtag: gtagSpy };
+    const fetchUsage = vi.fn().mockResolvedValue({ count: 0, is_pro: true, limit: 10 });
+
+    const result = await pollForProStatus(fetchUsage, { delayFn: instant });
+    if (result.success) {
+      trackUpgradeConversion();
+    }
+
+    expect(gtagSpy).toHaveBeenCalledTimes(1);
+    expect(gtagSpy).toHaveBeenCalledWith('event', 'purchase', {
+      currency: 'USD',
+      value: 19,
+      items: [{ item_name: 'QueryTuner Pro', item_category: 'subscription' }],
+    });
+  });
+
+  it('does not fire when the poll never confirms Pro (soft-failure path)', async () => {
+    const gtagSpy = vi.fn();
+    globalThis.window = { gtag: gtagSpy };
+    const fetchUsage = vi.fn().mockResolvedValue({ count: 0, is_pro: false, limit: 10 });
+
+    const result = await pollForProStatus(fetchUsage, { attempts: 3, delayFn: instant });
+    if (result.success) {
+      trackUpgradeConversion();
+    }
+
+    expect(result.success).toBe(false);
+    expect(gtagSpy).not.toHaveBeenCalled();
   });
 });

@@ -114,6 +114,29 @@ export function trackAnalysisError(error_type, db_type) {
   });
 }
 
+// ── Conversion events ────────────────────────────────────────────────────────
+
+/**
+ * Fired once a Pro upgrade is genuinely confirmed — after the checkout-
+ * redirect polling in frontend/src/utils/upgradeRedirect.js
+ * (pollForProStatus) reports is_pro: true from a real GET /usage response,
+ * never speculatively from the ?upgraded=true query param alone or from a
+ * poll that gave up without confirming. Called from App.jsx's
+ * pollForProStatus success branch — the same branch that shows the
+ * "Welcome to QueryTuner Pro" toast.
+ *
+ * Uses GA4's recommended ecommerce "purchase" event shape rather than a
+ * generic custom event — this is what lets GA4 treat it as a real
+ * conversion for goal/funnel reporting instead of just another event.
+ */
+export function trackUpgradeConversion() {
+  gtag('event', 'purchase', {
+    currency: 'USD',
+    value: 19,
+    items: [{ item_name: 'QueryTuner Pro', item_category: 'subscription' }],
+  });
+}
+
 // ── Feature usage events ──────────────────────────────────────────────────────
 
 /**

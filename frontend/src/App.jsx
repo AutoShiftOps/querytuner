@@ -27,6 +27,7 @@ import {
   trackDbTypeChanged,
   trackAiToggle,
   trackShareClicked,
+  trackUpgradeConversion,
   trackOptimizedQueryCopied,
   trackAiInsightsCopied,
 } from './utils/analytics';
@@ -161,6 +162,14 @@ function App() {
       if (result.success) {
         setUsageCount(result.usage?.count ?? 0);
         setIsPro(true);
+        // Only fires here — genuinely confirmed is_pro: true from a real
+        // GET /usage response, never on the ?upgraded=true param alone.
+        // Double-fire guard: this whole effect body only runs once per
+        // real page load (hadUpgradedParamRef/upgradedRedirectHandledRef
+        // above), and ?upgraded=true is stripped from the URL before this
+        // branch can even be reached, so a refresh can't re-enter it —
+        // no separate guard needed here.
+        trackUpgradeConversion();
         showToast('Welcome to QueryTuner Pro! Unlimited analyses, unlocked.', 'success');
       } else {
         // Don't claim Pro status that isn't actually active — Stripe's
