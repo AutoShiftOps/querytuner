@@ -187,7 +187,7 @@ no `langgraph` usage exists in the codebase yet. Issues #39–45 remain open and
 
 | Issue | Task | Priority |
 |---|---|---|
-| #54 | Query history — save + replay past analyses per user | 🔴 High |
+| #54 | ✅ Query history — save + replay past analyses per user (`db2f1306`) | 🔴 High |
 | #55 | Team workspaces — share queries + results with teammates | 🔴 High |
 | #56 | Slack integration — `/querytuner analyze <sql>` slash command | 🟡 Medium |
 | #59 | VS Code extension — analyze SQL from editor (Phase 5 stretch) | 🟡 Medium |
@@ -199,11 +199,17 @@ no `langgraph` usage exists in the codebase yet. Issues #39–45 remain open and
 | #62 | EXPLAIN plan parser — parse MySQL EXPLAIN output | 🔴 High |
 | #63 | Cross-reference heuristics with parsed EXPLAIN plan | 🔴 High |
 | #115 | Batch workload analysis — detect conflicting indexes across multiple queries | 🔴 High |
-| #116 | URL expiration and deletion for shareable reports | 🟡 Medium |
-| #117 | Column order reasoning in composite index DDL proposals | 🟢 Low |
-| #118 | Write and storage cost estimate per index recommendation | 🟡 Medium |
+| #116 | ✅ URL expiration and deletion for shareable reports — shipped as fixed 90-day default + owner-only revoke (`860950e3`); GitHub issue also asked for user-selectable 7/30/never at share time, not yet built — see note below | 🟡 Medium |
+| #117 | ✅ Column order reasoning in composite index DDL proposals (`7121cc12`) | 🟢 Low |
+| #118 | ✅ Write and storage cost estimate per index recommendation (`4e747b95`) | 🟡 Medium |
 | #119 | Parameter sniffing detection — compiled vs runtime parameter values | 🔴 High |
 | #120 | Batch query input from Query Store / pg_stat_statements export | 🔴 High |
+
+**Note on #116:** v1 shipped a single fixed 90-day expiration window plus
+owner-initiated early revoke (`DELETE /report/{id}`), not the
+user-selectable 7-day/30-day/never option at share time the original
+issue also asked for — that remains open scope. Tracked in the GitHub
+issue's comment thread rather than a separate row here.
 
 ---
 

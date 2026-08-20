@@ -5,7 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-These changes will become v0.3.0 when Phase 4 ships.
+Phase 4 (auth + payments) has shipped to `master`, along with the first
+batch of Phase 5 quick wins below. These changes will become v0.3.0 once
+tagged.
 
 ### Added
 - Client-side query sanitizer (commit 042a23fd):
@@ -34,6 +36,13 @@ These changes will become v0.3.0 when Phase 4 ships.
 - OpenAI (recommended) label added to AI provider dropdown (UI label change only — provider
   selection remains user's choice)
 - Phase 4: Authentication + Stripe payments
+- Query history for Pro users — `GET /history`, gated server-side on Pro status (#54, `db2f1306`)
+- Shareable report link expiration (90-day default) + owner-initiated early revoke via
+  `DELETE /report/{id}` (#116, `860950e3`)
+- Composite index recommendations now order columns by standard convention (equality →
+  JOIN → range → sort) instead of raw extraction order (#117, `7121cc12`)
+- Write/storage cost estimate alongside every index recommendation's existing read-side
+  benefit estimate (#118, `4e747b95`)
 
 ### Fixed
 - `schema_verified` terminology replaces "confirmed" — more accurate, does not imply planner
