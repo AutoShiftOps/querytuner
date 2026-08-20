@@ -44,10 +44,26 @@ def _qualified_col(expr: str) -> tuple[str | None, str] | None:
     return None, parts[0]
 
 
-def _extract_where_columns(where_clause: str) -> list[tuple[str | None, str]]:
+# Issue #117: which operators count as "equality" vs "range/inequality" for
+# composite-index column ordering — standard guidance is that equality
+# predicates should lead a composite index (they narrow to an exact seek
+# point), while range/inequality predicates and sort-only columns trail,
+# since the index can only maintain a useful scan order for columns coming
+# after the first range predicate. IN and IS NULL are treated as equality
+# (a set of discrete lookups / a single-value match, not a range scan).
+_EQUALITY_OPERATORS = {"=", "IN"}
+
+
+def _extract_where_columns(where_clause: str) -> list[tuple[str | None, str, str]]:
+    """
+    Returns (alias, column, predicate_type) triples — predicate_type is
+    "equality" or "range". Used by _detect_composite_opportunity to order
+    composite columns; callers that only need (alias, column) can ignore
+    the third element.
+    """
     if not where_clause:
         return []
-    cols: list[tuple[str | None, str]] = []
+    cols: list[tuple[str | None, str, str]] = []
     normalised = re.sub(r"\s+", " ", where_clause).strip()
     conditions = re.split(r"\bAND\b|\bOR\b", normalised, flags=re.IGNORECASE)
     for cond in conditions:
@@ -58,18 +74,19 @@ def _extract_where_columns(where_clause: str) -> list[tuple[str | None, str]]:
         if is_null_m:
             qc = _qualified_col(is_null_m.group(1))
             if qc:
-                cols.append(qc)
+                cols.append((*qc, "equality"))
             continue
         m = re.match(
-            r'^([A-Za-z_][A-Za-z0-9_.]+|"[^"]+")\s*'
-            r"(?:=|!=|<>|<=|>=|<|>|\bI?LIKE\b|\bIN\b|\bBETWEEN\b|\bNOT\s+IN\b)",
+            r'^([A-Za-z_][A-Za-z0-9_.]+|"[^"]+")\s*' r"(=|!=|<>|<=|>=|<|>|\bI?LIKE\b|\bNOT\s+IN\b|\bIN\b|\bBETWEEN\b)",
             cond,
             re.IGNORECASE,
         )
         if m:
             qc = _qualified_col(m.group(1))
             if qc:
-                cols.append(qc)
+                operator = m.group(2).upper()
+                predicate_type = "equality" if operator in _EQUALITY_OPERATORS else "range"
+                cols.append((*qc, predicate_type))
     return cols
 
 
@@ -142,8 +159,47 @@ def _resolve_real_table(alias: str | None, schema: dict[str, dict[str, str]]) ->
     return None
 
 
+def _describe_column_role(
+    col: str,
+    equality_cols: list[str],
+    join_cols: list[str],
+    range_cols: list[str],
+    order_cols: list[str],
+) -> str:
+    """Short, human-readable reason a column landed where it did in the
+    composite's column order — checked in the same priority order the
+    composite itself is built in, so a column that's e.g. both an
+    equality filter AND a JOIN key is described by its higher-priority role."""
+    if col in equality_cols:
+        return "equality filter"
+    if col in join_cols:
+        return "JOIN key"
+    if col in range_cols:
+        return "range filter"
+    if col in order_cols:
+        return "sort column"
+    return "query column"
+
+
+def _composite_ordering_note(
+    cols: list[str],
+    equality_cols: list[str],
+    join_cols: list[str],
+    range_cols: list[str],
+    order_cols: list[str],
+) -> str:
+    """Issue #117: makes the column-ordering reasoning visible in the
+    suggestion text itself, not just applied silently — e.g. "Column
+    order: `status` (equality filter) -> `customer_id` (JOIN key) ->
+    `created_at` (sort column)"."""
+    if len(cols) < 2:
+        return ""
+    parts = [f"`{c}` ({_describe_column_role(c, equality_cols, join_cols, range_cols, order_cols)})" for c in cols]
+    return " Column order: " + " -> ".join(parts) + "."
+
+
 def _detect_composite_opportunity(
-    where_cols: list[tuple[str | None, str]],
+    where_cols: list[tuple[str | None, str, str]],
     join_cols: list[tuple[str | None, str]],
     order_by_cols: list[tuple[str | None, str]],
     db_type: str = "postgresql",  # Issue #72: added db_type param
@@ -152,37 +208,83 @@ def _detect_composite_opportunity(
     from collections import defaultdict
 
     schema = schema or {}
-    table_cols: dict[str, list[str]] = defaultdict(list)
-    for alias, col in where_cols + join_cols + order_by_cols:
-        if alias and not _is_primary_key(col):
-            if col not in table_cols[alias]:
-                table_cols[alias].append(col)
+
+    # Issue #117: bucket columns by role (not just by alias) so the
+    # composite's column list can be built in standard composite-index
+    # order — equality WHERE predicates first, then JOIN keys, then
+    # range/inequality WHERE predicates, then columns that only appear in
+    # ORDER BY — instead of raw WHERE-then-JOIN-then-ORDER-BY extraction
+    # order. A composite index that leads with a range or sort-only column
+    # performs close to (or worse than) a single-column index: the index
+    # can only preserve a useful scan order for columns coming after the
+    # first range predicate. Order *within* each bucket stays extraction
+    # order (Issue #117's explicit non-goal — no cardinality/selectivity
+    # reasoning within a category).
+    equality_by_alias: dict[str, list[str]] = defaultdict(list)
+    range_by_alias: dict[str, list[str]] = defaultdict(list)
+    join_by_alias: dict[str, list[str]] = defaultdict(list)
+    order_by_alias: dict[str, list[str]] = defaultdict(list)
+
+    def _add(bucket: dict[str, list[str]], alias: str | None, col: str) -> None:
+        if alias and not _is_primary_key(col) and col not in bucket[alias]:
+            bucket[alias].append(col)
+
+    for alias, col, predicate_type in where_cols:
+        _add(equality_by_alias if predicate_type == "equality" else range_by_alias, alias, col)
+    for alias, col in join_cols:
+        _add(join_by_alias, alias, col)
+    for alias, col in order_by_cols:
+        _add(order_by_alias, alias, col)
+
+    # Aliases in first-seen order across the priority buckets — a plain
+    # `set()` union would work too but doesn't guarantee stable iteration
+    # order, and this keeps composite output order deterministic.
+    aliases: list[str] = []
+    for bucket in (equality_by_alias, join_by_alias, range_by_alias, order_by_alias):
+        for alias in bucket:
+            if alias not in aliases:
+                aliases.append(alias)
 
     composites = []
-    for alias, cols in table_cols.items():
-        if len(cols) >= 2:
-            # Issue #72: use dialect-correct DDL for composite index
-            # Issue #8: prefer the real table name over the alias placeholder when known
-            real_table = _resolve_real_table(alias, schema)
-            idx_name = f"idx_{real_table or alias}_{'_'.join(cols)}"
-            table_ph = real_table if real_table else f"<{alias}_table>"
-            col_list = ", ".join(cols)
-            ddl = get_index_ddl(db_type, table_ph, col_list, idx_name)
-            note = get_dialect(db_type).index_ddl_note()
+    for alias in aliases:
+        equality_cols = equality_by_alias.get(alias, [])
+        join_cols_ = join_by_alias.get(alias, [])
+        range_cols = range_by_alias.get(alias, [])
+        order_cols = order_by_alias.get(alias, [])
 
-            composites.append(
-                {
-                    "table_alias": alias,
-                    "columns": cols,
-                    "suggestion": (
-                        f"Consider a composite index on `{alias}` table columns "
-                        f"({', '.join(f'`{c}`' for c in cols)}) — "
-                        f"all appear in JOIN/WHERE/ORDER BY together"
-                    ),
-                    "ddl_hint": ddl,
-                    "ddl_note": note,
-                }
-            )
+        cols: list[str] = []
+        for bucket_cols in (equality_cols, join_cols_, range_cols, order_cols):
+            for col in bucket_cols:
+                if col not in cols:
+                    cols.append(col)
+
+        if len(cols) < 2:
+            continue
+
+        # Issue #72: use dialect-correct DDL for composite index
+        # Issue #8: prefer the real table name over the alias placeholder when known
+        real_table = _resolve_real_table(alias, schema)
+        idx_name = f"idx_{real_table or alias}_{'_'.join(cols)}"
+        table_ph = real_table if real_table else f"<{alias}_table>"
+        col_list = ", ".join(cols)
+        ddl = get_index_ddl(db_type, table_ph, col_list, idx_name)
+        note = get_dialect(db_type).index_ddl_note()
+        ordering_note = _composite_ordering_note(cols, equality_cols, join_cols_, range_cols, order_cols)
+
+        composites.append(
+            {
+                "table_alias": alias,
+                "columns": cols,
+                "suggestion": (
+                    f"Consider a composite index on `{alias}` table columns "
+                    f"({', '.join(f'`{c}`' for c in cols)}) — "
+                    f"all appear in JOIN/WHERE/ORDER BY together."
+                    f"{ordering_note}"
+                ),
+                "ddl_hint": ddl,
+                "ddl_note": note,
+            }
+        )
     return composites
 
 
@@ -252,7 +354,7 @@ class IndexRecommender:
             )
 
         seen_where_cols: set[str] = set()
-        for alias, col in where_cols:
+        for alias, col, _predicate_type in where_cols:
             if _is_primary_key(col):
                 continue
             key = f"{alias}.{col}" if alias else col
