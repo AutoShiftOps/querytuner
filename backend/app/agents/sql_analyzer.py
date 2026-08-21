@@ -13,7 +13,8 @@ from app.schemas.models import DatabaseType
 from app.schemas.models import QueryRequest as QR
 from app.tools.execution_planner import collect_facts
 from app.tools.index_recommender import IndexRecommender
-from app.tools.query_parser import QueryParser
+from app.tools.plan_crossref import cross_reference_plan
+from app.tools.query_parser import QueryParser, parse_schema_ddl
 from app.utils.config import settings
 from app.utils.dialect_config import get_llm_context
 
@@ -104,6 +105,37 @@ class SQLAnalyzerAgent:
             focus=focus,
             schema_info=schema_info,  # Phase 2: pass schema through
         )
+
+        # Issue #61/#62/#63: parse a pasted EXPLAIN plan (or fall back to a
+        # live DSN connection, Postgres only) and cross-reference it
+        # against the index suggestions just computed. Deliberately done
+        # here — before the optimizer/explainer/LLM below, all of which
+        # also read `suggestions` — so everything downstream sees the
+        # final, plan-informed evidence_level rather than a stale
+        # pre-cross-reference state. Previously this collect_facts() call
+        # happened last, after everything else, and its result was never
+        # used for anything but the raw `facts` field in the API response.
+        facts_result = None
+        try:
+            _req = QR(
+                query=query,
+                db_type=db_type if isinstance(db_type, DatabaseType) else DatabaseType(db_type),
+                explain_plan=explain_plan or None,
+                schema_info=schema_info or None,
+                use_llm=False,
+            )
+            _facts, _plan_nodes = await collect_facts(_req)
+            facts_result = _facts.model_dump()
+            if _plan_nodes:
+                _plan_schema = parse_schema_ddl(schema_info) if schema_info else {}
+                suggestions = cross_reference_plan(suggestions, _plan_nodes, _plan_schema)
+        except Exception as _e:
+            facts_result = {
+                "db_type": db_type,
+                "warnings": [f"Plan collection skipped: {str(_e)}"],
+                "findings": [],
+            }
+
         optimized_query = self.optimizer.rewrite(query, suggestions, db_type=db_type)
 
         plain_explanation = self.explainer.explain(
@@ -147,24 +179,6 @@ class SQLAnalyzerAgent:
                 db_type=db_type,
             )
             used_ai = bool(ai_insights and str(ai_insights).strip())
-
-        facts_result = None
-        try:
-            _req = QR(
-                query=query,
-                db_type=db_type if isinstance(db_type, DatabaseType) else DatabaseType(db_type),
-                explain_plan=explain_plan or None,
-                schema_info=schema_info or None,
-                use_llm=False,
-            )
-            _facts = await collect_facts(_req)
-            facts_result = _facts.model_dump()
-        except Exception as _e:
-            facts_result = {
-                "db_type": db_type,
-                "warnings": [f"Plan collection skipped: {str(_e)}"],
-                "findings": [],
-            }
 
         return {
             "parsing_result": parsed,

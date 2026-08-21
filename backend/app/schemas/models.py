@@ -75,6 +75,23 @@ class OptimizationSuggestion(BaseModel):
     # access to back a byte-precise estimate with. None for non-index
     # suggestion types, which don't carry a write/storage cost of their own.
     cost_estimate: str | None = None
+    # Issue #63: confirmed against a REAL EXPLAIN plan (not just pasted
+    # schema DDL). Kept separate from schema_verified — that field's name
+    # specifically means "cross-referenced against schema DDL," and this
+    # doesn't touch it, to avoid two different verification sources
+    # silently sharing one boolean. evidence_level is still set to
+    # "schema-verified" either way (same tier, reused per the design
+    # doc's explicit recommendation — that's the literal word
+    # QueryInput.jsx's UI copy already promises); plan_verified is the
+    # detail of *which* source did the confirming.
+    plan_verified: bool | None = None
+    # Issue #63: the real plan shows an index already being used on this
+    # exact column — this suggestion (which assumes the column is
+    # unindexed) is likely wrong: stale heuristic, or schema drift since
+    # the suggestion's column-extraction ran. Surfaced explicitly rather
+    # than silently upgrading evidence, so a wrong suggestion doesn't ship
+    # with false confidence.
+    plan_contradicts: bool | None = None
 
 
 class ExecutionPlan(BaseModel):

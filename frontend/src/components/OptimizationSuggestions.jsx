@@ -287,6 +287,34 @@ export default function OptimizationSuggestions({
                 <p className="mt-1 text-sm opacity-90">Cost: {s.cost_estimate}</p>
               ) : null}
 
+              {/* Issue #63: your pasted EXPLAIN plan shows an index already
+                  covering this exact column — this suggestion (which assumes
+                  it's unindexed) is likely stale or based on incomplete
+                  information. Surfaced explicitly rather than silently
+                  upgrading evidence, so a wrong suggestion doesn't ship with
+                  false confidence. The confirmation case (plan_verified)
+                  needs no equivalent UI — it just reads as evidence_level
+                  "schema-verified" via the existing EvidenceBadge, identical
+                  to a schema-DDL confirmation, per the same UI copy's
+                  existing promise. */}
+              {s.plan_contradicts ? (
+                <div
+                  className="mt-2 text-xs rounded px-2 py-1.5 flex items-start gap-1.5"
+                  style={{
+                    background: 'rgba(248,113,113,0.1)',
+                    color: '#f87171',
+                    border: '1px solid rgba(248,113,113,0.3)',
+                  }}
+                  title="Your pasted EXPLAIN plan contradicts this suggestion"
+                >
+                  <span aria-hidden="true">⚠</span>
+                  <span>
+                    Your pasted EXPLAIN plan shows an index already covering this column — this
+                    suggestion may be outdated. Verify before applying it.
+                  </span>
+                </div>
+              ) : null}
+
               {s.ddl_hint ? (
                 <pre
                   className="mt-2 text-xs rounded p-2 overflow-x-auto"

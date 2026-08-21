@@ -2,13 +2,37 @@ import os
 
 import asyncpg
 
-from app.schemas.models import AnalysisFacts, Finding, PlanArtifact, QueryRequest
+from app.schemas.models import AnalysisFacts, PlanArtifact, QueryRequest
+from app.tools.plan_parsers.postgres import json_nodes_for_live_plan, parse_postgres_explain
 
 from .base import BaseCollector
 
 
 class PostgresCollector(BaseCollector):
     async def collect(self, request: QueryRequest) -> AnalysisFacts:
+        # Issue #61: a pasted EXPLAIN plan is parsed directly, no DSN
+        # needed, and takes priority over attempting a live connection.
+        # This is what actually backs QueryInput.jsx's "pasting a real
+        # EXPLAIN plan upgrades heuristic findings from estimated to
+        # schema-verified" promise — POSTGRES_DSN has never been set in
+        # this deployment, so before this fix that promise was false for
+        # every real user; the pasted text was silently dropped and only a
+        # live connection (which never existed) would have done anything.
+        explain_plan = (request.explain_plan or "").strip()
+        if explain_plan:
+            parsed = parse_postgres_explain(explain_plan)
+            facts = AnalysisFacts(db_type="postgresql")
+            if parsed:
+                facts.plan = parsed.artifact
+                facts.findings = parsed.findings
+            else:
+                facts.warnings.append(
+                    "Pasted EXPLAIN plan could not be parsed — expected JSON "
+                    "(EXPLAIN (FORMAT JSON) ...) or plain-text tabular output "
+                    "(EXPLAIN (ANALYZE, BUFFERS) ...)."
+                )
+            return facts
+
         dsn = os.getenv("POSTGRES_DSN", "")
         if not dsn:
             return self.not_configured("postgresql")
@@ -20,61 +44,13 @@ class PostgresCollector(BaseCollector):
                 rows = await conn.fetch(f"EXPLAIN (FORMAT JSON) {request.query}")
                 plan_json = rows[0][0]  # list with one element, already parsed by asyncpg
                 facts.plan = PlanArtifact(format="json", raw=plan_json)
-                facts.findings = _extract_findings(plan_json)
+                # Shares the exact same node-walking/finding-generation
+                # logic the pasted-JSON path above uses — not a second,
+                # hand-kept-in-sync copy of the old _extract_findings/_walk_node.
+                _nodes, findings = json_nodes_for_live_plan(plan_json)
+                facts.findings = findings
             finally:
                 await conn.close()
         except Exception as e:
             facts.warnings.append(f"EXPLAIN failed: {str(e)}")
         return facts
-
-
-def _extract_findings(plan: list) -> list[Finding]:
-    findings = []
-    _walk_node(plan[0].get("Plan", {}), findings)
-    return findings
-
-
-def _walk_node(node: dict, findings: list):
-    node_type = node.get("Node Type", "")
-    rows = node.get("Plan Rows", 0)
-    cost = node.get("Total Cost", 0)
-
-    # Seq scan on large estimated row count
-    if node_type == "Seq Scan" and rows > 1000:
-        findings.append(
-            Finding(
-                type="seq_scan",
-                severity="high",
-                title=f"Sequential scan on '{node.get('Relation Name', 'unknown')}'",
-                evidence=f"Estimated {rows} rows, cost {cost}",
-                recommendation="Consider adding an index on the filter column(s)",
-            )
-        )
-
-    # Nested Loop with high cost
-    if node_type == "Nested Loop" and cost > 5000:
-        findings.append(
-            Finding(
-                type="nested_loop",
-                severity="medium",
-                title="Expensive Nested Loop join detected",
-                evidence=f"Total cost: {cost}",
-                recommendation="Check join conditions and ensure join columns are indexed",
-            )
-        )
-
-    # Hash join (informational)
-    if node_type == "Hash Join":
-        findings.append(
-            Finding(
-                type="hash_join",
-                severity="low",
-                title="Hash Join detected",
-                evidence=f"Rows: {rows}, Cost: {cost}",
-                recommendation="Hash joins are generally efficient; ensure adequate work_mem",
-            )
-        )
-
-    # Recurse into child plans
-    for child in node.get("Plans", []):
-        _walk_node(child, findings)

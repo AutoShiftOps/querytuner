@@ -350,6 +350,17 @@ function injectStyles() {
       margin-top: 4px; font-size: 11px; font-weight: 500;
       font-family: 'JetBrains Mono', monospace; color: ${T.yellow};
     }
+    /* Issue #63: the pasted EXPLAIN plan contradicts this suggestion (an
+       index already covers the exact column it assumes is unindexed) —
+       red, matching this page's existing critical/red severity language,
+       not just another accent-colored info line. */
+    .qt-finding-contradicts {
+      display: flex; align-items: flex-start; gap: 6px;
+      margin-top: 8px; padding: 8px 10px; border-radius: 6px;
+      font-size: 11px; line-height: 1.5;
+      background: rgba(248,113,113,0.1); color: ${T.red};
+      border: 1px solid rgba(248,113,113,0.3);
+    }
 
     /* Footer */
     .qt-footer {
@@ -714,6 +725,15 @@ export default function ReportPage() {
                       {f.cost_estimate && (
                         <div>
                           <span className="qt-finding-cost">↓ {f.cost_estimate}</span>
+                        </div>
+                      )}
+                      {f.plan_contradicts && (
+                        <div className="qt-finding-contradicts">
+                          <span aria-hidden="true">⚠</span>
+                          <span>
+                            The pasted EXPLAIN plan shows an index already covering this column —
+                            this suggestion may be outdated. Verify before applying it.
+                          </span>
                         </div>
                       )}
                       {f.ddl_hint && (
