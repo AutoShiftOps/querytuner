@@ -34,11 +34,18 @@ class PlanNode:
     cost: float | None = None
     index_name: str | None = None
     # The column referenced by this node's own filter/index condition
-    # (Postgres: "Index Cond"/"Filter"/"Recheck Cond"; not populated for
-    # MySQL v1 — its JSON shape doesn't expose per-table conditions the
-    # same direct way). None when not extractable — callers must treat
-    # that as "unknown," not "no condition."
+    # (Postgres: "Index Cond"/"Filter"/"Recheck Cond"; MySQL:
+    # "attached_condition" / the tabular "Extra" column's "Using where"
+    # detail is not this — see condition_text). None when not
+    # extractable — callers must treat that as "unknown," not "no
+    # condition."
     condition_column: str | None = None
+    # Gap-followup: the RAW filter/condition text condition_column was
+    # extracted from (e.g. "(lower(status) = 'pending'::text)"), not just
+    # the column side of the comparison. condition_column alone can't
+    # answer "is this column wrapped in a function call?" — that's what
+    # #63's function_in_where cross-referencing needs this for.
+    condition_text: str | None = None
     # A scan that reads the whole table with no index narrowing it down —
     # Postgres "Seq Scan", MySQL access_type "ALL".
     is_full_scan: bool = False
@@ -46,6 +53,11 @@ class PlanNode:
     # Scan"/"Index Only Scan"/"Bitmap Heap Scan", MySQL any access_type
     # other than "ALL".
     is_index_access: bool = False
+    # Gap-followup (EXPLAIN ANALYZE support): only populated when the
+    # pasted plan was produced with ANALYZE — None otherwise, which
+    # callers must treat as "not run with ANALYZE," not "zero."
+    actual_rows: int | None = None
+    actual_time_ms: float | None = None
 
 
 @dataclass

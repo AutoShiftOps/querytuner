@@ -29,18 +29,36 @@ from .models import ParsedPlan, PlanNode
 # narrow rows, as opposed to reading the whole table.
 _INDEX_ACCESS_NODE_TYPES = {"Index Scan", "Index Only Scan", "Bitmap Heap Scan", "Bitmap Index Scan"}
 
+# Gap-followup (#61): join/aggregate strategy node types the issue lists
+# alongside Hash Join/Nested Loop but that shipped without any
+# classification or Finding of their own — grep confirmed none of these
+# three literal strings appeared anywhere in this module before this.
+# Neither full-scan nor index-access (a Merge Join can run over an index
+# OR a sorted seq scan; an aggregate node says nothing about how its
+# child scanned), so they get their own bucket rather than being folded
+# into either existing set — kept separate in case #63's cross-referencing
+# is ever extended to reason about join/aggregate strategy specifically.
+_JOIN_OR_AGGREGATE_NODE_TYPES = {"Merge Join", "Hash Aggregate", "Group Aggregate"}
+
 # Matches one node line of Postgres's plain-text EXPLAIN output, e.g.:
 #   Seq Scan on orders  (cost=0.00..431.00 rows=10000 width=244)
 #   ->  Index Scan using idx_orders_status on orders o  (cost=0.42..8.44 rows=1 width=244)
 #   Hash Join  (cost=1.05..431.00 rows=10000 width=244)
 # The "using INDEX" and "on RELATION [ALIAS]" groups are both optional —
 # join/sort/aggregate node types (Hash Join, Sort, ...) have neither.
+# Gap-followup: added the trailing, still-optional "(actual time=X..Y
+# rows=N loops=N)" group EXPLAIN ANALYZE appends after the cost group —
+# previously unmatched (no $ anchor, so it was just silently ignored
+# rather than failing to match), meaning ANALYZE's actual-row/timing data
+# was thrown away even when present in the pasted plan.
 _NODE_LINE_RE = re.compile(
     r"""^\s*(?:->\s*)?
     (?P<node_type>[A-Za-z][A-Za-z ]*?)
     (?:\s+using\s+(?P<index_name>[\w.]+))?
     (?:\s+on\s+(?P<relation>[\w.]+)(?:\s+(?P<alias>[a-zA-Z_]\w*))?)?
-    \s+\(cost=(?P<cost_lo>[\d.]+)\.\.(?P<cost_hi>[\d.]+)\s+rows=(?P<rows>\d+)\s+width=(?P<width>\d+)\)""",
+    \s+\(cost=(?P<cost_lo>[\d.]+)\.\.(?P<cost_hi>[\d.]+)\s+rows=(?P<rows>\d+)\s+width=(?P<width>\d+)\)
+    (?:\s+\(actual\s+time=(?P<actual_time_lo>[\d.]+)\.\.(?P<actual_time_hi>[\d.]+)
+      \s+rows=(?P<actual_rows>\d+)\s+loops=(?P<loops>\d+)\))?""",
     re.VERBOSE,
 )
 
@@ -85,6 +103,8 @@ def _parse_text_nodes(raw: str) -> list[PlanNode]:
             if node_type == "Bitmap Index Scan":
                 index_name = index_name or relation
                 relation = None
+            actual_rows = m.group("actual_rows")
+            actual_time_hi = m.group("actual_time_hi")
             current = PlanNode(
                 node_type=node_type,
                 relation=relation,
@@ -94,6 +114,8 @@ def _parse_text_nodes(raw: str) -> list[PlanNode]:
                 index_name=index_name,
                 is_full_scan=(node_type == "Seq Scan"),
                 is_index_access=node_type in _INDEX_ACCESS_NODE_TYPES,
+                actual_rows=int(actual_rows) if actual_rows is not None else None,
+                actual_time_ms=float(actual_time_hi) if actual_time_hi is not None else None,
             )
             nodes.append(current)
             continue
@@ -103,6 +125,7 @@ def _parse_text_nodes(raw: str) -> list[PlanNode]:
         if current is not None and current.condition_column is None:
             label_m = _CONDITION_LABEL_RE.match(line)
             if label_m:
+                current.condition_text = label_m.group(1)
                 current.condition_column = _extract_condition_column(label_m.group(1))
 
     return nodes
@@ -123,10 +146,17 @@ def _walk_json_node(node: dict, nodes: list[PlanNode]) -> None:
         relation = None
 
     condition_column = None
+    condition_text = None
     for key in ("Index Cond", "Recheck Cond", "Filter"):
-        condition_column = _extract_condition_column(node.get(key))
-        if condition_column:
+        condition_text = node.get(key)
+        if condition_text:
+            condition_column = _extract_condition_column(condition_text)
             break
+
+    # Gap-followup: EXPLAIN (FORMAT JSON, ANALYZE) exposes these directly —
+    # no regex needed the way the text format requires.
+    actual_rows = node.get("Actual Rows")
+    actual_time_ms = node.get("Actual Total Time")
 
     nodes.append(
         PlanNode(
@@ -137,8 +167,11 @@ def _walk_json_node(node: dict, nodes: list[PlanNode]) -> None:
             cost=node.get("Total Cost"),
             index_name=index_name,
             condition_column=condition_column,
+            condition_text=condition_text,
             is_full_scan=(node_type == "Seq Scan"),
             is_index_access=node_type in _INDEX_ACCESS_NODE_TYPES,
+            actual_rows=actual_rows,
+            actual_time_ms=actual_time_ms,
         )
     )
     for child in node.get("Plans", []) or []:
@@ -212,6 +245,24 @@ def _findings_from_nodes(nodes: list[PlanNode]) -> list[Finding]:
                     title="Hash Join detected",
                     evidence=f"Rows: {node.rows}, Cost: {node.cost}",
                     recommendation="Hash joins are generally efficient; ensure adequate work_mem",
+                )
+            )
+
+        # Gap-followup: the three node types #61's issue lists that shipped
+        # with no classification or Finding at all — mirrors Hash Join's
+        # "informational, low severity" treatment above (a Merge/Hash/Group
+        # strategy choice isn't inherently a problem the way a Seq Scan or
+        # expensive Nested Loop is).
+        if node.node_type in _JOIN_OR_AGGREGATE_NODE_TYPES:
+            findings.append(
+                Finding(
+                    type="join_or_aggregate_strategy",
+                    severity="low",
+                    title=f"{node.node_type} detected",
+                    evidence=f"Rows: {node.rows}, Cost: {node.cost}",
+                    recommendation=(
+                        "No action needed by default; review if this appears alongside other high-cost nodes"
+                    ),
                 )
             )
 

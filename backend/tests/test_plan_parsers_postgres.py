@@ -148,6 +148,85 @@ class TestJsonParsing:
         assert index_node.condition_column == "id"
 
 
+class TestGapFollowupNodeTypes:
+    """Gap-followup: Merge Join/Hash Aggregate/Group Aggregate — 3 of the
+    10 node types #61's issue lists that shipped with no classification
+    or Finding at all."""
+
+    def test_merge_join_produces_finding_and_is_neither_scan_type(self):
+        raw = "Merge Join  (cost=1.05..431.00 rows=10000 width=244)"
+        result = parse_postgres_explain(raw)
+        node = result.nodes[0]
+        assert node.node_type == "Merge Join"
+        assert node.is_full_scan is False
+        assert node.is_index_access is False
+        assert any(f.type == "join_or_aggregate_strategy" for f in result.findings)
+
+    def test_hash_aggregate_produces_finding(self):
+        raw = "Hash Aggregate  (cost=908.00..933.00 rows=100 width=44)"
+        result = parse_postgres_explain(raw)
+        assert any(f.type == "join_or_aggregate_strategy" for f in result.findings)
+
+    def test_group_aggregate_produces_finding(self):
+        raw = "Group Aggregate  (cost=908.00..933.00 rows=100 width=44)"
+        result = parse_postgres_explain(raw)
+        assert any(f.type == "join_or_aggregate_strategy" for f in result.findings)
+
+
+class TestGapFollowupAnalyzeParsing:
+    """Gap-followup: EXPLAIN ANALYZE's actual-time/actual-rows data —
+    previously silently ignored (no $ anchor), not extracted at all."""
+
+    def test_actual_time_and_rows_parsed_from_text(self):
+        raw = (
+            "Seq Scan on orders  (cost=0.00..431.00 rows=10000 width=244) "
+            "(actual time=0.008..12.441 rows=9800 loops=1)"
+        )
+        result = parse_postgres_explain(raw)
+        node = result.nodes[0]
+        assert node.actual_rows == 9800
+        assert node.actual_time_ms == 12.441
+
+    def test_plain_explain_without_analyze_leaves_actuals_none(self):
+        raw = "Seq Scan on orders  (cost=0.00..431.00 rows=10000 width=244)"
+        result = parse_postgres_explain(raw)
+        node = result.nodes[0]
+        assert node.actual_rows is None
+        assert node.actual_time_ms is None
+
+    def test_actual_time_parsed_from_json(self):
+        import json
+
+        plan = [
+            {
+                "Plan": {
+                    "Node Type": "Seq Scan",
+                    "Relation Name": "orders",
+                    "Plan Rows": 10000,
+                    "Total Cost": 431.0,
+                    "Actual Rows": 9800,
+                    "Actual Total Time": 12.441,
+                }
+            }
+        ]
+        result = parse_postgres_explain(json.dumps(plan))
+        node = result.nodes[0]
+        assert node.actual_rows == 9800
+        assert node.actual_time_ms == 12.441
+
+    def test_condition_text_carries_raw_filter_not_just_column(self):
+        """New in the gap-followup — condition_column alone can't answer
+        'is this column wrapped in a function call?' (#63's
+        function_in_where cross-referencing need)."""
+        raw = (
+            "Seq Scan on orders  (cost=0.00..431.00 rows=10000 width=244)\n"
+            "  Filter: (lower(status) = 'pending'::text)"
+        )
+        result = parse_postgres_explain(raw)
+        node = result.nodes[0]
+        assert node.condition_text == "(lower(status) = 'pending'::text)"
+
+
 class TestGracefulFailure:
     def test_empty_string_returns_none(self):
         assert parse_postgres_explain("") is None
