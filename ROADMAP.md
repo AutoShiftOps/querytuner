@@ -195,9 +195,9 @@ no `langgraph` usage exists in the codebase yet. Issues #39–45 remain open and
 | #58 | PDF/CSV export of analysis report | 🟡 Medium |
 | — | OpenAI GPT-4o upgrade for Pro tier | 🔴 High |
 | — | Custom branding / white-label for Enterprise tier | 🟢 Low |
-| #61 | EXPLAIN plan parser — parse PostgreSQL EXPLAIN output | 🔴 High |
-| #62 | EXPLAIN plan parser — parse MySQL EXPLAIN output | 🔴 High |
-| #63 | Cross-reference heuristics with parsed EXPLAIN plan | 🔴 High |
+| #61 | ✅ EXPLAIN plan parser — parse PostgreSQL EXPLAIN output (`134efda3`, gap-closure `428facb5`) | 🔴 High |
+| #62 | ✅ EXPLAIN plan parser — parse MySQL EXPLAIN output (`134efda3`, gap-closure `428facb5`) | 🔴 High |
+| #63 | ✅ Cross-reference heuristics with parsed EXPLAIN plan (`134efda3`, gap-closure `428facb5`) | 🔴 High |
 | #115 | Batch workload analysis — detect conflicting indexes across multiple queries | 🔴 High |
 | #116 | ✅ URL expiration and deletion for shareable reports — shipped as fixed 90-day default + owner-only revoke (`860950e3`); GitHub issue also asked for user-selectable 7/30/never at share time, not yet built — see note below | 🟡 Medium |
 | #117 | ✅ Column order reasoning in composite index DDL proposals (`7121cc12`) | 🟢 Low |

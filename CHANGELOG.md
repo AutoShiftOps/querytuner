@@ -43,6 +43,11 @@ tagged.
   JOIN → range → sort) instead of raw extraction order (#117, `7121cc12`)
 - Write/storage cost estimate alongside every index recommendation's existing read-side
   benefit estimate (#118, `4e747b95`)
+- EXPLAIN plan parser chain — full acceptance-criteria coverage: remaining Postgres node
+  types (Merge Join, Hash Aggregate, Group Aggregate) + EXPLAIN ANALYZE actual-time/rows
+  parsing, MySQL plain tabular EXPLAIN parsing + explicit `key=NULL` flagging + `Using
+  filesort`/`Using temporary` detection, and `full_scan_risk`/`order_by_no_limit`/
+  `function_in_where` cross-referencing against the parsed plan (#61, #62, #63, `428facb5`)
 
 ### Fixed
 - `schema_verified` terminology replaces "confirmed" — more accurate, does not imply planner
