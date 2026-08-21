@@ -129,6 +129,16 @@ class SQLAnalyzerAgent:
             if _plan_nodes:
                 _plan_schema = parse_schema_ddl(schema_info) if schema_info else {}
                 suggestions = cross_reference_plan(suggestions, _plan_nodes, _plan_schema)
+            # Gap-followup (docs/querytuner-explain-parser-gap-followup.md,
+            # #63 item 4): filesort_detected/temp_table_detected are
+            # MySQL-Extra-field-based and only ever detectable from a
+            # parsed plan — no static SQL-text heuristic produces them the
+            # way the rest of _heuristic_suggestions()'s entries do, so
+            # there's nothing for cross_reference_plan() to "confirm."
+            # Promoted straight from the plan's own findings into
+            # optimization_suggestions instead, already schema-verified
+            # since they come directly from the plan, not a guess.
+            suggestions.extend(self._plan_native_suggestions(_facts.findings))
         except Exception as _e:
             facts_result = {
                 "db_type": db_type,
@@ -728,6 +738,62 @@ Keep it concise and actionable.
             "estimated_improvement": estimated,
             "evidence_level": ("deterministic" if type_ in _DETERMINISTIC_TYPES else "needs-runtime-evidence"),
         }
+
+    # Gap-followup: maps the plan-only Finding types mysql.py's parser can
+    # produce (see plan_parsers/mysql.py's _extra_findings) to the
+    # user-facing suggestion copy — kept here rather than in mysql.py
+    # since it's presentation text for optimization_suggestions, the same
+    # layer every other _suggest() call in this file lives at.
+    _PLAN_NATIVE_SUGGESTION_COPY = {
+        "filesort_detected": (
+            "high",
+            "MySQL is using a filesort to satisfy this query's ORDER BY",
+            (
+                "A filesort means no index covers the sort order, so MySQL sorts rows in memory "
+                "(or on disk, for large result sets) after fetching them — confirmed directly from "
+                "your pasted EXPLAIN output's 'Using filesort'."
+            ),
+            "Often significant — an index matching ORDER BY can avoid the sort entirely",
+        ),
+        "temp_table_detected": (
+            "high",
+            "MySQL is materializing a temporary table to run this query",
+            (
+                "Common with GROUP BY/DISTINCT/ORDER BY combinations the available indexes can't "
+                "satisfy directly — confirmed directly from your pasted EXPLAIN output's "
+                "'Using temporary'."
+            ),
+            "Often significant — a covering index for the GROUP BY/ORDER BY columns can eliminate the temp table",
+        ),
+    }
+
+    def _plan_native_suggestions(self, plan_findings: list[Any]) -> list[dict[str, Any]]:
+        """Converts filesort_detected/temp_table_detected Finding objects
+        (plan_parsers/mysql.py) into optimization_suggestions entries.
+        Already evidence_level="schema-verified" — unlike every other
+        suggestion in this file, these were never a guess plan_crossref.py
+        needed to confirm; they came directly from the plan."""
+        out: list[dict[str, Any]] = []
+        seen_types = set()
+        for finding in plan_findings or []:
+            f_type = getattr(finding, "type", None) or (finding.get("type") if isinstance(finding, dict) else None)
+            copy = self._PLAN_NATIVE_SUGGESTION_COPY.get(f_type)
+            if not copy or f_type in seen_types:
+                continue
+            seen_types.add(f_type)
+            severity, suggestion, reason, estimated = copy
+            out.append(
+                {
+                    "type": f_type,
+                    "severity": severity,
+                    "suggestion": suggestion,
+                    "reason": reason,
+                    "estimated_improvement": estimated,
+                    "evidence_level": "schema-verified",
+                    "plan_verified": True,
+                }
+            )
+        return out
 
     def _dedupe_suggestions(self, suggestions: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen: set = set()

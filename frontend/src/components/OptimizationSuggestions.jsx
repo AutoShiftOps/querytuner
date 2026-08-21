@@ -34,6 +34,12 @@ const TYPE_LABELS = {
   case_in_predicate: 'CASE Expression in WHERE',
   or_expansion: 'OR Expansion Risk',
   cte_multiple_references: 'CTE Referenced Multiple Times',
+  // Gap-followup (querytuner-explain-parser-gap-followup.md, #63 item 4):
+  // plan-only, MySQL-specific — surfaced straight from a pasted EXPLAIN's
+  // Extra field, so unlike everything else in this table these only ever
+  // appear already evidence_level "schema-verified".
+  filesort_detected: 'Filesort Detected',
+  temp_table_detected: 'Temporary Table Detected',
 };
 
 function typeLabel(type) {

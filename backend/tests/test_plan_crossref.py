@@ -197,6 +197,90 @@ class TestContradiction:
         assert result[0].get("plan_contradicts") is None
 
 
+class TestGapFollowupWholePlanTypes:
+    """Gap-followup: the three non-index_review_* heuristics also on #63's
+    own acceptance list — full_scan_risk, order_by_no_limit,
+    function_in_where. None of these carry a "columns" list (they're
+    sql_analyzer.py's own regex heuristics, not index_recommender.py's
+    column-level ones), so each is confirmed against the whole plan."""
+
+    def test_full_scan_risk_confirmed_by_any_full_scan_node(self):
+        suggestions = [_suggestion(type_="full_scan_risk", columns=[])]
+        nodes = [PlanNode(node_type="Seq Scan", relation="orders", rows=10000, is_full_scan=True)]
+
+        result = cross_reference_plan(suggestions, nodes)
+
+        assert result[0]["evidence_level"] == "schema-verified"
+        assert result[0]["plan_verified"] is True
+
+    def test_full_scan_risk_not_confirmed_without_a_full_scan(self):
+        suggestions = [_suggestion(type_="full_scan_risk", columns=[])]
+        nodes = [PlanNode(node_type="Index Scan", relation="orders", is_index_access=True, condition_column="id")]
+
+        result = cross_reference_plan(suggestions, nodes)
+
+        assert result[0]["evidence_level"] == "needs-runtime-evidence"
+        assert result[0].get("plan_verified") is None
+
+    def test_order_by_no_limit_confirmed_by_elevated_sort(self):
+        suggestions = [_suggestion(type_="order_by_no_limit", columns=[])]
+        nodes = [PlanNode(node_type="Sort", relation=None, rows=10000)]
+
+        result = cross_reference_plan(suggestions, nodes)
+
+        assert result[0]["evidence_level"] == "schema-verified"
+        assert result[0]["plan_verified"] is True
+
+    def test_order_by_no_limit_not_confirmed_by_small_sort(self):
+        suggestions = [_suggestion(type_="order_by_no_limit", columns=[])]
+        nodes = [PlanNode(node_type="Sort", relation=None, rows=10)]
+
+        result = cross_reference_plan(suggestions, nodes)
+
+        assert result[0].get("plan_verified") is None
+
+    def test_function_in_where_confirmed_by_function_in_condition_text(self):
+        suggestions = [_suggestion(type_="function_in_where", columns=[])]
+        nodes = [
+            PlanNode(
+                node_type="Seq Scan",
+                relation="orders",
+                is_full_scan=True,
+                condition_text="(lower(status) = 'pending'::text)",
+                condition_column="status",
+            )
+        ]
+
+        result = cross_reference_plan(suggestions, nodes)
+
+        assert result[0]["evidence_level"] == "schema-verified"
+        assert result[0]["plan_verified"] is True
+
+    def test_function_in_where_not_confirmed_without_function_call(self):
+        suggestions = [_suggestion(type_="function_in_where", columns=[])]
+        nodes = [
+            PlanNode(
+                node_type="Seq Scan",
+                relation="orders",
+                is_full_scan=True,
+                condition_text="(status = 'pending'::text)",
+                condition_column="status",
+            )
+        ]
+
+        result = cross_reference_plan(suggestions, nodes)
+
+        assert result[0].get("plan_verified") is None
+
+    def test_function_in_where_with_no_condition_text_not_confirmed(self):
+        suggestions = [_suggestion(type_="function_in_where", columns=[])]
+        nodes = [PlanNode(node_type="Seq Scan", relation="orders", is_full_scan=True)]
+
+        result = cross_reference_plan(suggestions, nodes)
+
+        assert result[0].get("plan_verified") is None
+
+
 class TestNonIndexSuggestionsUntouched:
     def test_non_index_review_type_is_ignored(self):
         suggestions = [

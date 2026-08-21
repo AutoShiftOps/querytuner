@@ -87,6 +87,197 @@ class TestMysqlJsonParsing:
             assert result.nodes[0].is_full_scan is False, f"access_type={access_type} should not be a full scan"
 
 
+class TestGapFollowupTabularParsing:
+    """Gap-followup: plain tabular EXPLAIN SELECT ... — the issue lists it
+    independent of what QueryInput.jsx's current MySQL placeholder shows
+    (JSON only); backend-only support for now."""
+
+    def test_pipe_table_format_parses(self):
+        raw = (
+            "+----+-------------+--------+------+---------------+------+---------+------+-------+-------------+\n"
+            "| id | select_type | table  | type | possible_keys | key  | key_len | ref  | rows  | Extra       |\n"
+            "+----+-------------+--------+------+---------------+------+---------+------+-------+-------------+\n"
+            "|  1 | SIMPLE      | orders | ALL  | NULL          | NULL | NULL    | NULL | 10000 | Using where |\n"
+            "+----+-------------+--------+------+---------------+------+---------+------+-------+-------------+\n"
+        )
+        result = parse_mysql_explain(raw)
+
+        assert result is not None
+        assert result.artifact.format == "text"
+        node = result.nodes[0]
+        assert node.relation == "orders"
+        assert node.node_type == "ALL"
+        assert node.rows == 10000
+        assert node.is_full_scan is True
+        assert node.index_name is None
+
+    def test_pipe_table_index_access_row(self):
+        raw = (
+            "+----+------+-------------------------+-------------------------+-------+\n"
+            "| id | type | possible_keys           | key                      | table |\n"
+            "+----+------+-------------------------+-------------------------+-------+\n"
+            "|  1 | ref  | idx_orders_customer_id  | idx_orders_customer_id  | orders|\n"
+            "+----+------+-------------------------+-------------------------+-------+\n"
+        )
+        result = parse_mysql_explain(raw)
+        node = result.nodes[0]
+        assert node.is_full_scan is False
+        assert node.is_index_access is True
+        assert node.index_name == "idx_orders_customer_id"
+
+    def test_vertical_g_format_parses(self):
+        raw = (
+            "*************************** 1. row ***************************\n"
+            "           id: 1\n"
+            "  select_type: SIMPLE\n"
+            "        table: orders\n"
+            "         type: ALL\n"
+            "possible_keys: NULL\n"
+            "          key: NULL\n"
+            "         rows: 10000\n"
+            "        Extra: Using where\n"
+        )
+        result = parse_mysql_explain(raw)
+
+        assert result is not None
+        node = result.nodes[0]
+        assert node.relation == "orders"
+        assert node.rows == 10000
+        assert node.is_full_scan is True
+
+    def test_multi_row_pipe_table_parses_all_rows(self):
+        raw = (
+            "+----+-------------+-----------+------+-------+\n"
+            "| id | select_type | table     | type | rows  |\n"
+            "+----+-------------+-----------+------+-------+\n"
+            "|  1 | SIMPLE      | orders    | ALL  | 10000 |\n"
+            "|  1 | SIMPLE      | customers | eq_ref | 1   |\n"
+            "+----+-------------+-----------+------+-------+\n"
+        )
+        result = parse_mysql_explain(raw)
+        relations = {n.relation for n in result.nodes}
+        assert relations == {"orders", "customers"}
+
+
+class TestGapFollowupKeyNullFlagging:
+    """Gap-followup: key=NULL flagged explicitly, distinct from type=ALL."""
+
+    def test_json_key_null_produces_no_index_used_finding(self):
+        raw = json.dumps(
+            {"query_block": {"table": {"table_name": "orders", "access_type": "ALL", "rows_examined_per_scan": 10000}}}
+        )
+        result = parse_mysql_explain(raw)
+        assert any(f.type == "no_index_used" for f in result.findings)
+
+    def test_json_key_present_no_finding(self):
+        raw = json.dumps(
+            {
+                "query_block": {
+                    "table": {
+                        "table_name": "orders",
+                        "access_type": "ref",
+                        "key": "idx_orders_customer_id",
+                        "rows_examined_per_scan": 1,
+                    }
+                }
+            }
+        )
+        result = parse_mysql_explain(raw)
+        assert not any(f.type == "no_index_used" for f in result.findings)
+
+
+class TestGapFollowupFilesortAndTempTable:
+    """Gap-followup: Using filesort / Using temporary — entirely new
+    Finding types, not detected anywhere before this."""
+
+    def test_json_using_filesort_flag_detected(self):
+        raw = json.dumps(
+            {
+                "query_block": {
+                    "table": {"table_name": "orders", "access_type": "ALL", "rows_examined_per_scan": 10000},
+                    "ordering_operation": {"using_filesort": True},
+                }
+            }
+        )
+        result = parse_mysql_explain(raw)
+        assert any(f.type == "filesort_detected" for f in result.findings)
+
+    def test_json_using_temporary_table_flag_detected(self):
+        raw = json.dumps(
+            {
+                "query_block": {
+                    "table": {"table_name": "orders", "access_type": "ALL", "rows_examined_per_scan": 10000},
+                    "grouping_operation": {"using_temporary_table": True, "using_filesort": False},
+                }
+            }
+        )
+        result = parse_mysql_explain(raw)
+        types = [f.type for f in result.findings]
+        assert "temp_table_detected" in types
+        assert "filesort_detected" not in types
+
+    def test_json_without_flags_no_findings(self):
+        raw = json.dumps(
+            {
+                "query_block": {
+                    "table": {
+                        "table_name": "orders",
+                        "access_type": "ref",
+                        "key": "PRIMARY",
+                        "rows_examined_per_scan": 1,
+                    }
+                }
+            }
+        )
+        result = parse_mysql_explain(raw)
+        types = [f.type for f in result.findings]
+        assert "filesort_detected" not in types
+        assert "temp_table_detected" not in types
+
+    def test_tabular_extra_column_using_filesort_detected(self):
+        raw = (
+            "+----+-------------+--------+------+-------+-----------------------------+\n"
+            "| id | select_type | table  | type | rows  | Extra                       |\n"
+            "+----+-------------+--------+------+-------+-----------------------------+\n"
+            "|  1 | SIMPLE      | orders | ALL  | 10000 | Using where; Using filesort |\n"
+            "+----+-------------+--------+------+-------+-----------------------------+\n"
+        )
+        result = parse_mysql_explain(raw)
+        assert any(f.type == "filesort_detected" for f in result.findings)
+
+    def test_tabular_extra_column_using_temporary_detected(self):
+        raw = (
+            "+----+-------------+--------+------+-------+------------------------------+\n"
+            "| id | select_type | table  | type | rows  | Extra                        |\n"
+            "+----+-------------+--------+------+-------+------------------------------+\n"
+            "|  1 | SIMPLE      | orders | ALL  | 10000 | Using temporary; Using filesort |\n"
+            "+----+-------------+--------+------+-------+------------------------------+\n"
+        )
+        result = parse_mysql_explain(raw)
+        types = [f.type for f in result.findings]
+        assert "temp_table_detected" in types
+        assert "filesort_detected" in types
+
+
+class TestGapFollowupConditionText:
+    def test_attached_condition_populates_condition_text_and_column(self):
+        raw = json.dumps(
+            {
+                "query_block": {
+                    "table": {
+                        "table_name": "orders",
+                        "access_type": "ALL",
+                        "rows_examined_per_scan": 10000,
+                        "attached_condition": "(lower(`orders`.`status`) = 'pending')",
+                    }
+                }
+            }
+        )
+        result = parse_mysql_explain(raw)
+        node = result.nodes[0]
+        assert node.condition_text == "(lower(`orders`.`status`) = 'pending')"
+
+
 class TestMysqlGracefulFailure:
     def test_empty_string_returns_none(self):
         assert parse_mysql_explain("") is None

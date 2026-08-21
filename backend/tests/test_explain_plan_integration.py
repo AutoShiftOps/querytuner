@@ -164,6 +164,47 @@ class TestFullPipelineCrossReference:
         assert customer_id_suggestion.get("plan_verified") is not True
 
     @pytest.mark.asyncio
+    async def test_full_scan_risk_confirmed_end_to_end(self, monkeypatch):
+        """Gap-followup: full_scan_risk (no WHERE clause) confirmed by a
+        Seq Scan anywhere in the pasted plan — end-to-end through
+        SQLAnalyzerAgent.analyze(), not just plan_crossref.py directly."""
+        monkeypatch.delenv("POSTGRES_DSN", raising=False)
+        analyzer = SQLAnalyzerAgent()
+        query = "SELECT * FROM orders"
+        explain = "Seq Scan on orders  (cost=0.00..431.00 rows=10000 width=244)"
+
+        result = await analyzer.analyze(
+            query=query, db_type="postgresql", use_llm=False, focus="performance", explain_plan=explain
+        )
+        suggestions = result["optimization_suggestions"]
+        full_scan_risk = next(s for s in suggestions if s["type"] == "full_scan_risk")
+
+        assert full_scan_risk["evidence_level"] == "schema-verified"
+        assert full_scan_risk["plan_verified"] is True
+
+    @pytest.mark.asyncio
+    async def test_mysql_filesort_detected_promoted_to_suggestion(self):
+        """Gap-followup: filesort_detected has no static SQL-text
+        heuristic — it only exists once a plan is parsed, and gets
+        promoted straight into optimization_suggestions rather than
+        upgrading a pre-existing guess."""
+        analyzer = SQLAnalyzerAgent()
+        query = "SELECT * FROM orders ORDER BY created_at"
+        explain = (
+            '{"query_block": {"table": {"table_name": "orders", "access_type": "ALL", '
+            '"rows_examined_per_scan": 10000}, "ordering_operation": {"using_filesort": true}}}'
+        )
+
+        result = await analyzer.analyze(
+            query=query, db_type="mysql", use_llm=False, focus="performance", explain_plan=explain
+        )
+        suggestions = result["optimization_suggestions"]
+        filesort = next(s for s in suggestions if s["type"] == "filesort_detected")
+
+        assert filesort["evidence_level"] == "schema-verified"
+        assert filesort["plan_verified"] is True
+
+    @pytest.mark.asyncio
     async def test_no_explain_plan_baseline_unaffected(self, monkeypatch):
         """Confirms this whole chain is additive — a request with no
         pasted plan behaves exactly as it did before #61/#62/#63."""
