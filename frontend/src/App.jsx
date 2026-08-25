@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useUser, useAuth } from '@clerk/clerk-react';
 import ShareButton from './components/ShareButton';
 import QueryDiagnosis from './components/QueryDiagnosis';
@@ -6,6 +6,8 @@ import { AlertCircle, Zap, Shield } from 'lucide-react';
 import QueryInput from './components/QueryInput';
 import ResultsPanel from './components/ResultsPanel';
 import OptimizationSuggestions from './components/OptimizationSuggestions';
+import QuizMode from './components/QuizMode';
+import { generateQuiz } from './utils/quiz';
 import ExecutionPlan from './components/ExecutionPlan';
 import SampleQueries from './components/SampleQueries';
 import Header from './components/Header';
@@ -52,6 +54,16 @@ function App() {
   const { toasts, showToast, dismissToast } = useToast();
   const analyzeBtnRef = useRef(null);
   const [highlightAnalyze, setHighlightAnalyze] = useState(false);
+
+  // ── Quiz Mode (docs/querytuner-quiz-mode-issue.md) ───────────────────────
+  // Gates OptimizationSuggestions behind a few test-yourself questions
+  // drawn from this result's own high-confidence findings. Free-tier, no
+  // Pro gate (per the doc's explicit recommendation — this is an
+  // engagement layer on output every tier already gets, not withheld
+  // analysis). quizRevealed resets to false in handleAnalyze whenever a
+  // new result lands, so a second analysis doesn't stay revealed from the
+  // previous one.
+  const [quizRevealed, setQuizRevealed] = useState(false);
 
   // ── Phase 4: Clerk auth + usage tracking ─────────────────────────────────
   const { isSignedIn } = useUser();
@@ -241,6 +253,7 @@ function App() {
 
       const data = response.data;
       setResult(data);
+      setQuizRevealed(false);
       showToast('Analysis complete · share link ready', 'success');
 
       if (isSignedIn && !isPro) {
@@ -362,6 +375,16 @@ function App() {
     result?.used_ai && result?.ai_insights && !result?.ai_error
       ? getAiConfirmedTypes(result.optimization_suggestions, result.ai_insights)
       : new Set();
+
+  // Quiz Mode questions for this result — [] when nothing in the
+  // response is confident enough to quiz on (the evidence_level guard
+  // inside generateQuiz), in which case the quiz UI is skipped entirely
+  // and OptimizationSuggestions renders immediately, same as before this
+  // feature existed.
+  const quizQuestions = useMemo(
+    () => generateQuiz(result?.optimization_suggestions),
+    [result?.optimization_suggestions]
+  );
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
@@ -500,12 +523,19 @@ function App() {
               {/* Query Diagnosis — structured dark renderer, no prose plugin needed */}
               {result.plain_explanation && <QueryDiagnosis content={result.plain_explanation} />}
 
-              {/* Optimization findings */}
-              <OptimizationSuggestions
-                suggestions={result.optimization_suggestions || []}
-                aiConfirmedTypes={aiConfirmedTypes}
-                substitutionMap={substitutionMap}
-              />
+              {/* Quiz Mode gates the findings behind a few test-yourself
+                  questions; OptimizationSuggestions renders once revealed
+                  (or immediately if there was nothing confident enough to
+                  quiz on) — docs/querytuner-quiz-mode-issue.md */}
+              {quizQuestions.length > 0 && !quizRevealed ? (
+                <QuizMode questions={quizQuestions} onReveal={() => setQuizRevealed(true)} />
+              ) : (
+                <OptimizationSuggestions
+                  suggestions={result.optimization_suggestions || []}
+                  aiConfirmedTypes={aiConfirmedTypes}
+                  substitutionMap={substitutionMap}
+                />
+              )}
 
               {/* AI Insights — only show when AI was actually used and returned content */}
               {result.used_ai && result.ai_insights && !result.ai_error && (
