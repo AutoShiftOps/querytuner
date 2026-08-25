@@ -48,6 +48,17 @@ tagged.
   parsing, MySQL plain tabular EXPLAIN parsing + explicit `key=NULL` flagging + `Using
   filesort`/`Using temporary` detection, and `full_scan_risk`/`order_by_no_limit`/
   `function_in_where` cross-referencing against the parsed plan (#61, #62, #63, `428facb5`)
+- Quiz Mode — before revealing the analysis, up to 2–3 interview-style multiple-choice
+  questions generated from the query's own findings (confidence-gated: only
+  `evidence_level !== "needs-runtime-evidence"` suggestions are used as answer keys),
+  with a "Skip quiz" path and full reveal underneath either way. Free-tier feature,
+  not Pro-gated. (PR #153, `247c7d58`)
+- Batch workload analysis — `POST /analyze/batch` (Pro-gated) accepts a pasted export
+  from PostgreSQL `pg_stat_statements`, MySQL `performance_schema`, or SQL Server
+  Query Store, ranks top-N queries by production cost, runs each through the existing
+  index recommender, and reconciles overlapping/redundant index suggestions across
+  queries into one deduplicated set rather than N independent recommendation lists
+  (#115, #120, PR #154, `90b7fd0b`)
 
 ### Fixed
 - `schema_verified` terminology replaces "confirmed" — more accurate, does not imply planner
@@ -57,6 +68,25 @@ tagged.
 - Markdown fence regex anchoring in AI JSON parser — trailing LLM prose after closing fence
   was causing raw JSON display
 - QueryInput help text updated to schema-verified
+- MySQL backtick-quoted identifier columns (`` `status` `` etc.) were silently dropped
+  from WHERE/comparison-operator extraction — `IndexRecommender`'s column-extraction
+  regexes only matched double-quoted or bare identifiers. This affected **all**
+  single-query MySQL analysis, not just the new batch mode that surfaced it. (PR #154,
+  `90b7fd0b`)
+- History page items linked via a plain `<a href>`, causing a full page reload on every
+  click despite the app using `react-router-dom` throughout — switched to `<Link>` for
+  client-side transitions (PR #155, `221a23b9`)
+- Shared report page (`/report/:id`) had no way back into the app — both nav links
+  pointed to the external marketing site, a leftover from before the History feature
+  existed and started linking into this page. Signed-in users now see a "← Back to
+  history" link in the nav (PR #155, `221a23b9`)
+- **OpenAI (GPT-4o-mini) Pro-tier gating was not enforced server-side** — a signed-in
+  free-tier user could select "OpenAI" in the AI-provider dropdown and the backend
+  would honor it, running real GPT-4o-mini calls against Pro's cost budget with
+  nothing checking `is_pro` anywhere in the call path. `POST /analyze` now returns a
+  structured `403 pro_required` for this case; the dropdown also disables the option
+  client-side for non-Pro users. Found during a full Phase 4 audit, fixed same-day
+  (#53, PR #156, `ecd66de7`)
 
 ### Tests
 - 102 passing tests (up from 94)

@@ -162,21 +162,29 @@ no `langgraph` usage exists in the codebase yet. Issues #39–45 remain open and
 
 ---
 
-## 🗓️ Phase 4 — Monetization Infrastructure (Week 9–10, June 23 – July 4)
+## 🗓️ Phase 4 — Monetization Infrastructure — ✅ Shipped (Week 9–10, June 23 – July 4)
 
 **Goal:** Free vs Pro tier functional. First paid user possible.
-**Exit criteria:** Stripe checkout works end-to-end in production.
+**Status:** Live in production. Audited against original GitHub acceptance criteria
+2026-08-25 — see `docs/querytuner-phase4-audit.md`. All 10 issues (#46–#53, #116, #124)
+have real shipped functionality behind them; several differ from their literal
+original wording (documented per-issue below and in GitHub comments). One live gap
+found and fixed same-day (#53). One issue (#124) is a genuine partial build.
 
-| Day | Task | Priority |
+| Issue | Task | Status |
 |---|---|---|
-| Day 22 | Define Free tier limits (10 analyses/day, no schema, no AI) | 🔴 High |
-| Day 23 | Define Pro tier ($19/mo — unlimited, schema, GPT-4o-mini, history) | 🔴 High |
-| Day 24 | Auth — add Clerk or Supabase Auth (email + Google OAuth) | 🔴 High |
-| Day 25 | Backend — add usage tracking table (user_id, timestamp, query_hash) | 🔴 High |
-| Day 26 | Backend — enforce rate limits per tier from DB | 🔴 High |
-| Day 27 | Stripe — add checkout session endpoint | 🔴 High |
-| Day 28 | Frontend — upgrade/pricing page | 🟡 Medium |
-| Day 29 | Frontend — login/logout flow + protected routes | 🔴 High |
+| #46 | Free/Pro tier limits | ✅ 10 analyses/**month** (not /day as originally worded), enforced server-side |
+| #47 | Clerk auth on `/analyze` | ✅ Matches original ask |
+| #48 | Usage tracking | ✅ `user_usage` (monthly aggregate) + `user_accounts` (subscription state) — different table shape than the `usage_log` originally specified; see migration 007's own note for a real bug this split fixed |
+| #49 | Enforce limit, upgrade prompt | ✅ Returns `402`, not `429` as originally worded |
+| #50 | Checkout + webhook | ✅ Stripe **Payment Links** + `POST /webhook/stripe`, not a backend `/create-checkout-session` endpoint as originally worded |
+| #51 | Pricing page | ⚠️ No dedicated `/pricing` route exists — pricing lives in `UpgradeModal.jsx`, shown on demand. Open scope question, not just a wording gap |
+| #52 | Clerk provider + header | ✅ Provider lives in `main.jsx` (app root), not `App.jsx` as originally worded; inline sign-in prompt instead of a redirect |
+| #53 | Pro-tier LLM routing | ✅ Fixed `ecd66de7` — was unenforced server-side until the Phase 4 audit caught it same-day |
+| #116 | Report management (delete/expire) | ✅ Fixed 90-day expiry + owner revoke; user-selectable 7/30/never not built — tracked in GitHub comment thread |
+| #124 | User report dashboard | ⚠️ ~25% done — list view (timestamp/dialect/severity) shipped; sanitized indicator, delete button, share button, and the sanitized-only filter are not built |
+
+Full findings: `docs/querytuner-phase4-audit.md`.
 
 ---
 
@@ -198,12 +206,13 @@ no `langgraph` usage exists in the codebase yet. Issues #39–45 remain open and
 | #61 | ✅ EXPLAIN plan parser — parse PostgreSQL EXPLAIN output (`134efda3`, gap-closure `428facb5`) | 🔴 High |
 | #62 | ✅ EXPLAIN plan parser — parse MySQL EXPLAIN output (`134efda3`, gap-closure `428facb5`) | 🔴 High |
 | #63 | ✅ Cross-reference heuristics with parsed EXPLAIN plan (`134efda3`, gap-closure `428facb5`) | 🔴 High |
-| #115 | Batch workload analysis — detect conflicting indexes across multiple queries | 🔴 High |
+| #115 | ✅ Batch workload analysis — cross-query index reconciliation (`90b7fd0b`) | 🔴 High |
 | #116 | ✅ URL expiration and deletion for shareable reports — shipped as fixed 90-day default + owner-only revoke (`860950e3`); GitHub issue also asked for user-selectable 7/30/never at share time, not yet built — see note below | 🟡 Medium |
 | #117 | ✅ Column order reasoning in composite index DDL proposals (`7121cc12`) | 🟢 Low |
 | #118 | ✅ Write and storage cost estimate per index recommendation (`4e747b95`) | 🟡 Medium |
 | #119 | Parameter sniffing detection — compiled vs runtime parameter values | 🔴 High |
-| #120 | Batch query input from Query Store / pg_stat_statements export | 🔴 High |
+| #120 | ✅ Batch query input from pg_stat_statements / performance_schema / Query Store export (`90b7fd0b`) | 🔴 High |
+| — | ✅ Quiz Mode — pre-reveal test-yourself questions from real query findings (`247c7d58`) | 🟢 Low |
 
 **Note on #116:** v1 shipped a single fixed 90-day expiration window plus
 owner-initiated early revoke (`DELETE /report/{id}`), not the
@@ -225,7 +234,7 @@ issue's comment thread rather than a separate row here.
 | ✅ Phase 2 — Schema | May 19–30 | Column-specific index suggestions |
 | ✅ Post-Phase 2 — Hardening | Jul 2026 | Evidence system, rollback DDL, report page parity |
 | ⏭ Phase 3 — Agents (deferred) | Jun 2–20 | LangGraph pipeline + LangSmith traces |
-| Phase 4 — Monetize | Jun 23–Jul 4 | Stripe + Auth + Free/Pro tiers |
+| ✅ Phase 4 — Monetize | Jun 23–Jul 4 | Stripe + Auth + Free/Pro tiers |
 | Phase 5 — Enterprise | July | Team plan, Slack, live DB |
 
 ---
