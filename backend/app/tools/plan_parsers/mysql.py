@@ -43,6 +43,7 @@ import json
 import re
 
 from app.schemas.models import Finding, PlanArtifact
+from app.tools.tabular_parse import parse_pipe_table_rows, parse_vertical_rows
 
 from .models import ParsedPlan, PlanNode
 
@@ -123,7 +124,7 @@ def _json_has_flag(node, flag_key: str) -> bool:
 
 
 # ── Plain tabular parsing (EXPLAIN SELECT ..., pasted) ───────────────────
-
+#
 # Traditional mysql-cli pipe-table output, e.g.:
 #   +----+-------------+--------+------+---------------+------+---------+------+-------+-------------+
 #   | id | select_type | table  | type | possible_keys | key  | key_len | ref  | rows  | Extra       |
@@ -132,58 +133,10 @@ def _json_has_flag(node, flag_key: str) -> bool:
 #   +----+-------------+--------+------+---------------+------+---------+------+-------+-------------+
 # `partitions` and `filtered` columns (shown by EXPLAIN ... FORMAT=TRADITIONAL
 # with EXTENDED/newer defaults) are optional — matched generically by column
-# name, not position, so their presence/absence doesn't matter.
-_PIPE_ROW_RE = re.compile(r"^\s*\|(.+)\|\s*$")
-
-# `EXPLAIN ... \G` vertical output, e.g.:
-#   *************************** 1. row ***************************
-#              id: 1
-#     select_type: SIMPLE
-#           table: orders
-#            type: ALL
-#   possible_keys: NULL
-#             key: NULL
-#             rows: 10000
-#           Extra: Using where
-_VERTICAL_ROW_HEADER_RE = re.compile(r"^\*+\s*\d+\.\s*row\s*\*+\s*$")
-_VERTICAL_FIELD_RE = re.compile(r"^\s*([A-Za-z_]+)\s*:\s*(.*)$")
-
-
-def _parse_pipe_table_rows(raw: str) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
-    header: list[str] | None = None
-    for line in raw.splitlines():
-        m = _PIPE_ROW_RE.match(line)
-        if not m:
-            continue
-        cells = [c.strip() for c in m.group(1).split("|")]
-        if not any(c.strip("-") for c in cells):
-            # A "+----+----+" separator line — pipe-shaped but no content.
-            continue
-        if header is None:
-            header = [c.lower() for c in cells]
-            continue
-        # strict=False: a malformed/truncated row (mismatched cell count)
-        # degrades to a partial dict rather than raising — tolerant
-        # parsing of user-pasted output over strict validation.
-        rows.append(dict(zip(header, cells, strict=False)))
-    return rows
-
-
-def _parse_vertical_rows(raw: str) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
-    current: dict[str, str] | None = None
-    for line in raw.splitlines():
-        if _VERTICAL_ROW_HEADER_RE.match(line.strip()):
-            current = {}
-            rows.append(current)
-            continue
-        if current is None:
-            continue
-        m = _VERTICAL_FIELD_RE.match(line)
-        if m:
-            current[m.group(1).lower()] = m.group(2).strip()
-    return rows
+# name, not position, so their presence/absence doesn't matter. Both this
+# shape and `EXPLAIN ... \G` vertical output are now parsed by
+# app.tools.tabular_parse (imported above) — not MySQL-specific, shared
+# with batch_parsers.py (Phase 5 #115/#120's pasted DB-export formats).
 
 
 def _row_int(row: dict[str, str], key: str) -> int | None:
@@ -226,9 +179,9 @@ def _row_to_node(row: dict[str, str]) -> PlanNode | None:
 
 
 def _tabular_rows(raw: str) -> list[dict[str, str]]:
-    rows = _parse_pipe_table_rows(raw)
+    rows = parse_pipe_table_rows(raw)
     if not rows:
-        rows = _parse_vertical_rows(raw)
+        rows = parse_vertical_rows(raw)
     return rows
 
 

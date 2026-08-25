@@ -22,9 +22,18 @@ def _extract_col_name(expr: str) -> str | None:
     e = re.sub(r"\s+(ASC|DESC)\s*$", "", e, flags=re.IGNORECASE).strip()
 
     # Quoted identifier, optionally alias-qualified: "Col Name" or alias."Col Name"
-    quoted_m = re.match(r'^(?:[A-Za-z_][A-Za-z0-9_]*\.)?"([^"]+)"', e)
+    # (standard SQL / Postgres / SQL Server double-quote/bracket style) —
+    # or `Col Name` / alias.`Col Name` (MySQL backtick style). Issue #120:
+    # MySQL's performance_schema.digest_text normalizes every identifier
+    # to backtick-quoted form (`` SELECT * FROM `orders` WHERE `status` =
+    # ? ``) — without this, no column from a pasted performance_schema
+    # batch export was ever recognized, silently producing zero
+    # suggestions for every MySQL batch entry. Found via
+    # test_batch_parsers.py's normalized-text-caveat tests, which the
+    # design doc explicitly asked to verify rather than assume.
+    quoted_m = re.match(r'^(?:[A-Za-z_][A-Za-z0-9_]*\.)?(?:"([^"]+)"|`([^`]+)`)', e)
     if quoted_m:
-        return quoted_m.group(1)
+        return quoted_m.group(1) or quoted_m.group(2)
 
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*\s*\(", e):
         return None
@@ -70,14 +79,22 @@ def _extract_where_columns(where_clause: str) -> list[tuple[str | None, str, str
         cond = cond.strip()
         if not cond:
             continue
-        is_null_m = re.match(r"^([A-Za-z_][A-Za-z0-9_.]+)\s+IS\s+(NOT\s+)?NULL$", cond, re.IGNORECASE)
+        # Issue #120: `[A-Za-z_][A-Za-z0-9_.]+|"[^"]+"` alone never
+        # matched a MySQL-backtick-quoted condition start (`` `status` =
+        # ? ``, exactly the form performance_schema.digest_text
+        # normalizes every identifier to) — every batch entry from a
+        # pasted performance_schema export silently produced zero WHERE
+        # suggestions before this. Same fix as _extract_col_name's own
+        # backtick handling above; found by the same test.
+        is_null_m = re.match(r"^([A-Za-z_][A-Za-z0-9_.]+|`[^`]+`)\s+IS\s+(NOT\s+)?NULL$", cond, re.IGNORECASE)
         if is_null_m:
             qc = _qualified_col(is_null_m.group(1))
             if qc:
                 cols.append((*qc, "equality"))
             continue
         m = re.match(
-            r'^([A-Za-z_][A-Za-z0-9_.]+|"[^"]+")\s*' r"(=|!=|<>|<=|>=|<|>|\bI?LIKE\b|\bNOT\s+IN\b|\bIN\b|\bBETWEEN\b)",
+            r'^([A-Za-z_][A-Za-z0-9_.]+|"[^"]+"|`[^`]+`)\s*'
+            r"(=|!=|<>|<=|>=|<|>|\bI?LIKE\b|\bNOT\s+IN\b|\bIN\b|\bBETWEEN\b)",
             cond,
             re.IGNORECASE,
         )
@@ -603,10 +620,7 @@ class IndexRecommender:
                 f"-- Option B: partition the table by {col} value."
             )
         elif db_type == "sqlserver":
-            ddl = (
-                f"CREATE NONCLUSTERED INDEX {idx} ON {table_ph}(id) "
-                f"WHERE {col} = '<active_value>' WITH (ONLINE=ON);"
-            )
+            ddl = f"CREATE NONCLUSTERED INDEX {idx} ON {table_ph}(id) WHERE {col} = '<active_value>' WITH (ONLINE=ON);"
         elif db_type == "oracle":
             ddl = (
                 f"-- Oracle: use a function-based index or partition:\n"
