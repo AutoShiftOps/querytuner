@@ -11,7 +11,10 @@ function severityColor(sev) {
 }
 
 // Internal heuristic identifiers -> human-readable titles.
-const TYPE_LABELS = {
+// Exported for reuse by utils/quiz.js (Quiz Mode's distractor labels need
+// the exact same wording a real analysis would show, not a second,
+// possibly-drifting copy of this map — docs/querytuner-quiz-mode-issue.md).
+export const TYPE_LABELS = {
   column_selection: 'Select Specific Columns',
   full_scan_risk: 'Full Table Scan Risk',
   like_wildcard: 'Index-Blocking LIKE Pattern',
@@ -42,7 +45,7 @@ const TYPE_LABELS = {
   temp_table_detected: 'Temporary Table Detected',
 };
 
-function typeLabel(type) {
+export function typeLabel(type) {
   const t = type || 'issue';
   return (
     TYPE_LABELS[t] ||
