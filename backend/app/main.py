@@ -19,7 +19,17 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 
 from .agents.sql_analyzer import SQLAnalyzerAgent  # noqa: E402
-from .schemas.models import QueryAnalysisResult, QueryRequest  # noqa: E402
+from .schemas.models import (  # noqa: E402
+    BatchAnalysisRequest,
+    BatchAnalysisResult,
+    BatchQuerySummary,
+    QueryAnalysisResult,
+    QueryRequest,
+)
+from .tools.batch_parsers import parse_batch_export, rank_top_n  # noqa: E402
+from .tools.batch_reconciler import reconcile_index_suggestions  # noqa: E402
+from .tools.index_recommender import IndexRecommender  # noqa: E402
+from .tools.query_parser import QueryParser, parse_schema_ddl  # noqa: E402
 from .utils.config import settings  # noqa: E402
 from .utils.database import (  # noqa: E402
     expire_analysis,
@@ -69,6 +79,26 @@ app.add_middleware(
 
 # Initialize analyzer
 analyzer = SQLAnalyzerAgent()
+
+# Phase 5 (#115/#120): batch workload analysis — reuses the existing
+# QueryParser/IndexRecommender instances rather than running the full
+# SQLAnalyzerAgent (LLM, security checks, plain-English explanation, ...)
+# per query in a batch. The design doc scopes #115/#120 specifically to
+# index reconciliation, not full single-query analysis output, and
+# running the full heuristic engine against a potentially large export is
+# exactly the scaling concern the doc's own item 4 flags — this keeps
+# batch analysis to the one thing it's actually for.
+_batch_query_parser = QueryParser()
+_batch_index_recommender = IndexRecommender()
+
+# A batch's export format implies its dialect — each of the three named
+# sources is tied to exactly one database, so there's nothing for the
+# caller to get inconsistent by specifying both separately.
+_BATCH_SOURCE_DB_TYPE = {
+    "query_store": "sqlserver",
+    "pg_stat_statements": "postgresql",
+    "performance_schema": "mysql",
+}
 
 # Simple in-memory rate limiter (use Redis for production)
 rate_limit_store = defaultdict(list)
@@ -477,6 +507,135 @@ async def get_history(
         # button; not attempting cursor-based pagination yet.
         "has_more": len(items) == limit,
     }
+
+
+@app.post("/analyze/batch", response_model=BatchAnalysisResult)
+async def analyze_batch(request: BatchAnalysisRequest, user_id: str | None = Depends(get_current_user)):
+    """
+    POST /analyze/batch — Phase 5 (#115/#120): accepts a pasted production
+    workload export (SQL Server Query Store / PostgreSQL
+    pg_stat_statements / MySQL performance_schema — see
+    docs/querytuner-batch-analysis-issue.md) and returns per-query index
+    suggestions plus a reconciled, cross-query index recommendation set
+    (#115) — collapsing suggestions that are redundant once a wider
+    composite exists on the same table, and flagging (not silently
+    resolving) suggestions that disagree on column order — instead of N
+    independent single-query results concatenated together.
+
+    A separate endpoint from POST /analyze rather than a `queries: list`
+    variant of it, per the design doc's own recommendation — this has a
+    genuinely different request/response shape and gating (Pro-only, one
+    export instead of one query) that would otherwise complicate
+    /analyze's existing single-query contract.
+
+    Pro-only — mirrors GET /history's gating pattern exactly:
+      - not signed in -> 401 sign_in_required
+      - signed in but not Pro -> 403 pro_required
+      - signed in and Pro -> the actual batch analysis
+    Product decision made explicitly (not guessed at, per the design
+    doc's own flag that this was still open): batch/reconciliation is a
+    heavier analysis workload than a single /analyze call, closer to the
+    existing Pro-gated features (query history, PDF export) than to core
+    single-query analysis.
+    """
+    if not user_id:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "error": "sign_in_required",
+                "message": "Sign in to use batch workload analysis.",
+                "sign_in_required": True,
+            },
+        )
+
+    usage_month = datetime.now(UTC).strftime("%Y-%m")
+    usage = await get_user_usage(user_id, usage_month)
+    if not usage.get("is_pro", False):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "error": "pro_required",
+                "message": (
+                    "Batch workload analysis is a Pro feature. "
+                    "Upgrade to QueryTuner Pro to analyze production query exports."
+                ),
+                "upgrade_available": True,
+            },
+        )
+
+    start_time = time.time()
+
+    if not request.export_text or not request.export_text.strip():
+        raise HTTPException(status_code=400, detail="export_text is empty")
+
+    source = request.source.value
+    entries = parse_batch_export(source, request.export_text)
+    if not entries:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Could not parse any queries from the pasted {source} export — "
+                "check it matches a standard export for this source "
+                "(see the endpoint's own docstring for an example query)."
+            ),
+        )
+
+    ranked = rank_top_n(entries, request.top_n)
+    db_type = _BATCH_SOURCE_DB_TYPE[source]
+    schema = parse_schema_ddl(request.schema_info) if request.schema_info else {}
+
+    query_summaries: list[BatchQuerySummary] = []
+    per_query_suggestions: list[tuple[int, list[dict]]] = []
+    for idx, entry in enumerate(ranked):
+        parsed = _batch_query_parser.parse(entry.query_text)
+        suggestions = _batch_index_recommender.recommend(
+            query=entry.query_text,
+            parsed=parsed,
+            db_type=db_type,
+            schema_info=request.schema_info,
+        )
+        per_query_suggestions.append((idx, suggestions))
+        query_summaries.append(
+            BatchQuerySummary(
+                index=idx,
+                query=entry.query_text,
+                calls=entry.calls,
+                total_time_ms=entry.total_time_ms,
+                index_suggestions=suggestions,
+            )
+        )
+
+    reconciliation = reconcile_index_suggestions(per_query_suggestions, schema)
+    analysis_time = (time.time() - start_time) * 1000
+
+    return BatchAnalysisResult(
+        source=request.source,
+        db_type=db_type,
+        total_parsed=len(entries),
+        analyzed_count=len(ranked),
+        queries=query_summaries,
+        reconciled_index_suggestions=[
+            {**r.suggestion, "table": r.table, "satisfies_queries": r.satisfies_queries}
+            for r in reconciliation.reconciled_suggestions
+        ],
+        dropped_suggestions=[
+            {
+                "table": d.table,
+                "columns": d.columns,
+                "suggestion": d.suggestion_text,
+                "source_query_indices": d.source_query_indices,
+                "reason": d.reason,
+                "superseded_by_columns": d.superseded_by_columns,
+            }
+            for d in reconciliation.dropped_suggestions
+        ],
+        column_order_conflicts=[
+            {"table": c.table, "columns": c.columns, "variants": c.variants}
+            for c in reconciliation.column_order_conflicts
+        ],
+        warnings=reconciliation.warnings,
+        analysis_time_ms=analysis_time,
+    )
 
 
 @app.post("/billing-portal")

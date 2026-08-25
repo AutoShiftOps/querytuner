@@ -101,6 +101,75 @@ class ExecutionPlan(BaseModel):
     estimated_rows: int | None = None
 
 
+class BatchSource(StrEnum):
+    """Phase 5 (#115/#120): the three production-workload export formats
+    POST /analyze/batch accepts — an explicit selector, not auto-detected
+    from pasted content, same reasoning #61/#62's gap-followup gives for
+    not auto-detecting EXPLAIN dialect (overlapping column-naming
+    conventions across sources make a wrong guess a real correctness
+    risk, not just an inconvenience)."""
+
+    QUERY_STORE = "query_store"
+    PG_STAT_STATEMENTS = "pg_stat_statements"
+    PERFORMANCE_SCHEMA = "performance_schema"
+
+
+class BatchAnalysisRequest(BaseModel):
+    source: BatchSource
+    export_text: str = Field(..., description="Pasted export from the chosen production source")
+    schema_info: str | None = Field(None, description="Schema DDL — improves both per-query and reconciled results")
+    top_n: int = Field(default=20, ge=1, le=100, description="Analyze only the top-N by total time — not every row")
+
+
+class BatchQuerySummary(BaseModel):
+    index: int
+    query: str
+    calls: int | None = None
+    total_time_ms: float | None = None
+    index_suggestions: list[OptimizationSuggestion] = Field(default_factory=list)
+
+
+class ReconciledIndexSuggestion(OptimizationSuggestion):
+    table: str | None = None
+    # Indices into BatchAnalysisResult.queries — which original queries
+    # this one reconciled suggestion covers, including ones that only
+    # asked for a narrower subset now subsumed by this entry.
+    satisfies_queries: list[int] = Field(default_factory=list)
+
+
+class DroppedIndexSuggestion(BaseModel):
+    table: str | None = None
+    columns: list[str]
+    suggestion: str
+    source_query_indices: list[int]
+    reason: str
+    superseded_by_columns: list[str]
+
+
+class ColumnOrderConflictVariant(BaseModel):
+    order: list[str]
+    queries: list[int]
+
+
+class ColumnOrderConflict(BaseModel):
+    table: str | None = None
+    columns: list[str]
+    variants: list[ColumnOrderConflictVariant]
+
+
+class BatchAnalysisResult(BaseModel):
+    source: BatchSource
+    db_type: str
+    total_parsed: int
+    analyzed_count: int
+    queries: list[BatchQuerySummary]
+    reconciled_index_suggestions: list[ReconciledIndexSuggestion]
+    dropped_suggestions: list[DroppedIndexSuggestion]
+    column_order_conflicts: list[ColumnOrderConflict]
+    warnings: list[str] = Field(default_factory=list)
+    analysis_time_ms: float
+
+
 class QueryAnalysisResult(BaseModel):
     query: str
     parsed_query: dict[str, Any]
