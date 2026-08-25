@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth, useUser, SignInButton } from '@clerk/clerk-react';
 import axios from 'axios';
 import { formatRelativeTime } from '../utils/formatRelativeTime';
@@ -319,7 +320,11 @@ export default function HistoryPage() {
             const sevKey = (item.severity || 'low').toLowerCase();
             const sevCfg = SEV[sevKey] || SEV.low;
             return (
-              <a key={item.id} href={`/report/${item.id}`} className="qt-history-row">
+              // Bug-fix-adjacent cleanup: was a plain <a href>, causing a
+              // full page reload on every row click even though this app
+              // uses BrowserRouter throughout — <Link> gives a proper
+              // client-side transition instead.
+              <Link key={item.id} to={`/report/${item.id}`} className="qt-history-row">
                 <div className="qt-history-row-top">
                   <span className="qt-history-chip qt-history-chip-db">
                     {(item.db_type || 'sql').toUpperCase()}
@@ -336,7 +341,7 @@ export default function HistoryPage() {
                 <div className="qt-history-issues">
                   {item.issue_count} issue{item.issue_count !== 1 ? 's' : ''} found
                 </div>
-              </a>
+              </Link>
             );
           })}
         </div>

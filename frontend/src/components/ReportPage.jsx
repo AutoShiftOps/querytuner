@@ -11,7 +11,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
+import { useUser } from '@clerk/clerk-react';
 import axios from 'axios';
 import { Shield, Zap } from 'lucide-react';
 import { trackPageView, trackReportViewed } from '../utils/analytics';
@@ -405,6 +406,14 @@ function injectStyles() {
 
 export default function ReportPage() {
   const { id } = useParams();
+  // Bug fix: shown for any signed-in user regardless of how they arrived
+  // at this report (same as Header.jsx's own History link — not
+  // conditioned on document.referrer or router state). A signed-in user
+  // seeing a "back to history" link that just takes them to their
+  // (possibly empty) history page isn't harmful even when this report
+  // wasn't actually opened from there. Anonymous/cold visitors opening a
+  // shared link have no history to go back to, so it's hidden for them.
+  const { isSignedIn } = useUser();
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -522,6 +531,11 @@ export default function ReportPage() {
             <span className="qt-nav-brand-name">QueryTuner</span>
           </a>
           <div className="qt-nav-actions">
+            {isSignedIn && (
+              <Link to="/history" className="qt-btn qt-btn-ghost">
+                ← Back to history
+              </Link>
+            )}
             <button
               onClick={handleCopy}
               className={`qt-btn qt-btn-ghost ${copied ? 'copied' : ''}`}
