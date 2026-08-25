@@ -23,6 +23,7 @@ from .schemas.models import (  # noqa: E402
     BatchAnalysisRequest,
     BatchAnalysisResult,
     BatchQuerySummary,
+    LLMProvider,
     QueryAnalysisResult,
     QueryRequest,
 )
@@ -346,6 +347,31 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
             raise HTTPException(
                 status_code=402,
                 detail="Free tier limit reached — upgrade to Pro for unlimited analyses",
+            )
+
+        # Phase 4 audit (#53) fix: OpenAI (GPT-4o-mini) is a Pro-tier
+        # feature by design — free tier stays on Hugging Face. Before this
+        # check existed, request.llm_provider was read straight off the
+        # client request body and passed to analyzer.analyze() with
+        # nothing checking it against is_pro anywhere in the call path:
+        # any signed-in free user could select "openai" in the dropdown
+        # and the backend would honor it, running real GPT-4o-mini calls
+        # on Pro's cost budget. QueryInput.jsx's dropdown now also hides
+        # this option from non-Pro users client-side, but that's UX only —
+        # this server-side check is the one that's authoritative, same
+        # relationship the sign-in-required gate above already has with
+        # its own frontend-side checkbox-disabling.
+        if request.use_llm and request.llm_provider == LLMProvider.OPENAI and not is_pro:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "error": "pro_required",
+                    "message": (
+                        "OpenAI (GPT-4o-mini) AI insights are a Pro feature. "
+                        "Upgrade to QueryTuner Pro, or switch to Hugging Face for free AI insights."
+                    ),
+                    "upgrade_available": True,
+                },
             )
 
         logger.info(f"Analyzing query: {request.query[:50]}...")

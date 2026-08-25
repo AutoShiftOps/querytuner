@@ -158,6 +158,89 @@ def test_signed_in_free_tier_unaffected_by_anonymous_gates(client, monkeypatch):
         app.dependency_overrides.clear()
 
 
+class TestOpenAiProGate:
+    """Phase 4 audit (#53): the real, live gap this audit found — a
+    signed-in free-tier user could select llm_provider="openai" and the
+    backend honored it, with nothing checking is_pro anywhere in the call
+    path. These pin the fix down."""
+
+    def test_signed_in_free_tier_selecting_openai_gets_structured_403(self, client, monkeypatch):
+        _patch_persistence(monkeypatch, is_pro=False)
+        app.dependency_overrides[get_current_user] = lambda: "user_free_test"
+        try:
+            resp = client.post(
+                "/analyze",
+                json={
+                    "query": SIMPLE_QUERY,
+                    "db_type": "postgresql",
+                    "use_llm": True,
+                    "llm_provider": "openai",
+                },
+            )
+            assert resp.status_code == 403
+            body = resp.json()
+            assert body["error"] == "pro_required"
+            assert body["upgrade_available"] is True
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_signed_in_pro_selecting_openai_succeeds(self, client, monkeypatch):
+        _patch_persistence(monkeypatch, is_pro=True)
+        app.dependency_overrides[get_current_user] = lambda: "user_pro_test"
+        try:
+            resp = client.post(
+                "/analyze",
+                json={
+                    "query": SIMPLE_QUERY,
+                    "db_type": "postgresql",
+                    "use_llm": True,
+                    "llm_provider": "openai",
+                },
+            )
+            assert resp.status_code == 200, resp.text
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_signed_in_free_tier_selecting_huggingface_unaffected(self, client, monkeypatch):
+        """The gate is OpenAI-specific — free tier must still be able to
+        run heuristic-only or Hugging-Face-backed AI insights."""
+        _patch_persistence(monkeypatch, is_pro=False)
+        app.dependency_overrides[get_current_user] = lambda: "user_free_test"
+        try:
+            resp = client.post(
+                "/analyze",
+                json={
+                    "query": SIMPLE_QUERY,
+                    "db_type": "postgresql",
+                    "use_llm": True,
+                    "llm_provider": "huggingface",
+                },
+            )
+            assert resp.status_code == 200, resp.text
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_free_tier_openai_selected_but_use_llm_false_unaffected(self, client, monkeypatch):
+        """Selecting "openai" in the dropdown without checking "Use AI
+        insights" must not trip the gate — the provider is irrelevant when
+        no AI call is actually being requested."""
+        _patch_persistence(monkeypatch, is_pro=False)
+        app.dependency_overrides[get_current_user] = lambda: "user_free_test"
+        try:
+            resp = client.post(
+                "/analyze",
+                json={
+                    "query": SIMPLE_QUERY,
+                    "db_type": "postgresql",
+                    "use_llm": False,
+                    "llm_provider": "openai",
+                },
+            )
+            assert resp.status_code == 200, resp.text
+        finally:
+            app.dependency_overrides.clear()
+
+
 def test_signed_in_pro_unaffected_by_anonymous_gates(client, monkeypatch):
     _patch_persistence(monkeypatch, is_pro=True, count=50)
     app.dependency_overrides[get_current_user] = lambda: "user_pro_test"

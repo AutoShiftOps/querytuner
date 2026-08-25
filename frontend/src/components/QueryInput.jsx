@@ -23,10 +23,20 @@ const QueryInput = forwardRef(function QueryInput(
     setSubstitutionMap, // query sanitizer — setter from parent
     highlightAnalyze, // new prop — whether to highlight the Analyze button
     isSignedIn, // anonymous-AI-gap fix — gates the "Use AI insights" checkbox client-side
+    isPro, // Phase 4 audit (#53) fix — gates the OpenAI option client-side
   },
   ref
 ) {
-  const openaiEnabled = !!caps?.providers?.openai;
+  // Phase 4 audit (#53): OpenAI is Pro-tier by design — this dropdown
+  // used to only check whether the server had an API key configured, not
+  // whether the signed-in user was actually Pro, so any free user could
+  // select it and the backend (before its own #53 fix) would honor it.
+  // The server-side check in main.py's /analyze handler is the
+  // authoritative one; this is the client-side half of the same fix, same
+  // relationship the "Use AI insights" checkbox already has with its own
+  // sign-in gate below.
+  const openaiConfigured = !!caps?.providers?.openai;
+  const openaiEnabled = openaiConfigured && !!isPro;
   const hfEnabled = caps?.providers?.huggingface ?? true;
   const anyAiEnabled = hfEnabled || openaiEnabled;
 
@@ -124,7 +134,8 @@ const QueryInput = forwardRef(function QueryInput(
               Hugging Face
             </option>
             <option value="openai" disabled={!openaiEnabled}>
-              OpenAI (recommended) {openaiEnabled ? '' : '(not enabled on server)'}
+              OpenAI (recommended){' '}
+              {openaiEnabled ? '' : !openaiConfigured ? '(not enabled on server)' : '(Pro only)'}
             </option>
           </select>
           {!anyAiEnabled && (
