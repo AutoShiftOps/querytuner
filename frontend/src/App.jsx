@@ -7,7 +7,7 @@ import QueryInput from './components/QueryInput';
 import ResultsPanel from './components/ResultsPanel';
 import OptimizationSuggestions from './components/OptimizationSuggestions';
 import QuizMode from './components/QuizMode';
-import { generateQuiz } from './utils/quiz';
+import { generateQuiz, isAiInsightsRevealed } from './utils/quiz';
 import ExecutionPlan from './components/ExecutionPlan';
 import SampleQueries from './components/SampleQueries';
 import Header from './components/Header';
@@ -538,8 +538,14 @@ function App() {
                 />
               )}
 
-              {/* AI Insights — only show when AI was actually used and returned content */}
-              {result.used_ai && result.ai_insights && !result.ai_error && (
+              {/* AI Insights — gated behind the same quiz-then-reveal
+                  condition as OptimizationSuggestions above (bug fix: this
+                  panel's own DDL recommendations answer the exact question
+                  Quiz Mode just asked, so it previously leaked the answer
+                  by rendering unconditionally whenever AI insights was
+                  turned on — see isAiInsightsRevealed's own docstring).
+                  docs/querytuner-quiz-provider-fixes.md, Bug 1 */}
+              {isAiInsightsRevealed(quizQuestions, quizRevealed, result) && (
                 <ResultsPanel
                   title={`AI Insights${
                     result.ai_provider

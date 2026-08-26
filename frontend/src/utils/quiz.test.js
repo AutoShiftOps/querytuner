@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { generateQuiz, pickDistractors, TYPE_SEVERITY, MAX_QUESTIONS } from './quiz';
+import {
+  generateQuiz,
+  pickDistractors,
+  isAiInsightsRevealed,
+  TYPE_SEVERITY,
+  MAX_QUESTIONS,
+} from './quiz';
 import { TYPE_LABELS, typeLabel } from '../components/OptimizationSuggestions';
 
 function suggestion(type, evidenceLevel = 'schema-verified', overrides = {}) {
@@ -164,5 +170,41 @@ describe('pickDistractors', () => {
     // before any "medium"/other type appears.
     const distractors = pickDistractors('like_wildcard', new Set(), 3);
     expect(distractors.every((t) => TYPE_SEVERITY[t] === 'high')).toBe(true);
+  });
+});
+
+describe('isAiInsightsRevealed — Bug 1 (docs/querytuner-quiz-provider-fixes.md)', () => {
+  const aiResult = { used_ai: true, ai_insights: 'some real insight text', ai_error: null };
+  const quizQuestions = [{ id: 'x', prompt: 'p', options: [], correctType: 'x', reason: 'r' }];
+
+  it('hides AI insights while a quiz exists and has not been revealed', () => {
+    expect(isAiInsightsRevealed(quizQuestions, false, aiResult)).toBe(false);
+  });
+
+  it('shows AI insights once the quiz is revealed', () => {
+    expect(isAiInsightsRevealed(quizQuestions, true, aiResult)).toBe(true);
+  });
+
+  it('shows AI insights immediately when there was no quiz to begin with', () => {
+    expect(isAiInsightsRevealed([], false, aiResult)).toBe(true);
+  });
+
+  it('still hides when AI was not actually used, regardless of quiz state', () => {
+    expect(isAiInsightsRevealed([], true, { used_ai: false, ai_insights: null })).toBe(false);
+  });
+
+  it('still hides when ai_insights is empty even if used_ai is true', () => {
+    expect(isAiInsightsRevealed([], true, { used_ai: true, ai_insights: null })).toBe(false);
+  });
+
+  it('still hides on an ai_error, even post-reveal', () => {
+    expect(
+      isAiInsightsRevealed([], true, { used_ai: true, ai_insights: 'x', ai_error: 'boom' })
+    ).toBe(false);
+  });
+
+  it('treats a missing/null result as not revealed', () => {
+    expect(isAiInsightsRevealed(quizQuestions, false, null)).toBe(false);
+    expect(isAiInsightsRevealed(quizQuestions, false, undefined)).toBe(false);
   });
 });

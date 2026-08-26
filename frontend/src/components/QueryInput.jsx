@@ -1,6 +1,10 @@
-import React, { useState, forwardRef } from 'react';
+import React, { useState, useEffect, useRef, forwardRef } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
 import SanitizerPanel from './SanitizerPanel';
+import {
+  shouldResetStaleOpenAiSelection,
+  shouldAutoSelectOpenAiForPro,
+} from '../utils/providerSelection';
 
 const QueryInput = forwardRef(function QueryInput(
   {
@@ -39,6 +43,36 @@ const QueryInput = forwardRef(function QueryInput(
   const openaiEnabled = openaiConfigured && !!isPro;
   const hfEnabled = caps?.providers?.huggingface ?? true;
   const anyAiEnabled = hfEnabled || openaiEnabled;
+
+  // Bug fix (docs/querytuner-quiz-provider-fixes.md, Bug 2): nothing
+  // reconciled llmProvider against openaiEnabled — a stale "openai"
+  // selection (from before the #53 Pro-gate shipped, or after Pro status
+  // lapses) stayed selected forever, showing a disabled option as the
+  // dropdown's current value with no way back. Reset it the moment it's
+  // no longer allowed, falling back to the always-available option.
+  useEffect(() => {
+    if (shouldResetStaleOpenAiSelection(llmProvider, openaiEnabled)) {
+      setLlmProvider('huggingface');
+    }
+  }, [openaiEnabled, llmProvider, setLlmProvider]);
+
+  // Default confirmed Pro users to the recommended provider once, without
+  // fighting a deliberate manual choice made afterward (didAutoSelectOpenAi
+  // latches after the first auto-select so a Pro user who switches back to
+  // Hugging Face stays there on later re-renders). Deliberately keyed only
+  // on openaiEnabled — including llmProvider/setLlmProvider would re-run
+  // this on every manual dropdown change, which the ref guard alone
+  // already prevents from re-firing, but keeping the dep list narrow
+  // makes the "runs once when Pro turns on" intent explicit rather than
+  // relying on the guard to paper over a broader trigger.
+  const didAutoSelectOpenAi = useRef(false);
+  useEffect(() => {
+    if (shouldAutoSelectOpenAiForPro(llmProvider, openaiEnabled, didAutoSelectOpenAi.current)) {
+      didAutoSelectOpenAi.current = true;
+      setLlmProvider('openai');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openaiEnabled]);
 
   // Issue #60: collapsed by default — keeps the form uncluttered
   const [explainOpen, setExplainOpen] = useState(false);
