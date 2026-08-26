@@ -139,3 +139,20 @@ export function generateQuiz(suggestions) {
     };
   });
 }
+
+/**
+ * Bug fix (docs/querytuner-quiz-provider-fixes.md, Bug 1): the AI
+ * Insights panel's own DDL recommendations can answer the exact question
+ * Quiz Mode just asked, so it must stay gated behind the same
+ * quiz-then-reveal condition OptimizationSuggestions already uses — not
+ * render unconditionally whenever `used_ai` is true. Extracted as a pure
+ * function (rather than an inline JSX condition in App.jsx) so this
+ * exact rule is unit-testable — this project has no component-mounting
+ * test setup, same reason generateQuiz/pickDistractors above are tested
+ * directly instead of via a rendered <QuizMode>.
+ */
+export function isAiInsightsRevealed(quizQuestions, quizRevealed, result) {
+  const hasQuiz = Array.isArray(quizQuestions) && quizQuestions.length > 0;
+  const quizGatePassed = !hasQuiz || quizRevealed;
+  return quizGatePassed && !!result?.used_ai && !!result?.ai_insights && !result?.ai_error;
+}
