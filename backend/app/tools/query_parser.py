@@ -613,10 +613,24 @@ def parse_schema_ddl(ddl: str) -> dict[str, dict[str, str]]:
             if col_name.lower() in _SCHEMA_SKIP_COL_NAMES:
                 continue
             rest = cm.group(5).strip()
-            type_m = re.match(r"[A-Za-z_][A-Za-z0-9_]*", rest)
+            # Issue #126: SQL Server DDL sometimes bracket-wraps the type
+            # itself, not just identifiers — [varchar](50), [uniqueidentifier],
+            # [int]. The bracket-less pattern this used to be
+            # (`r"[A-Za-z_][A-Za-z0-9_]*"`) doesn't match at all when `rest`
+            # starts with "[" (`type_m` was None), so the column was
+            # silently dropped from the schema entirely — not just
+            # mis-normalized. Confirmed via a real SQL Server CREATE TABLE
+            # with every column bracket-typed: parse_schema_ddl() returned
+            # {} for the whole table before this fix, silently disabling
+            # every schema-verified check for SQL Server DDL wholesale.
+            # `\[?...\]?` strips one optional matching pair around the type
+            # name itself, same idea _clean_identifier already applies to
+            # column/table names — [varchar](50) -> "varchar" (the (50)
+            # never being in scope for either regex, bracketed or not).
+            type_m = re.match(r"\[?([A-Za-z_][A-Za-z0-9_]*)\]?", rest)
             if not type_m:
                 continue
-            columns[col_name] = _normalize_type(type_m.group(0))
+            columns[col_name] = _normalize_type(type_m.group(1))
         if columns:
             schema.setdefault(table, {}).update(columns)
     return schema
