@@ -59,6 +59,11 @@ tagged.
   index recommender, and reconciles overlapping/redundant index suggestions across
   queries into one deduplicated set rather than N independent recommendation lists
   (#115, #120, PR #154, `90b7fd0b`)
+- User report dashboard (History page) completed — sanitized/unsanitized indicator
+  and a "Show sanitized only" filter (new `analyses.was_sanitized` column, migration
+  009, self-reported by the client's own sanitizer state), a delete button wired to
+  the existing `DELETE /report/{id}` (#116), and a copy-link button per row (#124,
+  PR #159, `aedf65fe`)
 
 ### Fixed
 - `schema_verified` terminology replaces "confirmed" — more accurate, does not imply planner

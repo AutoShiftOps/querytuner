@@ -171,8 +171,8 @@ no `langgraph` usage exists in the codebase yet. Issues #39–45 remain open and
 only because #124's own issue text references it; see its row in the Phase 5 table
 below, not repeated here) have real shipped functionality behind them; several
 differ from their literal original wording (documented per-issue below and in
-GitHub comments). One live gap found and fixed same-day (#53). One issue (#124) is
-a genuine partial build.
+GitHub comments). One live gap found and fixed same-day (#53). One issue (#124)
+was a genuine partial build at audit time — completed 2026-08-28 (`aedf65fe`).
 
 | Issue | Task | Status |
 |---|---|---|
@@ -184,7 +184,7 @@ a genuine partial build.
 | #51 | Pricing page | ⚠️ No dedicated `/pricing` route exists — pricing lives in `UpgradeModal.jsx`, shown on demand. Open scope question, not just a wording gap |
 | #52 | Clerk provider + header | ✅ Provider lives in `main.jsx` (app root), not `App.jsx` as originally worded; inline sign-in prompt instead of a redirect |
 | #53 | Pro-tier LLM routing | ✅ Fixed `ecd66de7` — was unenforced server-side until the Phase 4 audit caught it same-day |
-| #124 | User report dashboard | ⚠️ ~25% done — list view (timestamp/dialect/severity) shipped; sanitized indicator, delete button, share button, and the sanitized-only filter are not built. References #116 (see Phase 5 table) |
+| #124 | User report dashboard | ✅ Complete (`aedf65fe`, migration 009) — sanitized indicator + filter, delete button (wired to #116's `DELETE /report/{id}`), and copy-link button all shipped on top of the already-live list view. References #116 (see Phase 5 table) |
 
 Full findings: `docs/querytuner-phase4-audit.md`.
 
