@@ -69,6 +69,30 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Hotfix (regression in the original CORS-allowlist fix): querytuner.com
+# 307-redirects to www.querytuner.com at the DNS/Vercel level — confirmed
+# live via curl — so the browser's real Origin header on every API call
+# from the deployed site is "https://www.querytuner.com", not the bare
+# "https://querytuner.com" settings.frontend_url defaults to. The
+# allowlist below only had the bare domain, so every real visitor was
+# silently CORS-blocked on /capabilities, /usage, and /analyze itself —
+# the request succeeded server-side (confirmed via curl: 200 OK, no ACAO
+# header) but the browser refused to let the frontend's JS read the
+# response. Both the bare domain and the www subdomain are allowed
+# explicitly now, in addition to whatever FRONTEND_URL is actually set
+# to, so this survives either DNS pointing the redirect could take.
+_frontend_origin = settings.frontend_url.rstrip("/")
+_cors_allow_origins = list(
+    dict.fromkeys(
+        [
+            _frontend_origin,
+            "https://querytuner.com",
+            "https://www.querytuner.com",
+            "http://localhost:3000",
+        ]
+    )
+)
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -79,7 +103,7 @@ app.add_middleware(
     # additionally always allowed (matches frontend/vite.config.js's dev
     # server port) so local development against a deployed backend still
     # works without setting FRONTEND_URL.
-    allow_origins=[settings.frontend_url, "http://localhost:3000"],
+    allow_origins=_cors_allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
