@@ -217,6 +217,22 @@ Full findings: `docs/querytuner-phase4-audit.md`.
 | #119 | Parameter sniffing detection — compiled vs runtime parameter values | 🔴 High |
 | #120 | ✅ Batch query input from pg_stat_statements / performance_schema / Query Store export (`90b7fd0b`) | 🔴 High |
 | — | ✅ Quiz Mode — pre-reveal test-yourself questions from real query findings (`247c7d58`) | 🟢 Low |
+| #151 | ✅ Confidence labeling on findings — already fully satisfied by the Post-Phase 2 three-tier evidence system (`1fcb82a0`); see note below | 🟡 Medium |
+
+**Note on #151:** filed 2026-08-17 asking for a `certain`/`inferred` confidence
+field per finding, upgradeable once schema resolves the uncertainty. The
+three-tier `evidence_level` system (`deterministic` / `schema-verified` /
+`needs-runtime-evidence`) already shipped a month earlier (`1fcb82a0`,
+2026-07-22, from the same community feedback) — a strict superset:
+deterministic and schema-verified both mean "certain," needs-runtime-evidence
+means "inferred," and index recommendations already upgrade from
+needs-runtime-evidence to schema-verified exactly when schema resolves the
+column's existence, which is the literal upgrade behavior the issue asked
+for. The frontend badge (`OptimizationSuggestions.jsx`'s `EvidenceBadge`)
+already renders all three tiers. The one real gap: no test asserted the
+*tier* itself, only that a heuristic type fires — closed with regression
+tests pinning `evidence_level` per heuristic type and confirming the
+schema-verified upgrade.
 
 **Note on #116:** v1 shipped a single fixed 90-day expiration window plus
 owner-initiated early revoke (`DELETE /report/{id}`), not the

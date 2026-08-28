@@ -15,6 +15,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   bracket-wrapped (`[varchar](50)`, `[uniqueidentifier]`, `[int]`) — exactly what
   SSMS's own "Script Table as CREATE" produces. A DDL block using this style
   throughout returned an empty schema for the whole table (#126, PR #161, `7010cc9f`)
+- CORS allowlist only covered the bare domain (`querytuner.com`); the deployed
+  frontend's real browser Origin is `www.querytuner.com` (DNS/Vercel redirect),
+  so every real visitor's `/analyze`, `/capabilities`, and `/usage` call was
+  silently CORS-blocked in production despite succeeding server-side. Both
+  origins now explicitly allowed (#163, `9156cb86`)
+
+### Tests
+- #151 (confidence labeling on findings) audited against its acceptance
+  criteria and found already fully satisfied by the three-tier `evidence_level`
+  system shipped a month earlier (`1fcb82a0`) — deterministic/schema-verified
+  count as "certain," needs-runtime-evidence as "inferred," and index
+  recommendations already upgrade tiers exactly when schema resolves the
+  uncertainty, the literal behavior the issue asked for. Added regression
+  tests pinning `evidence_level` per heuristic type, since nothing previously
+  asserted the tier itself — only that a type fires
 
 ## [0.3.0] — 2026-08-28
 
