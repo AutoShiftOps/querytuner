@@ -145,6 +145,34 @@ def test_sqlserver_brackets_and_schema_prefix():
     }
 
 
+def test_sqlserver_bracket_wrapped_types_issue_126():
+    """Issue #126: SSMS's own "Script Table as CREATE" output bracket-wraps
+    the TYPE itself, not just identifiers — [varchar](50),
+    [uniqueidentifier], [int]. Before the fix, the type-extraction regex
+    required the type to start with a letter (`[A-Za-z_]...`), which never
+    matched a "[" — the column was silently dropped from the schema
+    entirely, not just mis-normalized. A DDL block where every single
+    column uses this style (a realistic SSMS export) used to come back as
+    an empty schema for the whole table."""
+    ddl = """
+        CREATE TABLE [dbo].[Orders] (
+            [Id] [int] IDENTITY(1,1) PRIMARY KEY,
+            [CustomerId] [int] NOT NULL,
+            [Status] [varchar](50) NULL,
+            [ExternalRef] [uniqueidentifier] NOT NULL,
+            [CreatedAt] [datetime2] NOT NULL
+        );
+    """
+    schema = parse_schema_ddl(ddl)
+    assert "Orders" in schema
+    assert schema["Orders"] == {
+        "CustomerId": "integer",
+        "Status": "text",
+        "ExternalRef": "uuid",
+        "CreatedAt": "timestamp",
+    }
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # parse_schema_ddl — quoted identifiers with spaces
 # ═══════════════════════════════════════════════════════════════════════════
