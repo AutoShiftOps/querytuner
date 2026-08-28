@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Dedicated `/pricing` route — Free vs Pro feature comparison table + pricing cards,
+  linked from the main nav. The Phase 4 audit's only real ("not just wording") gap
+  (#51, PR #162, `e2709f1f`)
+
+### Fixed
+- `parse_schema_ddl()` silently dropped columns whose SQL Server type was itself
+  bracket-wrapped (`[varchar](50)`, `[uniqueidentifier]`, `[int]`) — exactly what
+  SSMS's own "Script Table as CREATE" produces. A DDL block using this style
+  throughout returned an empty schema for the whole table (#126, PR #161, `7010cc9f`)
+
 ## [0.3.0] — 2026-08-28
 
 Phase 4 (auth + payments) is live in production and independently audited

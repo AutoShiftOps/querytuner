@@ -171,8 +171,10 @@ no `langgraph` usage exists in the codebase yet. Issues #39–45 remain open and
 only because #124's own issue text references it; see its row in the Phase 5 table
 below, not repeated here) have real shipped functionality behind them; several
 differ from their literal original wording (documented per-issue below and in
-GitHub comments). One live gap found and fixed same-day (#53). One issue (#124)
-was a genuine partial build at audit time — completed 2026-08-28 (`aedf65fe`).
+GitHub comments). One live gap found and fixed same-day (#53). Two issues were
+genuine partial/missing builds at audit time — #124 completed 2026-08-28
+(`aedf65fe`), #51 (the audit's only real "not just wording" gap) completed
+2026-08-28 (`e2709f1f`). All 10 issues are now closed.
 
 | Issue | Task | Status |
 |---|---|---|
@@ -181,7 +183,7 @@ was a genuine partial build at audit time — completed 2026-08-28 (`aedf65fe`).
 | #48 | Usage tracking | ✅ `user_usage` (monthly aggregate) + `user_accounts` (subscription state) — different table shape than the `usage_log` originally specified; see migration 007's own note for a real bug this split fixed |
 | #49 | Enforce limit, upgrade prompt | ✅ Returns `402`, not `429` as originally worded |
 | #50 | Checkout + webhook | ✅ Stripe **Payment Links** + `POST /webhook/stripe`, not a backend `/create-checkout-session` endpoint as originally worded |
-| #51 | Pricing page | ⚠️ No dedicated `/pricing` route exists — pricing lives in `UpgradeModal.jsx`, shown on demand. Open scope question, not just a wording gap |
+| #51 | Pricing page | ✅ Shipped (`e2709f1f`) — dedicated `/pricing` route, market-standard pricing-cards + feature-comparison-table shape, linked from the main nav |
 | #52 | Clerk provider + header | ✅ Provider lives in `main.jsx` (app root), not `App.jsx` as originally worded; inline sign-in prompt instead of a redirect |
 | #53 | Pro-tier LLM routing | ✅ Fixed `ecd66de7` — was unenforced server-side until the Phase 4 audit caught it same-day |
 | #124 | User report dashboard | ✅ Complete (`aedf65fe`, migration 009) — sanitized indicator + filter, delete button (wired to #116's `DELETE /report/{id}`), and copy-link button all shipped on top of the already-live list view. References #116 (see Phase 5 table) |
