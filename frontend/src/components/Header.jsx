@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   SignedIn,
   SignedOut,
@@ -172,6 +173,12 @@ export default function Header({ isPro = false, showToast } = {}) {
         </a>
 
         <nav className="qt-header-nav">
+          {/* Issue #51: the dedicated /pricing route's only entry point in
+              the main nav — shown to everyone regardless of sign-in state,
+              same as every other link in this row. */}
+          <Link to="/pricing" className="qt-header-link qt-header-hide-mobile">
+            Pricing
+          </Link>
           <a
             href={`${API_BASE_URL}/docs`}
             target="_blank"
