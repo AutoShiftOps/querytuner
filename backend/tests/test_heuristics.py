@@ -300,3 +300,119 @@ def test_cte_referenced_once_no_multiple_references(analyzer):
     assert "cte_multiple_references" not in get_types(
         suggestions
     ), "CTE referenced only once should not trigger cte_multiple_references"
+
+
+# ── 29. #151 — confidence labeling on findings ───────────────────────────────
+#
+# QueryTuner already ships this: a three-tier evidence_level (deterministic /
+# schema-verified / needs-runtime-evidence, see sql_analyzer.py's
+# _DETERMINISTIC_TYPES + _suggest(), and index_recommender.py's schema_verified
+# → evidence_level derivation) is a strict superset of #151's requested
+# certain/inferred binary — deterministic and schema-verified both mean
+# "certain," needs-runtime-evidence means "inferred," and it was shipped
+# per community feedback well before #151 was filed (commit 1fcb82a0). The
+# frontend badge (OptimizationSuggestions.jsx's EvidenceBadge) already
+# renders all three tiers.
+#
+# What was never pinned down: every test above proves a type *fires*, none
+# assert which tier it fires *at*. A future heuristic that forgot to set
+# evidence_level wouldn't fail any existing test — it would just render no
+# badge at all (EvidenceBadge returns None for an unrecognized/missing
+# level), silently regressing #151's acceptance criteria. These tests close
+# that gap.
+
+from app.agents.sql_analyzer import _DETERMINISTIC_TYPES  # noqa: E402
+from app.agents.sql_analyzer import SQLAnalyzerAgent as _SQLAnalyzerAgent  # noqa: E402
+
+# One proven trigger query per heuristic type, reused verbatim from the
+# type-triggering tests above — this suite already proves each type fires;
+# these only need to check the evidence_level that comes with it.
+_TYPE_TRIGGER_QUERIES = {
+    "column_selection": "SELECT * FROM orders",
+    "full_scan_risk": "SELECT id, name FROM customers",
+    "like_wildcard": "SELECT id FROM customers WHERE name LIKE '%smith'",
+    "function_in_where": "SELECT id FROM orders WHERE YEAR(created_at) = 2025",
+    "order_by_no_limit": "SELECT id FROM orders ORDER BY created_at",
+    "join_complexity": """
+        SELECT o.id
+        FROM orders o
+        JOIN customers c ON o.customer_id = c.id
+        JOIN products p ON o.product_id = p.id
+        JOIN shipments s ON o.shipment_id = s.id
+        JOIN payments pay ON o.payment_id = pay.id
+    """,
+    "cartesian_join": "SELECT * FROM orders JOIN customers WHERE orders.id > 0",
+    "subquery_refactor": """
+        SELECT * FROM orders
+        WHERE customer_id IN (SELECT id FROM customers WHERE region = 'US')
+        AND product_id IN (SELECT id FROM products WHERE active = 1)
+    """,
+    "subquery_to_join": """
+        SELECT
+            o.id,
+            (SELECT MAX(p.price) FROM products p WHERE p.id = o.product_id) AS max_price
+        FROM orders o
+    """,
+    "implicit_cast": "SELECT id FROM orders WHERE user_id = '123'",
+    "not_in_nullable": "SELECT id FROM orders WHERE customer_id NOT IN (SELECT customer_id FROM blocked)",
+    "case_in_predicate": "SELECT id FROM orders WHERE CASE WHEN status = 'active' THEN 1 END = 1",
+    "or_expansion": "SELECT id FROM orders WHERE status = 'a' OR type = 'b'",
+    "cte_multiple_references": """
+        WITH recent AS (SELECT id FROM orders WHERE created_at > '2024-01-01')
+        SELECT * FROM recent r1 JOIN recent r2 ON r1.id = r2.id
+    """,
+}
+
+
+def get_evidence(suggestions, type_):
+    for s in suggestions:
+        if s["type"] == type_:
+            return s.get("evidence_level")
+    return None
+
+
+def test_every_heuristic_type_has_the_expected_evidence_level(analyzer):
+    for type_, query in _TYPE_TRIGGER_QUERIES.items():
+        suggestions = run(analyzer, query)
+        level = get_evidence(suggestions, type_)
+        expected = "deterministic" if type_ in _DETERMINISTIC_TYPES else "needs-runtime-evidence"
+        assert level == expected, f"{type_}: expected evidence_level={expected!r}, got {level!r}"
+
+
+def test_no_heuristic_suggestion_ships_without_an_evidence_level(analyzer):
+    """Every entry in _DETERMINISTIC_TYPES (and every type this file knows
+    how to trigger) must resolve to a real tier — not None — since a
+    missing/unrecognized evidence_level renders no badge at all client-side
+    rather than a wrong one."""
+    for type_, query in _TYPE_TRIGGER_QUERIES.items():
+        suggestions = run(analyzer, query)
+        assert get_evidence(suggestions, type_) is not None, f"{type_} produced a finding with no evidence_level"
+
+
+def test_index_recommendation_upgrades_to_schema_verified_with_schema(analyzer):
+    """#151's explicit upgrade requirement: 'once schema is provided ...
+    findings that were inferred should be able to upgrade to certain where
+    the schema resolves the uncertainty.' Reuses the exact query/schema pair
+    from test_index_recommender.py's cost-estimate test, which already
+    proves schema_info changes this suggestion's content — this proves it
+    also changes its evidence_level."""
+    import asyncio
+
+    query = "SELECT * FROM orders o WHERE o.payload = 'x'"
+    schema = """
+        CREATE TABLE orders (
+          id INT PRIMARY KEY,
+          payload JSON
+        );
+    """
+    without_schema = run(analyzer, query)
+    with_schema = asyncio.run(
+        _SQLAnalyzerAgent().analyze(
+            query=query, db_type="postgresql", use_llm=False, focus="performance", schema_info=schema
+        )
+    )["optimization_suggestions"]
+
+    baseline = next(s for s in without_schema if s["type"].startswith("index_review_"))
+    upgraded = next(s for s in with_schema if s["type"].startswith("index_review_"))
+    assert baseline["evidence_level"] == "needs-runtime-evidence"
+    assert upgraded["evidence_level"] == "schema-verified"
