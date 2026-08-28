@@ -79,7 +79,7 @@ export default function Footer() {
           </a>
         </div>
 
-        <div className="qt-footer-right">v0.2.0 · © {year} AutoShiftOps</div>
+        <div className="qt-footer-right">v0.3.0 · © {year} AutoShiftOps</div>
       </footer>
     </>
   );

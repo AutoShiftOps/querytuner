@@ -4,7 +4,7 @@
 
 # QueryTuner — AI-Powered SQL Query Diagnostics
 
-[![Version](https://img.shields.io/badge/version-0.2.0-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue)](CHANGELOG.md)
 [![Backend](https://img.shields.io/badge/backend-FastAPI-009688?logo=fastapi)](https://api.querytuner.com/docs)
 [![Frontend](https://img.shields.io/badge/frontend-React-61DAFB?logo=react)](https://querytuner.com)
 [![AI](https://img.shields.io/badge/AI-HuggingFace%20%7C%20OpenAI-FFD21F?logo=huggingface)](https://huggingface.co)
