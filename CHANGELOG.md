@@ -87,6 +87,22 @@ tagged.
   structured `403 pro_required` for this case; the dropdown also disables the option
   client-side for non-Pro users. Found during a full Phase 4 audit, fixed same-day
   (#53, PR #156, `ecd66de7`)
+- **Quiz Mode's AI Insights panel leaked the quiz answer before reveal** — the
+  panel's render condition had no reference to the quiz's reveal state at all, so it
+  rendered unconditionally whenever AI insights was on, showing the recommended DDL
+  right under an unanswered question. Now gated behind the same quiz-then-reveal
+  condition `OptimizationSuggestions` already uses. Found live-testing the deployed
+  site (PR #157, `7746df08`)
+- AI provider dropdown could get stuck showing a disabled "OpenAI (Pro only)" option
+  as selected with no way back (a stale selection from before the `#53` Pro-gate, or
+  after Pro status lapsed), and confirmed Pro users weren't defaulted to OpenAI
+  either despite it being the recommended, already-paid-for option. Now resets a
+  stale/disallowed selection automatically and auto-selects OpenAI once for a fresh
+  Pro session, without fighting a later manual switch back (PR #157, `7746df08`)
+- CORS `allow_origins` was `"*"` — a known dev-mode leftover flagged ahead of launch
+  readiness. Replaced with a real allowlist (`settings.frontend_url` +
+  `localhost:3000` for local dev), reusing the existing `FRONTEND_URL` setting
+  already used elsewhere — no new env var (PR #158, `deacb6ca`)
 
 ### Tests
 - 102 passing tests (up from 94)
