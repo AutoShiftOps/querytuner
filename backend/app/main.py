@@ -72,7 +72,14 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Update for production
+    # Real allowlist, not "*" — settings.frontend_url already exists
+    # (used by the Stripe Billing Portal return_url) and already defaults
+    # to production while being overridable via FRONTEND_URL for local
+    # dev, so reusing it here needs no new env var. localhost:3000 is
+    # additionally always allowed (matches frontend/vite.config.js's dev
+    # server port) so local development against a deployed backend still
+    # works without setting FRONTEND_URL.
+    allow_origins=[settings.frontend_url, "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
