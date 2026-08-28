@@ -168,7 +168,7 @@ export default function Header({ isPro = false, showToast } = {}) {
         <a href="/" className="qt-header-brand">
           <img src="/querytuner-mark.svg" alt="QueryTuner logo" className="qt-header-logo" />
           <span className="qt-header-name">QueryTuner</span>
-          <span className="qt-header-version">v0.2.0</span>
+          <span className="qt-header-version">v0.3.0</span>
         </a>
 
         <nav className="qt-header-nav">

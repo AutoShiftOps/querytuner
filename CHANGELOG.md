@@ -5,9 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-Phase 4 (auth + payments) has shipped to `master`, along with the first
-batch of Phase 5 quick wins below. These changes will become v0.3.0 once
-tagged.
+## [0.3.0] — 2026-08-28
+
+Phase 4 (auth + payments) is live in production and independently audited
+against its original GitHub acceptance criteria (`docs/querytuner-phase4-audit.md`)
+— the one live gap the audit found (`#53`, unenforced Pro-tier LLM routing)
+was fixed the same day. Also includes the first batch of Phase 5 quick
+wins, the EXPLAIN plan parser chain, Quiz Mode, batch workload analysis,
+the report management dashboard's completion, and three bugs found
+live-testing the deployed site.
 
 ### Added
 - Client-side query sanitizer (commit 042a23fd):
@@ -110,10 +116,9 @@ tagged.
   already used elsewhere — no new env var (PR #158, `deacb6ca`)
 
 ### Tests
-- 102 passing tests (up from 94)
-- `test_comprehensive.py` — 22 tests covering 6 edge case categories
-- `test_schema_parser.py` — 43 tests; covers PostgreSQL, MySQL, Oracle, and SQL Server DDL
-  parsing (SQLite schema parsing not yet covered)
+- 316 backend tests passing (1 intentional xfail — LATERAL join correlated-column
+  detection), up from 102 at v0.2.0
+- 59 frontend tests passing (vitest) — all added this cycle; v0.2.0 had none
 
 ## [0.2.0] — 2026-07-20
 
