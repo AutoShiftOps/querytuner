@@ -95,22 +95,50 @@ function injectStyles() {
 
     .qt-history-list { display: flex; flex-direction: column; gap: 1px; background: ${T.border}; border: 1px solid ${T.border}; border-radius: 10px; overflow: hidden; }
     .qt-history-row {
-      display: block; background: ${T.surface}; padding: 14px 16px;
-      text-decoration: none; color: inherit; transition: background 0.12s;
+      display: flex; align-items: center; gap: 10px;
+      background: ${T.surface}; padding: 14px 16px;
+      transition: background 0.12s;
     }
     .qt-history-row:hover { background: ${T.surfaceHigh}; }
+    .qt-history-row-main {
+      flex: 1; min-width: 0; display: block;
+      text-decoration: none; color: inherit;
+    }
     .qt-history-row-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
     .qt-history-chip {
       display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px;
       font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
     }
     .qt-history-chip-db { background: rgba(56,189,248,0.1); color: ${T.accent}; }
+    .qt-history-chip-sanitized { background: rgba(52,211,153,0.1); color: ${T.green}; }
     .qt-history-time { font-size: 11px; color: ${T.textDim}; margin-left: auto; }
     .qt-history-query {
       font-family: 'JetBrains Mono', monospace; font-size: 12px; color: ${T.textMuted};
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .qt-history-issues { font-size: 11px; color: ${T.textDim}; margin-top: 4px; }
+
+    .qt-history-row-actions { display: flex; gap: 4px; flex-shrink: 0; }
+    .qt-history-row-action {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border-radius: 6px; font-size: 13px;
+      background: transparent; border: 1px solid ${T.border}; color: ${T.textMuted};
+      cursor: pointer; transition: all 0.12s; font-family: inherit;
+    }
+    .qt-history-row-action:hover { border-color: ${T.borderBright}; color: ${T.text}; }
+    .qt-history-row-action.copied { border-color: ${T.green}; color: ${T.green}; }
+    .qt-history-row-action-danger:hover { border-color: ${T.red}; color: ${T.red}; }
+    .qt-history-row-action:disabled { opacity: 0.5; cursor: default; }
+
+    .qt-history-toolbar {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 1rem; gap: 12px; flex-wrap: wrap;
+    }
+    .qt-history-filter {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; color: ${T.textMuted}; cursor: pointer; user-select: none;
+    }
+    .qt-history-filter input { accent-color: ${T.accent}; }
 
     .qt-history-state-center {
       display: flex; flex-direction: column; align-items: center; text-align: center;
@@ -153,17 +181,27 @@ export default function HistoryPage() {
   const [error, setError] = useState(null);
   const [needsPro, setNeedsPro] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  // Issue #124: sanitized-only filter — server-side (see fetchPage's own
+  // `sanitized` param), so pagination stays correct against the filtered
+  // set instead of a client-side array filter lying about counts/"Load more".
+  const [sanitizedOnly, setSanitizedOnly] = useState(false);
+  // Issue #124: delete/copy-link per row. actionError is deliberately
+  // separate from the fetch-page `error` state above — a failed delete
+  // shouldn't be confused with (or cleared by) a failed page fetch.
+  const [deletingId, setDeletingId] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
+  const [actionError, setActionError] = useState(null);
 
   useEffect(() => {
     injectStyles();
   }, []);
 
   const fetchPage = useCallback(
-    async (nextOffset, { append }) => {
+    async (nextOffset, { append, sanitized }) => {
       try {
         const token = await getToken();
         const r = await axios.get(`${API_URL}/history`, {
-          params: { limit: PAGE_SIZE, offset: nextOffset },
+          params: { limit: PAGE_SIZE, offset: nextOffset, sanitized },
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         setItems((prev) => (append ? [...prev, ...r.data.items] : r.data.items));
@@ -193,12 +231,59 @@ export default function HistoryPage() {
       return;
     }
     setLoading(true);
-    fetchPage(0, { append: false });
-  }, [isSignedIn, fetchPage]);
+    fetchPage(0, { append: false, sanitized: sanitizedOnly });
+    // sanitizedOnly intentionally included — toggling the filter re-runs
+    // this exact effect, which is the refetch-from-page-0 behavior wanted;
+    // fetchPage itself is stable (memoized on getToken only).
+  }, [isSignedIn, fetchPage, sanitizedOnly]);
 
   const handleLoadMore = () => {
     setLoadingMore(true);
-    fetchPage(offset + PAGE_SIZE, { append: true });
+    fetchPage(offset + PAGE_SIZE, { append: true, sanitized: sanitizedOnly });
+  };
+
+  // Issue #124: copies the shareable /report/:id URL — mirrors
+  // ReportPage.jsx's own handleCopy (2.5s revert), just tracked per-row
+  // here since multiple rows share this one page.
+  const handleCopyLink = (e, item) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const url = `${window.location.origin}/report/${item.id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedId(item.id);
+      setTimeout(() => setCopiedId((current) => (current === item.id ? null : current)), 2500);
+    });
+  };
+
+  // Issue #124: wires the already-shipped DELETE /report/{id} (#116) to
+  // an actual UI control — #116's own design doc explicitly scoped a UI
+  // delete trigger OUT of that work, so this isn't a regression, it's the
+  // gap #124 is meant to close. window.confirm rather than a custom
+  // modal: this is the only destructive action on this page, and a
+  // native confirm is a reasonable, low-risk guard for it.
+  const handleDelete = async (e, item) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (
+      !window.confirm(
+        'Delete this analysis? This cannot be undone, and its share link will stop working.'
+      )
+    ) {
+      return;
+    }
+    setDeletingId(item.id);
+    setActionError(null);
+    try {
+      const token = await getToken();
+      await axios.delete(`${API_URL}/report/${item.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      setItems((prev) => prev.filter((i) => i.id !== item.id));
+    } catch {
+      setActionError('Failed to delete this analysis. Please try again.');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   // ── Loading (includes Clerk auth still resolving) ──
@@ -283,7 +368,10 @@ export default function HistoryPage() {
     );
   }
 
-  // ── Empty state — every current Pro user starts with zero rows ──
+  // ── Empty state — every current Pro user starts with zero rows, OR
+  // (Issue #124) the sanitized-only filter matched nothing even though
+  // real history exists — different copy for that case so it doesn't
+  // read as "you've never run an analysis" when that isn't true. ──
   if (items.length === 0) {
     return (
       <div className="qt-history">
@@ -291,14 +379,36 @@ export default function HistoryPage() {
           <Nav />
           <h1 className="qt-history-title">Query history</h1>
           <p className="qt-history-subtitle">Your analyses will show up here.</p>
+          <label className="qt-history-filter" style={{ marginBottom: '1.25rem' }}>
+            <input
+              type="checkbox"
+              checked={sanitizedOnly}
+              onChange={(e) => setSanitizedOnly(e.target.checked)}
+            />
+            Show sanitized only
+          </label>
           <div className="qt-history-state-center">
             <span style={{ fontSize: 32 }}>📋</span>
-            <span style={{ color: T.textMuted }}>
-              No analyses yet — run one and it&rsquo;ll appear here.
-            </span>
-            <a href="/" className="qt-history-btn qt-history-btn-primary">
-              Analyze a query →
-            </a>
+            {sanitizedOnly ? (
+              <>
+                <span style={{ color: T.textMuted }}>No sanitized analyses match this filter.</span>
+                <button
+                  className="qt-history-btn qt-history-btn-ghost"
+                  onClick={() => setSanitizedOnly(false)}
+                >
+                  Show all
+                </button>
+              </>
+            ) : (
+              <>
+                <span style={{ color: T.textMuted }}>
+                  No analyses yet — run one and it&rsquo;ll appear here.
+                </span>
+                <a href="/" className="qt-history-btn qt-history-btn-primary">
+                  Analyze a query →
+                </a>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -311,43 +421,87 @@ export default function HistoryPage() {
       <div className="qt-history-shell">
         <Nav />
         <h1 className="qt-history-title">Query history</h1>
-        <p className="qt-history-subtitle">
-          {items.length} analys{items.length !== 1 ? 'es' : 'is'} shown
-        </p>
+        <div className="qt-history-toolbar">
+          <p className="qt-history-subtitle" style={{ marginBottom: 0 }}>
+            {items.length} analys{items.length !== 1 ? 'es' : 'is'} shown
+          </p>
+          {/* Issue #124: filter — server-side (fetchPage's `sanitized`
+              param), so this always reflects the real filtered total
+              above, not a client-side slice of one already-fetched page. */}
+          <label className="qt-history-filter">
+            <input
+              type="checkbox"
+              checked={sanitizedOnly}
+              onChange={(e) => setSanitizedOnly(e.target.checked)}
+            />
+            Show sanitized only
+          </label>
+        </div>
 
         <div className="qt-history-list">
           {items.map((item) => {
             const sevKey = (item.severity || 'low').toLowerCase();
             const sevCfg = SEV[sevKey] || SEV.low;
             return (
-              // Bug-fix-adjacent cleanup: was a plain <a href>, causing a
-              // full page reload on every row click even though this app
-              // uses BrowserRouter throughout — <Link> gives a proper
-              // client-side transition instead.
-              <Link key={item.id} to={`/report/${item.id}`} className="qt-history-row">
-                <div className="qt-history-row-top">
-                  <span className="qt-history-chip qt-history-chip-db">
-                    {(item.db_type || 'sql').toUpperCase()}
-                  </span>
-                  <span
-                    className="qt-history-chip"
-                    style={{ background: sevCfg.badge, color: sevCfg.text }}
+              // Issue #124: the row used to BE the <Link> (a bare <a>
+              // wrapping everything) — now it's a flex wrapper containing
+              // the clickable content plus sibling action buttons,
+              // since nesting <button>s inside an <a> is invalid HTML.
+              <div key={item.id} className="qt-history-row">
+                <Link to={`/report/${item.id}`} className="qt-history-row-main">
+                  <div className="qt-history-row-top">
+                    <span className="qt-history-chip qt-history-chip-db">
+                      {(item.db_type || 'sql').toUpperCase()}
+                    </span>
+                    <span
+                      className="qt-history-chip"
+                      style={{ background: sevCfg.badge, color: sevCfg.text }}
+                    >
+                      {sevCfg.label}
+                    </span>
+                    {item.was_sanitized && (
+                      <span className="qt-history-chip qt-history-chip-sanitized">Sanitized</span>
+                    )}
+                    <span className="qt-history-time">{formatRelativeTime(item.created_at)}</span>
+                  </div>
+                  <div className="qt-history-query">{item.query_snippet}</div>
+                  <div className="qt-history-issues">
+                    {item.issue_count} issue{item.issue_count !== 1 ? 's' : ''} found
+                  </div>
+                </Link>
+                <div className="qt-history-row-actions">
+                  <button
+                    type="button"
+                    className={`qt-history-row-action ${copiedId === item.id ? 'copied' : ''}`}
+                    onClick={(e) => handleCopyLink(e, item)}
+                    title="Copy share link"
+                    aria-label="Copy share link"
                   >
-                    {sevCfg.label}
-                  </span>
-                  <span className="qt-history-time">{formatRelativeTime(item.created_at)}</span>
+                    {copiedId === item.id ? '✓' : '🔗'}
+                  </button>
+                  <button
+                    type="button"
+                    className="qt-history-row-action qt-history-row-action-danger"
+                    onClick={(e) => handleDelete(e, item)}
+                    disabled={deletingId === item.id}
+                    title="Delete this analysis"
+                    aria-label="Delete this analysis"
+                  >
+                    {deletingId === item.id ? '…' : '🗑'}
+                  </button>
                 </div>
-                <div className="qt-history-query">{item.query_snippet}</div>
-                <div className="qt-history-issues">
-                  {item.issue_count} issue{item.issue_count !== 1 ? 's' : ''} found
-                </div>
-              </Link>
+              </div>
             );
           })}
         </div>
 
         {error && (
           <p style={{ color: T.red, fontSize: 12, textAlign: 'center', marginTop: 12 }}>{error}</p>
+        )}
+        {actionError && (
+          <p style={{ color: T.red, fontSize: 12, textAlign: 'center', marginTop: 12 }}>
+            {actionError}
+          </p>
         )}
 
         {hasMore && (

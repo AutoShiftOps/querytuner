@@ -292,3 +292,42 @@ def test_rate_limit_middleware_11th_request_returns_429_not_500(client, monkeypa
         assert "message" in body
     finally:
         app.dependency_overrides.clear()
+
+
+class TestWasSanitizedPersistence:
+    """Issue #124: was_sanitized is self-reported by the client and must
+    reach save_analysis() unchanged, but never leak into the response
+    schema (it's persistence-only, like user_id)."""
+
+    def test_was_sanitized_true_reaches_save_analysis(self, client, monkeypatch):
+        captured = {}
+
+        async def fake_save_analysis(payload):
+            captured["was_sanitized"] = payload.get("was_sanitized")
+            return "fake-analysis-id"
+
+        _patch_persistence(monkeypatch)
+        monkeypatch.setattr("app.main.save_analysis", fake_save_analysis)
+        resp = client.post(
+            "/analyze",
+            json={"query": SIMPLE_QUERY, "db_type": "postgresql", "use_llm": False, "was_sanitized": True},
+        )
+        assert resp.status_code == 200, resp.text
+        assert captured["was_sanitized"] is True
+        assert "was_sanitized" not in resp.json()
+
+    def test_was_sanitized_defaults_to_false(self, client, monkeypatch):
+        captured = {}
+
+        async def fake_save_analysis(payload):
+            captured["was_sanitized"] = payload.get("was_sanitized")
+            return "fake-analysis-id"
+
+        _patch_persistence(monkeypatch)
+        monkeypatch.setattr("app.main.save_analysis", fake_save_analysis)
+        resp = client.post(
+            "/analyze",
+            json={"query": SIMPLE_QUERY, "db_type": "postgresql", "use_llm": False},
+        )
+        assert resp.status_code == 200, resp.text
+        assert captured["was_sanitized"] is False

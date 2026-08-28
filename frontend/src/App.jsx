@@ -247,6 +247,11 @@ function App() {
           focus: 'performance',
           explain_plan: explainPlan,
           schema_info: schemaDdl || null,
+          // Issue #124: self-reported so History can show a sanitized
+          // indicator/filter — substitutionMap is only ever non-null once
+          // the user has actually applied sanitization (SanitizerPanel),
+          // so its presence is exactly the signal needed here.
+          was_sanitized: !!substitutionMap,
         },
         { headers: token ? { Authorization: `Bearer ${token}` } : {} }
       );
@@ -322,6 +327,7 @@ function App() {
     useLlm,
     explainPlan,
     schemaDdl,
+    substitutionMap,
     showToast,
     canAnalyze,
     isSignedIn,

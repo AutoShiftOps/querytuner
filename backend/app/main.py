@@ -431,6 +431,7 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
             "original_query": request.query,
             "schema_info": request.schema_info,
             "user_id": user_id,  # Phase 4: None for anonymous/unauthenticated requests
+            "was_sanitized": request.was_sanitized,  # Issue #124: self-reported, see QueryRequest's own docstring
         }
         # Persist asynchronously — failure never blocks the response
         analysis_id = await save_analysis(response_payload)
@@ -449,6 +450,7 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
         response_payload.pop("db_type", None)
         # Not part of the response schema — only needed above for persistence.
         response_payload.pop("user_id", None)
+        response_payload.pop("was_sanitized", None)
 
         return QueryAnalysisResult(**response_payload)
     except HTTPException:
@@ -485,6 +487,7 @@ async def get_history(
     user_id: str | None = Depends(get_current_user),
     limit: int = HISTORY_PAGE_SIZE_DEFAULT,
     offset: int = 0,
+    sanitized: bool = False,
 ):
     """
     GET /history — Phase 5 (backlog #54): a Pro-only, paginated list of the
@@ -503,6 +506,11 @@ async def get_history(
     sign_in_required, anonymous_limit_reached) rather than FastAPI's
     default {"detail": ...} shape, so the frontend can render an actionable
     prompt (sign in / upgrade) instead of a generic error.
+
+    sanitized=true (Issue #124): filters to only analyses the client
+    reported as sanitized (QueryRequest.was_sanitized) — filtered
+    server-side (get_analysis_history's own job) so pagination stays
+    correct against the filtered set.
     """
     if not user_id:
         return JSONResponse(
@@ -529,7 +537,7 @@ async def get_history(
     limit = max(1, min(limit, HISTORY_PAGE_SIZE_MAX))
     offset = max(0, offset)
 
-    items = await get_analysis_history(user_id, limit=limit, offset=offset)
+    items = await get_analysis_history(user_id, limit=limit, offset=offset, sanitized_only=sanitized)
     return {
         "items": items,
         "limit": limit,
@@ -801,6 +809,7 @@ async def get_report(analysis_id: str):
             "ai_provider": record.get("ai_provider"),
             "created_at": record["created_at"],
             "share_url": f"https://querytuner.com/report/{record['id']}",
+            "was_sanitized": bool(record.get("was_sanitized", False)),  # Issue #124
         }
     )
 
