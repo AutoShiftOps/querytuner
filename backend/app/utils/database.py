@@ -51,6 +51,7 @@ _OPTIONAL_COLUMNS = (
     "security_issues",
     "user_id",
     "expires_at",  # Issue #116, migration 008
+    "was_sanitized",  # Issue #124, migration 009
 )
 
 # Issue #116: default shareable-link lifetime, set at write time in
@@ -121,6 +122,9 @@ async def save_analysis(payload: dict[str, Any]) -> str | None:
         "ai_provider": payload.get("ai_provider") or None,
         "security_issues": payload.get("security_issues") or [],
         "user_id": payload.get("user_id") or None,
+        # Issue #124: self-reported by the client — see QueryRequest.was_sanitized's
+        # own docstring for why this can only ever be self-reported.
+        "was_sanitized": bool(payload.get("was_sanitized", False)),
         # Issue #116: every newly-created analysis gets a default
         # expiration window from creation. Existing rows (created before
         # migration 008 shipped) keep expires_at NULL — never expiring —
@@ -234,14 +238,22 @@ async def expire_analysis(analysis_id: str, user_id: str) -> bool:
 _HISTORY_SNIPPET_CHARS = 200
 
 
-async def get_analysis_history(user_id: str, *, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
+async def get_analysis_history(
+    user_id: str, *, limit: int = 20, offset: int = 0, sanitized_only: bool = False
+) -> list[dict[str, Any]]:
     """
     Phase 5 (backlog #54): a lightweight, paginated summary of a user's
     past analyses for the History page (GET /history) — id, db_type, a
-    truncated query snippet, severity, issue count, created_at. NOT the
-    full record (execution plan, AI insights, schema_info, ...) — that's
-    what GET /report/{id} already returns on click-through, so this
-    deliberately avoids `select=*` to keep the list response light.
+    truncated query snippet, severity, issue count, created_at,
+    was_sanitized (#124). NOT the full record (execution plan, AI
+    insights, schema_info, ...) — that's what GET /report/{id} already
+    returns on click-through, so this deliberately avoids `select=*` to
+    keep the list response light.
+
+    sanitized_only (#124): filters server-side (a Supabase query param,
+    not a client-side array filter) so pagination stays correct against
+    the filtered set — filtering an already-paginated page client-side
+    would make "Load more" and the item count both lie.
 
     Returns an empty list (never raises) when Supabase isn't configured,
     the request fails, or the user has no analyses yet — callers can't
@@ -251,21 +263,62 @@ async def get_analysis_history(user_id: str, *, limit: int = 20, offset: int = 0
     """
     if not _supabase_configured():
         return []
+
+    base_select = "id,db_type,original_query,severity,findings,created_at"
+    # was_sanitized (migration 009) is the first *optional* column this
+    # query has ever selected — every other field here has existed since
+    # migration 001. A Supabase project that hasn't run 009 yet would 400
+    # on the unknown column and (via the broad except below) lose the
+    # ENTIRE history list, not just the sanitized part — so this needs the
+    # same one-column-at-a-time fallback _insert_with_fallback already
+    # uses for writes, just for this one read.
+    params = {
+        "user_id": f"eq.{user_id}",
+        "select": f"{base_select},was_sanitized",
+        "order": "created_at.desc",
+        "limit": str(limit),
+        "offset": str(offset),
+    }
+    if sanitized_only:
+        params["was_sanitized"] = "eq.true"
+
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(
                 f"{settings.supabase_url}/rest/v1/analyses",
                 headers=_supabase_headers(),
-                params={
-                    "user_id": f"eq.{user_id}",
-                    "select": "id,db_type,original_query,severity,findings,created_at",
-                    "order": "created_at.desc",
-                    "limit": str(limit),
-                    "offset": str(offset),
-                },
+                params=params,
             )
             resp.raise_for_status()
             rows = resp.json()
+    except httpx.HTTPStatusError as exc:
+        if "was_sanitized" not in exc.response.text:
+            logger.warning("Failed to fetch analysis history for user %s: %s", user_id, exc)
+            return []
+        # Migration 009 hasn't run on this project yet — fall back to the
+        # pre-#124 column set. sanitized_only can't be honored without the
+        # column to filter on, so it's dropped (unfiltered results) rather
+        # than silently returning an empty list for a filter that isn't
+        # really "zero sanitized analyses," just "not migrated yet."
+        logger.warning("was_sanitized column not found — retrying history fetch without it")
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"{settings.supabase_url}/rest/v1/analyses",
+                    headers=_supabase_headers(),
+                    params={
+                        "user_id": f"eq.{user_id}",
+                        "select": base_select,
+                        "order": "created_at.desc",
+                        "limit": str(limit),
+                        "offset": str(offset),
+                    },
+                )
+                resp.raise_for_status()
+                rows = resp.json()
+        except Exception as exc2:  # noqa: BLE001
+            logger.warning("Failed to fetch analysis history for user %s: %s", user_id, exc2)
+            return []
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to fetch analysis history for user %s: %s", user_id, exc)
         return []
@@ -283,6 +336,7 @@ async def get_analysis_history(user_id: str, *, limit: int = 20, offset: int = 0
                 "severity": row.get("severity"),
                 "issue_count": len(findings) if isinstance(findings, list) else 0,
                 "created_at": row.get("created_at"),
+                "was_sanitized": bool(row.get("was_sanitized", False)),
             }
         )
     return summaries

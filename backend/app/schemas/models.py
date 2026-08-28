@@ -28,6 +28,16 @@ class QueryRequest(BaseModel):
     llm_provider: LLMProvider = Field(default=LLMProvider.HUGGINGFACE)
     use_llm: bool = Field(default=False)
     focus: str = Field(default="performance")
+    # Issue #124: the frontend's client-side sanitizer (table/column names
+    # replaced with dummy values before ever leaving the browser) has no
+    # server-side signal at all today — the backend just sees whatever
+    # query text it's given, sanitized or not. This is purely a
+    # self-reported flag from the client for History/report-list display
+    # (the "sanitized" indicator and filter #124 asks for); it changes no
+    # analysis behavior and isn't itself a privacy boundary — the actual
+    # privacy guarantee is that sanitization happens in the browser before
+    # this request is ever sent, same as before this field existed.
+    was_sanitized: bool = Field(default=False, description="True if the client sanitized this query before sending")
 
 
 class Finding(BaseModel):
