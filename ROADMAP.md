@@ -224,12 +224,12 @@ Full findings: `docs/querytuner-phase4-audit.md`.
 | #61 | ✅ EXPLAIN plan parser — parse PostgreSQL EXPLAIN output (`134efda3`, gap-closure `428facb5`) | 🔴 High |
 | #62 | ✅ EXPLAIN plan parser — parse MySQL EXPLAIN output (`134efda3`, gap-closure `428facb5`) | 🔴 High |
 | #63 | ✅ Cross-reference heuristics with parsed EXPLAIN plan (`134efda3`, gap-closure `428facb5`) | 🔴 High |
-| #115 | ✅ Batch workload analysis — cross-query index reconciliation (`90b7fd0b`) | 🔴 High |
+| #115 | ✅ Batch workload analysis — cross-query index reconciliation (`90b7fd0b`, frontend UI landed later — see #120's row) | 🔴 High |
 | #116 | ✅ URL expiration and deletion for shareable reports — shipped as fixed 90-day default + owner-only revoke (`860950e3`); GitHub issue also asked for user-selectable 7/30/never at share time, not yet built — see note below | 🟡 Medium |
 | #117 | ✅ Column order reasoning in composite index DDL proposals (`7121cc12`) | 🟢 Low |
 | #118 | ✅ Write and storage cost estimate per index recommendation (`4e747b95`) | 🟡 Medium |
 | #119 | Parameter sniffing detection — compiled vs runtime parameter values | 🔴 High |
-| #120 | ✅ Batch query input from pg_stat_statements / performance_schema / Query Store export (`90b7fd0b`) | 🔴 High |
+| #120 | ✅ Batch query input from pg_stat_statements / performance_schema / Query Store export — backend `90b7fd0b`, frontend `/batch` UI landed later (deliberately scoped backend-only in v1, see `docs/querytuner-batch-analysis-issue.md`) | 🔴 High |
 | — | ✅ Quiz Mode — pre-reveal test-yourself questions from real query findings (`247c7d58`) | 🟢 Low |
 | #151 | ✅ Confidence labeling on findings — already fully satisfied by the Post-Phase 2 three-tier evidence system (`1fcb82a0`); see note below | 🟡 Medium |
 
