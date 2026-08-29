@@ -174,19 +174,33 @@ differ from their literal original wording (documented per-issue below and in
 GitHub comments). One live gap found and fixed same-day (#53). Two issues were
 genuine partial/missing builds at audit time — #124 completed 2026-08-28
 (`aedf65fe`), #51 (the audit's only real "not just wording" gap) completed
-2026-08-28 (`e2709f1f`). All 10 issues are now closed.
+2026-08-28 (`e2709f1f`).
+
+**Correction (2026-08-29):** this section previously claimed "all 10 issues are
+now closed" — checked directly against GitHub and that's wrong. Only 3 of the
+10 are actually closed (#51, #53, #124). The other 7 were **deliberately left
+open** by the audit's own recommendation ("comment-and-keep-open... none of
+these are 'close outright'") — each has a real, documented deviation from its
+issue's literal wording (monthly vs. daily limit, a different table shape,
+`402` vs. `429`, Payment Links vs. a Checkout Session endpoint, etc.), and an
+explanatory comment is already posted on each. #47 is the one exception the
+audit flagged as a clean match with no gap — its own comment says "safe to
+close whenever you're ready to review the group," left as the repo owner's
+call rather than closed unilaterally. None of the 7 are closed as of this
+correction; the GitHub issue tracker is the source of truth for open/closed
+state, not this table.
 
 | Issue | Task | Status |
 |---|---|---|
-| #46 | Free/Pro tier limits | ✅ 10 analyses/**month** (not /day as originally worded), enforced server-side |
-| #47 | Clerk auth on `/analyze` | ✅ Matches original ask |
-| #48 | Usage tracking | ✅ `user_usage` (monthly aggregate) + `user_accounts` (subscription state) — different table shape than the `usage_log` originally specified; see migration 007's own note for a real bug this split fixed |
-| #49 | Enforce limit, upgrade prompt | ✅ Returns `402`, not `429` as originally worded |
-| #50 | Checkout + webhook | ✅ Stripe **Payment Links** + `POST /webhook/stripe`, not a backend `/create-checkout-session` endpoint as originally worded |
-| #51 | Pricing page | ✅ Shipped (`e2709f1f`) — dedicated `/pricing` route, market-standard pricing-cards + feature-comparison-table shape, linked from the main nav |
-| #52 | Clerk provider + header | ✅ Provider lives in `main.jsx` (app root), not `App.jsx` as originally worded; inline sign-in prompt instead of a redirect |
-| #53 | Pro-tier LLM routing | ✅ Fixed `ecd66de7` — was unenforced server-side until the Phase 4 audit caught it same-day |
-| #124 | User report dashboard | ✅ Complete (`aedf65fe`, migration 009) — sanitized indicator + filter, delete button (wired to #116's `DELETE /report/{id}`), and copy-link button all shipped on top of the already-live list view. References #116 (see Phase 5 table) |
+| #46 | Free/Pro tier limits | ✅ 10 analyses/**month** (not /day as originally worded), enforced server-side — **open**, comment posted |
+| #47 | Clerk auth on `/analyze` | ✅ Matches original ask — **open**, audit says safe to close when reviewed |
+| #48 | Usage tracking | ✅ `user_usage` (monthly aggregate) + `user_accounts` (subscription state) — different table shape than the `usage_log` originally specified; see migration 007's own note for a real bug this split fixed — **open**, comment posted |
+| #49 | Enforce limit, upgrade prompt | ✅ Returns `402`, not `429` as originally worded — **open**, comment posted |
+| #50 | Checkout + webhook | ✅ Stripe **Payment Links** + `POST /webhook/stripe`, not a backend `/create-checkout-session` endpoint as originally worded — **open**, comment posted |
+| #51 | Pricing page | ✅ Shipped (`e2709f1f`) — dedicated `/pricing` route, market-standard pricing-cards + feature-comparison-table shape, linked from the main nav — **closed** |
+| #52 | Clerk provider + header | ✅ Provider lives in `main.jsx` (app root), not `App.jsx` as originally worded; inline sign-in prompt instead of a redirect — **open**, comment posted |
+| #53 | Pro-tier LLM routing | ✅ Fixed `ecd66de7` — was unenforced server-side until the Phase 4 audit caught it same-day — **closed** |
+| #124 | User report dashboard | ✅ Complete (`aedf65fe`, migration 009) — sanitized indicator + filter, delete button (wired to #116's `DELETE /report/{id}`), and copy-link button all shipped on top of the already-live list view. References #116 (see Phase 5 table) — **closed** |
 
 Full findings: `docs/querytuner-phase4-audit.md`.
 
