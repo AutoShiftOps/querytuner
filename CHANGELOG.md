@@ -37,6 +37,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   reach it. Found ahead of DZone launch traffic converting signups into
   Pro customers looking for it. Added a caveat note under that one row
   rather than rushing a UI into place under time pressure
+- ROADMAP.md's Phase 4 section claimed "all 10 issues are now closed" —
+  checked directly against GitHub and only 3 are (#51, #53, #124). The
+  other 7 were deliberately left open by the Phase 4 audit's own
+  recommendation (real, documented deviations from each issue's literal
+  wording; comments already posted), not forgotten. Corrected the claim
+  and annotated each row with its real open/closed state instead of
+  closing the issues to match the old wording
 
 ### Tests
 - #151 (confidence labeling on findings) audited against its acceptance
