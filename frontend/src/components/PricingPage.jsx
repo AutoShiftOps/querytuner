@@ -19,7 +19,14 @@
  * textareas have no sign-in or isPro check at all), so this page doesn't
  * claim otherwise just because an early issue once said "no schema" on
  * free tier. A pricing page that oversells what's actually gated is worse
- * than a plain one.
+ * than a plain one. Same reasoning behind the "Batch workload analysis"
+ * row's `note` field, added ahead of the DZone launch traffic: that
+ * feature is real and Pro-gated (POST /analyze/batch), but #115/#120
+ * deliberately shipped it backend-only — there's still no in-app UI to
+ * reach it. A bare checkmark there would silently imply parity with
+ * Quiz Mode or Query history, which a Pro user actually can find in the
+ * app; the caveat is cheaper and safer than either overselling it or
+ * rushing a UI into place right before a traffic spike.
  *
  * Self-contained styles (own T tokens / injected <style> block) rather
  * than importing Header.jsx or another page's styles — same rationale
@@ -76,7 +83,18 @@ const FEATURE_ROWS = [
   { label: 'Shareable report links', free: true, pro: true },
   { label: 'AI Insights provider', free: 'Hugging Face', pro: 'Hugging Face + OpenAI GPT-4o-mini' },
   { label: 'Query history', free: false, pro: true },
-  { label: 'Batch workload analysis (Query Store / pg_stat_statements)', free: false, pro: true },
+  {
+    label: 'Batch workload analysis (Query Store / pg_stat_statements)',
+    // #115/#120 shipped backend-only by deliberate v1 scope (see
+    // docs/querytuner-batch-analysis-issue.md) — POST /analyze/batch is
+    // real and Pro-gated, but there's still no in-app UI to reach it.
+    // A plain checkmark here would read the same as Quiz Mode or Query
+    // history, which a Pro user CAN find in the app — this row can't
+    // make that same claim without a caveat.
+    note: 'API only — see API Docs in the footer',
+    free: false,
+    pro: true,
+  },
 ];
 
 function injectStyles() {
@@ -369,7 +387,12 @@ export default function PricingPage() {
             <tbody>
               {FEATURE_ROWS.map((row) => (
                 <tr key={row.label}>
-                  <td>{row.label}</td>
+                  <td>
+                    {row.label}
+                    {row.note && (
+                      <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>{row.note}</div>
+                    )}
+                  </td>
                   <td>
                     <FeatureCell value={row.free} />
                   </td>
