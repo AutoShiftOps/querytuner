@@ -87,6 +87,19 @@ class Settings(BaseSettings):
     # so the redirect-back actually lands somewhere real while testing.
     frontend_url: str = "https://querytuner.com"
 
+    # -------------------------------------------------------------------------
+    # Observability — Phase 5 (#135)
+    # sentry_dsn blank = Sentry is a complete no-op (see main.py's init) —
+    # same degrades-gracefully pattern this file already uses for every
+    # other optional integration (hf_api_key, openai_api_key, the Stripe
+    # keys above): a missing key disables the feature, it never crashes
+    # the app. environment tags every event so errors from a local dev
+    # instance pointed at the same DSN by mistake are separable from real
+    # production ones.
+    # -------------------------------------------------------------------------
+    sentry_dsn: str = ""
+    environment: str = "production"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,

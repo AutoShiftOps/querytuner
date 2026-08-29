@@ -233,6 +233,32 @@ Full findings: `docs/querytuner-phase4-audit.md`.
 | — | ✅ Quiz Mode — pre-reveal test-yourself questions from real query findings (`247c7d58`) | 🟢 Low |
 | #151 | ✅ Confidence labeling on findings — already fully satisfied by the Post-Phase 2 three-tier evidence system (`1fcb82a0`); see note below | 🟡 Medium |
 
+---
+
+## 🏢 Enterprise Readiness (unphased — labeled `enterprise`, not tied to a Phase 5 date)
+
+**Status:** Not started until 2026-08-29. Genuinely blocking the "$299/mo team
+plan" framing above — no team tier exists on the pricing page yet (Free/Pro
+only), and none of these three had any code behind them until #135 below.
+
+| Issue | Task | Status |
+|---|---|---|
+| #134 | Always-on infra with sub-200ms P95 latency SLO | Not started |
+| #135 | Observability — error tracking, uptime monitoring, alerting | 🟡 Partially shipped — see note below |
+| #136 | SOC2-aligned security & compliance controls | Not started |
+
+**Note on #135:** found with no code behind it at all during a pre-DZone-
+launch audit (no Sentry/equivalent anywhere in the codebase). Shipped this
+pass: backend + frontend Sentry error tracking (`SENTRY_DSN`/
+`VITE_SENTRY_DSN`, both no-op when unset), an `X-Request-ID` correlation-ID
+middleware, and a DB-aware `/health` check for an uptime monitor to point
+at. Uptime monitoring and alerting are third-party account setup, not a
+code change — see `docs/querytuner-observability-issue.md` for the exact
+steps (Sentry alert rules, UptimeRobot, Slack integrations). Full backend
+suite: 331 passed, 1 pre-existing xfail.
+
+---
+
 **Note on #151:** filed 2026-08-17 asking for a `certain`/`inferred` confidence
 field per finding, upgradeable once schema resolves the uncertainty. The
 three-tier `evidence_level` system (`deterministic` / `schema-verified` /

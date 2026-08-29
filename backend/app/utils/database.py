@@ -41,6 +41,29 @@ def hash_query(query: str) -> str:
     return hashlib.sha256(normalized.encode()).hexdigest()[:16]
 
 
+async def check_database_health() -> bool:
+    """Lightweight Supabase reachability check for GET /health (#135).
+
+    Returns False rather than raising on any failure — this feeds an
+    uptime monitor's dashboard, not something that should ever break the
+    health endpoint itself. Not configured at all (local dev, no Supabase
+    env vars) also reports False, which is correct: there's genuinely no
+    database to reach, not a false "healthy."
+    """
+    if not _supabase_configured():
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(
+                f"{settings.supabase_url}/rest/v1/analyses",
+                headers=_supabase_headers(),
+                params={"select": "id", "limit": "1"},
+            )
+        return resp.status_code == 200
+    except Exception:  # noqa: BLE001
+        return False
+
+
 # Columns added after the initial schema (001) — a given Supabase project may
 # not have run the corresponding migration yet. Retried one at a time below
 # rather than losing the whole analysis record (PGRST204: unknown column).
