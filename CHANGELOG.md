@@ -31,6 +31,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   tests pinning `evidence_level` per heuristic type, since nothing previously
   asserted the tier itself — only that a type fires
 
+### Security
+- 7 Dependabot alerts on `frontend/` (6 high, 1 moderate) resolved via
+  `npm audit fix` — all within existing `package.json` semver ranges, no
+  direct dependency version bumped, only `package-lock.json` changed.
+  Notably `@clerk/clerk-react` (5.61.3 → 5.61.9): an authorization bypass
+  when combining organization, billing, or reverification checks
+  (GHSA-w24r-5266-9c3c) — directly relevant here since Clerk gates the
+  Free/Pro tier boundary. Also `postcss` (8.5.13 → 8.5.26, two path-traversal
+  advisories via sourcemap auto-loading), `nanoid`, `js-yaml`, and
+  `brace-expansion` (all transitive, dev-tooling only)
+
 ## [0.3.0] — 2026-08-28
 
 Phase 4 (auth + payments) is live in production and independently audited
