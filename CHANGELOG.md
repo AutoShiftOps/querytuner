@@ -29,6 +29,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   header, and a faint accent tint on the Pro column tying it to the
   "Recommended" pricing card above it. Verified against a live dev-server
   screenshot, before and after
+- `/pricing`'s "Batch workload analysis" row read as a plain Pro checkmark
+  identical to Quiz Mode and Query history — both of which a Pro user can
+  actually find in the app. #115/#120 deliberately shipped that feature
+  backend-only (`POST /analyze/batch` is real and Pro-gated, see
+  `docs/querytuner-batch-analysis-issue.md`); there's still no in-app UI to
+  reach it. Found ahead of DZone launch traffic converting signups into
+  Pro customers looking for it. Added a caveat note under that one row
+  rather than rushing a UI into place under time pressure
 
 ### Tests
 - #151 (confidence labeling on findings) audited against its acceptance
