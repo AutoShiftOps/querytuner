@@ -82,6 +82,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `check_database_health()` against a mocked Supabase (200 / error status /
   network failure / not configured). Full backend suite: 331 passed (up
   from 322), 1 pre-existing xfail
+- Frontend component-render test harness — `@testing-library/react` +
+  `jsdom` (`vite.config.js`'s `test.environment`, previously vitest's
+  default `node` — no `document`/`window` at all) and a shared
+  `@clerk/clerk-react` mock (`src/test/setup.js`, runs before every test
+  file) so a Clerk-gated page can actually be rendered and clicked through
+  in a test instead of only via a real Clerk session. Every prior frontend
+  test was a pure-function test on plain JS (the sanitizer, quiz logic,
+  `formatRelativeTime`, ...) — none of them rendered a component. First use:
+  `BatchAnalysisPage.render.test.jsx`, 7 tests covering all three Pro-gating
+  states plus the full "Load a sample" → "Analyze batch" → reconciled-
+  results path against a mocked API response — the exact interactive path
+  PR #170 could only verify against a real Clerk session before this.
+  Frontend suite: 75 passed (up from 68)
 
 ### Security
 - 7 Dependabot alerts on `frontend/` (6 high, 1 moderate) resolved via
