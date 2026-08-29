@@ -34,6 +34,7 @@ _DETERMINISTIC_TYPES = frozenset(
         "column_selection",
         "not_in_nullable",
         "case_in_predicate",
+        "count_star_existence_check",
     }
 )
 
@@ -572,6 +573,41 @@ class SQLAnalyzerAgent:
                         estimated="Depends on CTE complexity and row count — verify with EXPLAIN",
                     )
                 )
+
+        # 17) Issue #141: count_star_existence_check — COUNT(*) used only to
+        # test row existence. Deterministic: EXISTS always outperforms this
+        # regardless of data — COUNT(*) must scan and tally every matching
+        # row before the comparison can evaluate, EXISTS stops at the first
+        # match. Anchored to the specific "(SELECT COUNT(*) FROM ...) <cmp>
+        # 0-or-1" scalar-subquery shape, not bare COUNT(*) anywhere in the
+        # query — a legitimate "GROUP BY x HAVING COUNT(*) > 5" is a
+        # completely different, valid use of COUNT(*) with no FROM inside
+        # a parenthesized subquery, so it never matches here.
+        # Known limitation: [^)]* stops at the first ')', so a subquery
+        # whose own WHERE contains a function call (e.g. UPPER(status))
+        # won't match — a false negative, not a false positive, and an
+        # acceptable trade-off for a regex heuristic rather than a parser.
+        # Credit: reported by David Wiseman (DBA Dash) as a common
+        # production anti-pattern.
+        if re.search(
+            r"\(\s*select\s+count\s*\(\s*\*\s*\)\s+from\b[^)]*\)\s*(>=?|<>|!=|=)\s*(0|1)\b",
+            ql,
+            re.IGNORECASE | re.DOTALL,
+        ):
+            suggestions.append(
+                self._suggest(
+                    type_="count_star_existence_check",
+                    severity="medium",
+                    suggestion="COUNT(*) used to check row existence — EXISTS is faster",
+                    reason=(
+                        "COUNT(*) must scan and count every matching row before the comparison can "
+                        "evaluate; EXISTS stops at the first match. Rewrite "
+                        "'(SELECT COUNT(*) FROM t WHERE ...) > 0' as "
+                        "'EXISTS (SELECT 1 FROM t WHERE ...)' — same result, no full count."
+                    ),
+                    estimated="Often significant on large tables — avoids scanning every matching row",
+                )
+            )
 
         return self._dedupe_suggestions(suggestions)
 

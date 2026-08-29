@@ -37,6 +37,7 @@ export const TYPE_LABELS = {
   case_in_predicate: 'CASE Expression in WHERE',
   or_expansion: 'OR Expansion Risk',
   cte_multiple_references: 'CTE Referenced Multiple Times',
+  count_star_existence_check: 'COUNT(*) Existence Check',
   // Gap-followup (querytuner-explain-parser-gap-followup.md, #63 item 4):
   // plan-only, MySQL-specific — surfaced straight from a pasted EXPLAIN's
   // Extra field, so unlike everything else in this table these only ever

@@ -32,6 +32,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   testing notes), and full rendering of the reconciled/dropped/column-order-
   conflict result shape `POST /analyze/batch` returns. The pricing page's
   "API only" caveat note is removed now that this exists
+- 17th heuristic rule: `count_star_existence_check` (#141) — flags
+  `(SELECT COUNT(*) FROM ...) > 0`/`= 0`/`<> 0` used purely to test row
+  existence and suggests `EXISTS` instead (stops at the first match rather
+  than scanning and counting every one). Deterministic, all 5 dialects.
+  Anchored to the specific parenthesized-scalar-subquery shape rather than
+  bare `COUNT(*)` anywhere, so a legitimate `GROUP BY ... HAVING COUNT(*) >
+  N` never false-positives. Picked off the open backlog as the genuinely
+  cheap item — #140 (query regression detection) and #138/#139 (SQL
+  Server lock-wait/memory-grant) all turned out to need query-history
+  diffing or a live DB connection once their full issue text was read,
+  not just a regex. Credit: reported by David Wiseman (DBA Dash) as a
+  common production anti-pattern
 
 ### Fixed
 - `parse_schema_ddl()` silently dropped columns whose SQL Server type was itself

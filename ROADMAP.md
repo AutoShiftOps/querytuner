@@ -51,6 +51,12 @@
 | `or_expansion` heuristic — OR across different columns may force a full scan | ✅ Done |
 | `cte_multiple_references` heuristic — CTE referenced 2+ times may re-execute per reference | ✅ Done |
 
+**Later addition (August 2026, #141) — 1 more, bringing the total to 17:**
+
+| Task | Status |
+|---|---|
+| `count_star_existence_check` heuristic — `(SELECT COUNT(*) FROM ...) > 0` should be `EXISTS` | ✅ Done |
+
 ---
 
 ## ➕ Phase 1.5 — Supabase setup + persistence (Week 2-3, May 7–10)
@@ -232,6 +238,7 @@ Full findings: `docs/querytuner-phase4-audit.md`.
 | #120 | ✅ Batch query input from pg_stat_statements / performance_schema / Query Store export — backend `90b7fd0b`, frontend `/batch` UI landed later (deliberately scoped backend-only in v1, see `docs/querytuner-batch-analysis-issue.md`) | 🔴 High |
 | — | ✅ Quiz Mode — pre-reveal test-yourself questions from real query findings (`247c7d58`) | 🟢 Low |
 | #151 | ✅ Confidence labeling on findings — already fully satisfied by the Post-Phase 2 three-tier evidence system (`1fcb82a0`); see note below | 🟡 Medium |
+| #141 | ✅ `COUNT(*)` used as an existence check — 17th heuristic rule, suggests `EXISTS` instead. Deterministic, all 5 dialects. Picked as the genuinely cheap item off the backlog (#140/#138/#139 turned out to need query-history diffing or a live DB connection once their full text was read) | 🟢 Low |
 
 ---
 
