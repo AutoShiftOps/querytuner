@@ -20,6 +20,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   so every real visitor's `/analyze`, `/capabilities`, and `/usage` call was
   silently CORS-blocked in production despite succeeding server-side. Both
   origins now explicitly allowed (#163, `9156cb86`)
+- `/pricing`'s "Compare plans" table had no vertical column separation and a
+  header barely distinguishable from the body (both near-black on the dark
+  theme) — every row was technically aligned but read as three loose columns
+  of text rather than a table, reported as looking like "plain misaligned
+  text." Added a real column grid (vertical rules, `table-layout: fixed` so
+  column widths can't drift row to row), zebra striping, a higher-contrast
+  header, and a faint accent tint on the Pro column tying it to the
+  "Recommended" pricing card above it. Verified against a live dev-server
+  screenshot, before and after
 
 ### Tests
 - #151 (confidence labeling on findings) audited against its acceptance

@@ -157,14 +157,33 @@ function injectStyles() {
 
     .qt-pricing-table-title { font-size: 20px; font-weight: 600; margin-bottom: 1.25rem; }
     .qt-pricing-table-wrap { overflow-x: auto; border: 1px solid ${T.border}; border-radius: 12px; }
-    .qt-pricing-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 480px; }
+    .qt-pricing-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 480px; table-layout: fixed; }
     .qt-pricing-table th, .qt-pricing-table td {
       padding: 12px 16px; text-align: left; border-bottom: 1px solid ${T.border};
     }
-    .qt-pricing-table th { color: ${T.textMuted}; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; background: ${T.surface}; }
-    .qt-pricing-table th:not(:first-child), .qt-pricing-table td:not(:first-child) { text-align: center; width: 160px; }
+    .qt-pricing-table th {
+      color: ${T.textMuted}; font-weight: 600; font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.04em; background: ${T.surfaceHigh};
+      border-bottom: 1px solid ${T.borderBright};
+    }
+    /* Real column grid — a vertical rule per value column, not just row
+       dividers, so this reads as a table at a glance instead of three
+       loosely-aligned text columns. */
+    .qt-pricing-table th:not(:first-child), .qt-pricing-table td:not(:first-child) {
+      text-align: center; width: 160px; border-left: 1px solid ${T.border};
+    }
+    /* Pro column gets a faint accent tint, tying it back to the highlighted
+       "Recommended" pricing card above instead of looking identical to Free. */
+    .qt-pricing-table th:last-child, .qt-pricing-table td:last-child {
+      background: rgba(56,189,248,0.05);
+    }
+    .qt-pricing-table th:last-child { background: rgba(56,189,248,0.1); }
+    .qt-pricing-table tbody tr:nth-child(even) td:first-child,
+    .qt-pricing-table tbody tr:nth-child(even) td:not(:first-child):not(:last-child) {
+      background: rgba(255,255,255,0.025);
+    }
     .qt-pricing-table tbody tr:last-child td { border-bottom: none; }
-    .qt-pricing-table tbody tr:hover { background: ${T.surfaceHigh}; }
+    .qt-pricing-table tbody tr:hover td { background: ${T.surfaceHigh}; }
     .qt-pricing-table td:first-child { color: ${T.text}; }
   `;
   document.head.appendChild(style);
