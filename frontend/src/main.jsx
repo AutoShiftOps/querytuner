@@ -8,6 +8,7 @@ import * as Sentry from '@sentry/react';
 import ReportPage from './components/ReportPage';
 import HistoryPage from './components/HistoryPage';
 import PricingPage from './components/PricingPage';
+import BatchAnalysisPage from './components/BatchAnalysisPage';
 import App from './App';
 
 // Phase 5 (#135): error tracking — same degrades-gracefully pattern as the
@@ -92,6 +93,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/report/:id" element={<ReportPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/pricing" element={<PricingPage />} />
+            <Route path="/batch" element={<BatchAnalysisPage />} />
             <Route path="/" element={<App />} />
           </Routes>
         </BrowserRouter>

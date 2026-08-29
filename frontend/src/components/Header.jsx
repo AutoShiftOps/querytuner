@@ -230,6 +230,16 @@ export default function Header({ isPro = false, showToast } = {}) {
               <a href="/history" className="qt-header-link qt-header-hide-mobile">
                 History
               </a>
+              {/* Phase 5 (#115/#120): same always-shown, page-locks-itself
+                  pattern as History above — a free user who clicks through
+                  lands on BatchAnalysisPage.jsx's own locked state rather
+                  than the link disappearing outright. The pricing page's
+                  Batch workload analysis row (PR #167's caveat note)
+                  should have its "API only" note removed now that this
+                  exists. */}
+              <a href="/batch" className="qt-header-link qt-header-hide-mobile">
+                Batch
+              </a>
               <div className="qt-header-divider qt-header-hide-mobile" />
               {isPro && (
                 <>

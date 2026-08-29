@@ -21,6 +21,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   third-party account setup, not a code change — see
   `docs/querytuner-observability-issue.md` for the exact steps. Found with
   zero code behind it during a pre-DZone-launch audit
+- Batch workload analysis UI (#115/#120) — `/batch`, linked from the header
+  nav next to History. #115/#120 originally shipped `POST /analyze/batch`
+  backend-only by deliberate v1 scope (`docs/querytuner-batch-analysis-issue.md`);
+  this is the paste-box + format selector + results view that was missing,
+  closing the gap PR #167's pricing-page caveat flagged. Same Pro-gating
+  pattern as HistoryPage.jsx (signed-out prompt, locked state + UpgradeModal
+  for free tier, real form for Pro), a per-source "Load a sample" button
+  (verified against the real backend parser end-to-end — see this PR's own
+  testing notes), and full rendering of the reconciled/dropped/column-order-
+  conflict result shape `POST /analyze/batch` returns. The pricing page's
+  "API only" caveat note is removed now that this exists
 
 ### Fixed
 - `parse_schema_ddl()` silently dropped columns whose SQL Server type was itself
