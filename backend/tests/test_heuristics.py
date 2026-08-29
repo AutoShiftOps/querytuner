@@ -302,7 +302,38 @@ def test_cte_referenced_once_no_multiple_references(analyzer):
     ), "CTE referenced only once should not trigger cte_multiple_references"
 
 
-# ── 29. #151 — confidence labeling on findings ───────────────────────────────
+# ── 29. Issue #141: COUNT(*) existence-check subquery triggers count_star_existence_check ──
+
+
+def test_count_star_existence_check_gt_zero(analyzer):
+    query = "SELECT * FROM customers c WHERE (SELECT COUNT(*) FROM orders WHERE customer_id = c.id) > 0"
+    suggestions = run(analyzer, query)
+    assert "count_star_existence_check" in get_types(
+        suggestions
+    ), "(SELECT COUNT(*) FROM ...) > 0 should trigger count_star_existence_check"
+
+
+def test_count_star_existence_check_eq_zero_negated_form(analyzer):
+    query = "SELECT * FROM customers c WHERE (SELECT COUNT(*) FROM orders WHERE customer_id = c.id) = 0"
+    suggestions = run(analyzer, query)
+    assert "count_star_existence_check" in get_types(
+        suggestions
+    ), "(SELECT COUNT(*) FROM ...) = 0 (the negated existence check) should also trigger"
+
+
+# ── 30. Legitimate GROUP BY ... HAVING COUNT(*) does NOT trigger the existence-check heuristic ──
+
+
+def test_having_count_star_does_not_trigger_existence_check(analyzer):
+    query = "SELECT customer_id FROM orders GROUP BY customer_id HAVING COUNT(*) > 5"
+    suggestions = run(analyzer, query)
+    assert "count_star_existence_check" not in get_types(suggestions), (
+        "HAVING COUNT(*) > N is a legitimate group-size filter, not an existence check — "
+        "must not false-positive just because a bare COUNT(*) appears with a comparison"
+    )
+
+
+# ── 31. #151 — confidence labeling on findings ───────────────────────────────
 #
 # QueryTuner already ships this: a three-tier evidence_level (deterministic /
 # schema-verified / needs-runtime-evidence, see sql_analyzer.py's
@@ -361,6 +392,9 @@ _TYPE_TRIGGER_QUERIES = {
         WITH recent AS (SELECT id FROM orders WHERE created_at > '2024-01-01')
         SELECT * FROM recent r1 JOIN recent r2 ON r1.id = r2.id
     """,
+    "count_star_existence_check": (
+        "SELECT * FROM customers c WHERE (SELECT COUNT(*) FROM orders WHERE customer_id = c.id) > 0"
+    ),
 }
 
 
