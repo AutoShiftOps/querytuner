@@ -2,13 +2,16 @@ import base64
 import logging
 import os
 import time
+import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
 
 import jwt
+import sentry_sdk
 import stripe
 from dotenv import load_dotenv
 from jwt import PyJWKClient
+from sentry_sdk.integrations.fastapi import FastApiIntegration
 
 # Must run before any local import that triggers Settings instantiation
 # (app.utils.config reads env vars at import time via a module-level singleton).
@@ -33,6 +36,7 @@ from .tools.index_recommender import IndexRecommender  # noqa: E402
 from .tools.query_parser import QueryParser, parse_schema_ddl  # noqa: E402
 from .utils.config import settings  # noqa: E402
 from .utils.database import (  # noqa: E402
+    check_database_health,
     expire_analysis,
     get_analysis,
     get_analysis_history,
@@ -61,6 +65,32 @@ stripe.api_key = settings.stripe_secret_key
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Phase 5 (#135): error tracking. A blank SENTRY_DSN makes this a complete
+# no-op — sentry_sdk.init() is simply never called, and every sentry_sdk.*
+# call used elsewhere in this file (set_tag, capture_exception via the
+# logging integration) is a documented no-op without an active client. Same
+# degrades-gracefully pattern as every other optional integration in this
+# codebase (HF_API_KEY, OPENAI_API_KEY, the Stripe keys) — local dev and any
+# deploy that hasn't set the env var yet keep working exactly as before.
+if settings.sentry_dsn:
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.environment,
+        integrations=[FastApiIntegration()],
+        # Light APM sampling, not full tracing — keeps a free-tier Sentry
+        # project's event quota mostly for what actually matters: errors.
+        traces_sample_rate=0.1,
+        # Query text (even client-sanitized) and request bodies are not
+        # something to hand to a third party by default — this app already
+        # goes out of its way client-side (QueryInput.jsx's sanitizer) to
+        # keep real schema names off the backend. Sentry's default PII
+        # capture would undo that if left enabled.
+        send_default_pii=False,
+    )
+    logger.info("Sentry error tracking initialized (environment=%s)", settings.environment)
+else:
+    logger.info("SENTRY_DSN not set — error tracking disabled")
 
 # Initialize FastAPI
 app = FastAPI(
@@ -251,10 +281,43 @@ async def rate_limit_middleware(request: Request, call_next):
     return response
 
 
+# Phase 5 (#135): correlation IDs for request tracing. Added after
+# rate_limit_middleware above — FastAPI/Starlette wraps middleware so the
+# LAST one added ends up OUTERMOST, meaning this one sees every request
+# first (assigns the ID before rate-limiting even runs) and touches every
+# response last (so even a 429 short-circuited by rate_limit_middleware
+# still carries the header). Reuses an incoming X-Request-ID if the caller
+# already set one (lets a frontend or upstream proxy's own ID flow through
+# end to end) rather than always minting a fresh one.
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    if settings.sentry_dsn:
+        sentry_sdk.set_tag("request_id", request_id)
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "service": "SQL Query Analyzer"}
+    """Health check endpoint — point an uptime monitor (#135) here.
+
+    Deliberately still returns 200 and "status": "healthy" even when the
+    database check below fails: the heuristic engine (the actual product)
+    keeps working with Supabase fully down, per every database.py call's
+    own try/except fallback. Paging on-call for a persistence blip as if
+    the whole service were down would be a false alarm — checks.database
+    surfaces the real state for a human without flipping the overall
+    liveness signal an uptime monitor pages on.
+    """
+    db_ok = await check_database_health()
+    return {
+        "status": "healthy",
+        "service": "SQL Query Analyzer",
+        "checks": {"database": "ok" if db_ok else "unreachable"},
+    }
 
 
 @app.get("/capabilities")

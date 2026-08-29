@@ -9,6 +9,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Dedicated `/pricing` route — Free vs Pro feature comparison table + pricing cards,
   linked from the main nav. The Phase 4 audit's only real ("not just wording") gap
   (#51, PR #162, `e2709f1f`)
+- Observability (#135) — backend + frontend Sentry error tracking
+  (`SENTRY_DSN`/`VITE_SENTRY_DSN`, both a complete no-op when unset, same
+  degrades-gracefully pattern as every other optional key in this codebase),
+  an `X-Request-ID` correlation-ID middleware (reuses a caller-supplied ID or
+  mints a UUID4, tagged onto the active Sentry scope, present on every
+  response including a 429 from the rate limiter), and a DB-aware `/health`
+  check (`checks.database: "ok" | "unreachable"`, still 200/"healthy"
+  overall — the heuristic engine works with Supabase down) for an uptime
+  monitor to point at. Uptime monitoring and alerting themselves are
+  third-party account setup, not a code change — see
+  `docs/querytuner-observability-issue.md` for the exact steps. Found with
+  zero code behind it during a pre-DZone-launch audit
 
 ### Fixed
 - `parse_schema_ddl()` silently dropped columns whose SQL Server type was itself
@@ -54,6 +66,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   uncertainty, the literal behavior the issue asked for. Added regression
   tests pinning `evidence_level` per heuristic type, since nothing previously
   asserted the tier itself — only that a type fires
+- 9 new tests (`tests/test_observability.py`) covering `/health`'s two
+  states, `X-Request-ID` generation/echo/uniqueness, and
+  `check_database_health()` against a mocked Supabase (200 / error status /
+  network failure / not configured). Full backend suite: 331 passed (up
+  from 322), 1 pre-existing xfail
 
 ### Security
 - 7 Dependabot alerts on `frontend/` (6 high, 1 moderate) resolved via
