@@ -1,14 +1,18 @@
 import { useUser } from '@clerk/clerk-react';
 import { X, Zap, History, Sparkles } from 'lucide-react';
+import { buildProRequestMailto } from '../utils/proWaitlist';
 
 // Phase 4: shown when a signed-in free-tier user hits FREE_LIMIT in App.jsx.
 //
-// The CTA reads its target from VITE_STRIPE_PAYMENT_LINK rather than a
-// hardcoded URL — there is no real Stripe Payment Link available yet (one
-// must be created in the Stripe dashboard for price_1U0nGnDnampVVaUXDZ2MvqQc
-// and the resulting https://buy.stripe.com/... URL set as that env var).
-// Shipping a fake/placeholder URL in source would silently 404 for every
-// user, so the button disables itself with an explicit note instead.
+// CHECKOUT_ENABLED is a deliberate, explicit switch — separate from
+// whether a Stripe Payment Link happens to be configured. Real checkout
+// only ever shows when BOTH are true. This is intentional: an env var
+// that's merely unset is too easy to flip on by accident later (someone
+// sets VITE_STRIPE_PAYMENT_LINK for an unrelated reason and real
+// payments silently go live). Until CHECKOUT_ENABLED is explicitly set
+// to "true" in Vercel, every user sees the "coming soon" + free-request
+// flow below, no matter what else is configured.
+const CHECKOUT_ENABLED = (import.meta.env.VITE_PRO_CHECKOUT_ENABLED || '').toLowerCase() === 'true';
 const PAYMENT_LINK = import.meta.env.VITE_STRIPE_PAYMENT_LINK || '';
 
 const FEATURES = [
@@ -118,7 +122,7 @@ export default function UpgradeModal({ isOpen, onClose, usageCount, title, subti
           <span style={{ fontSize: 13, color: '#7fa3c4' }}>/month</span>
         </div>
 
-        {PAYMENT_LINK ? (
+        {CHECKOUT_ENABLED && PAYMENT_LINK ? (
           <a
             href={paymentUrl}
             rel="noopener noreferrer"
@@ -138,28 +142,28 @@ export default function UpgradeModal({ isOpen, onClose, usageCount, title, subti
           </a>
         ) : (
           <div>
-            <button
-              disabled
-              title="Stripe payment link not configured — set VITE_STRIPE_PAYMENT_LINK"
+            <a
+              href={buildProRequestMailto({
+                email: user?.primaryEmailAddress?.emailAddress || null,
+                userId: user?.id || null,
+              })}
               style={{
                 display: 'block',
                 width: '100%',
                 textAlign: 'center',
-                background: '#2d3f55',
-                color: '#7fa3c4',
+                background: '#38bdf8',
+                color: '#0f172a',
                 fontWeight: 600,
                 fontSize: 14,
                 padding: '10px 16px',
                 borderRadius: 8,
-                border: 'none',
-                cursor: 'not-allowed',
+                textDecoration: 'none',
               }}
             >
-              Upgrade to Pro →
-            </button>
-            <p style={{ fontSize: 11, color: '#4a6480', margin: '8px 0 0' }}>
-              Payment link not configured yet — create one in Stripe Dashboard → Payment Links for{' '}
-              price_1U0nGnDnampVVaUXDZ2MvqQc, then set VITE_STRIPE_PAYMENT_LINK.
+              Pro is coming soon — request free early access →
+            </a>
+            <p style={{ fontSize: 11, color: '#7fa3c4', margin: '8px 0 0', textAlign: 'center' }}>
+              We&rsquo;re not charging for Pro yet. Click above and we&rsquo;ll turn it on for your account, free.
             </p>
           </div>
         )}

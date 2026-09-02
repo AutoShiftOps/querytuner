@@ -38,6 +38,7 @@ import { useAuth, useUser, SignUpButton } from '@clerk/clerk-react';
 import { Check, Minus } from 'lucide-react';
 import axios from 'axios';
 import { trackPageView } from '../utils/analytics';
+import { buildProRequestMailto } from '../utils/proWaitlist';
 
 const API_URL =
   import.meta.env.VITE_API_URL ||
@@ -50,6 +51,7 @@ const API_URL =
 // dashboard first, so a missing env var degrades to a disabled CTA with an
 // explicit note instead of a silently-404ing button.
 const PAYMENT_LINK = import.meta.env.VITE_STRIPE_PAYMENT_LINK || '';
+const CHECKOUT_ENABLED = (import.meta.env.VITE_PRO_CHECKOUT_ENABLED || '').toLowerCase() === 'true';
 
 // ── Design tokens (mirrors HistoryPage.jsx / ReportPage.jsx's #0f172a palette) ──
 const T = {
@@ -315,7 +317,8 @@ export default function PricingPage() {
             <span className="qt-pricing-card-badge">Recommended</span>
             <div className="qt-pricing-card-tier">Pro</div>
             <p className="qt-pricing-card-blurb">
-              For engineers running this regularly on real work.
+              For engineers running this regularly on real work.{' '}
+              {!CHECKOUT_ENABLED && 'Free during early access.'}
             </p>
             <div className="qt-pricing-card-price">
               <span className="qt-pricing-card-price-amount">$19</span>
@@ -340,7 +343,7 @@ export default function PricingPage() {
                 )}
               </>
             ) : isSignedIn ? (
-              PAYMENT_LINK ? (
+              CHECKOUT_ENABLED && PAYMENT_LINK ? (
                 <a
                   href={paymentUrl}
                   rel="noopener noreferrer"
@@ -350,10 +353,18 @@ export default function PricingPage() {
                 </a>
               ) : (
                 <>
-                  <button disabled className="qt-pricing-card-cta qt-pricing-card-cta-primary">
-                    Upgrade to Pro →
-                  </button>
-                  <p className="qt-pricing-card-note">Payment link not configured yet.</p>
+                  <a
+                    href={buildProRequestMailto({
+                      email: user?.primaryEmailAddress?.emailAddress || null,
+                      userId: user?.id || null,
+                    })}
+                    className="qt-pricing-card-cta qt-pricing-card-cta-primary"
+                  >
+                    Coming soon — request free access →
+                  </a>
+                  <p className="qt-pricing-card-note">
+                    We&rsquo;re not charging for Pro yet — email us and we&rsquo;ll turn it on for free.
+                  </p>
                 </>
               )
             ) : (
