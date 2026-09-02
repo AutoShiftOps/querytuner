@@ -328,18 +328,22 @@ export default function PricingPage() {
             {isPro ? (
               <>
                 <div className="qt-pricing-card-active">You&rsquo;re on Pro ✓</div>
-                <button
-                  onClick={handleManageSubscription}
-                  disabled={portalLoading}
-                  className="qt-pricing-card-cta qt-pricing-card-cta-secondary"
-                  style={{ marginTop: 10 }}
-                >
-                  {portalLoading ? 'Opening…' : 'Manage subscription'}
-                </button>
-                {portalError && (
-                  <p className="qt-pricing-card-note" style={{ color: T.red }}>
-                    {portalError}
-                  </p>
+                {CHECKOUT_ENABLED && (
+                  <>
+                    <button
+                      onClick={handleManageSubscription}
+                      disabled={portalLoading}
+                      className="qt-pricing-card-cta qt-pricing-card-cta-secondary"
+                      style={{ marginTop: 10 }}
+                    >
+                      {portalLoading ? 'Opening…' : 'Manage subscription'}
+                    </button>
+                    {portalError && (
+                      <p className="qt-pricing-card-note" style={{ color: T.red }}>
+                        {portalError}
+                      </p>
+                    )}
+                  </>
                 )}
               </>
             ) : isSignedIn ? (
@@ -363,7 +367,8 @@ export default function PricingPage() {
                     Coming soon — request free access →
                   </a>
                   <p className="qt-pricing-card-note">
-                    We&rsquo;re not charging for Pro yet — email us and we&rsquo;ll turn it on for free.
+                    We&rsquo;re not charging for Pro yet — email us and we&rsquo;ll turn it on for
+                    free.
                   </p>
                 </>
               )

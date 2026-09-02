@@ -12,6 +12,12 @@ import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+// Mirrors UpgradeModal.jsx / PricingPage.jsx's CHECKOUT_ENABLED — same
+// explicit opt-in flag, so "Manage subscription" (which opens a real
+// Stripe billing portal session) comes back automatically whenever real
+// checkout does, instead of needing a second flag remembered separately.
+const CHECKOUT_ENABLED = (import.meta.env.VITE_PRO_CHECKOUT_ENABLED || '').toLowerCase() === 'true';
+
 // Official GitHub Buttons widget (buttons.github.io) — renders a live star
 // count + one-click star action inside a cross-origin iframe. Loaded once,
 // async+defer, so it never blocks first paint. The script itself watches
@@ -244,13 +250,15 @@ export default function Header({ isPro = false, showToast } = {}) {
               {isPro && (
                 <>
                   <span className="qt-header-pro-badge">Pro</span>
-                  <button
-                    onClick={handleManageSubscription}
-                    disabled={portalLoading}
-                    className="qt-header-link qt-header-hide-mobile qt-header-manage-sub"
-                  >
-                    {portalLoading ? 'Opening…' : 'Manage subscription'}
-                  </button>
+                  {CHECKOUT_ENABLED && (
+                    <button
+                      onClick={handleManageSubscription}
+                      disabled={portalLoading}
+                      className="qt-header-link qt-header-hide-mobile qt-header-manage-sub"
+                    >
+                      {portalLoading ? 'Opening…' : 'Manage subscription'}
+                    </button>
+                  )}
                   <div className="qt-header-divider qt-header-hide-mobile" />
                 </>
               )}
