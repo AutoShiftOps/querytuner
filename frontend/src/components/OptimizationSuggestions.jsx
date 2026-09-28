@@ -2,12 +2,16 @@ import React, { useState } from 'react';
 import { Zap } from 'lucide-react';
 import { desanitize } from '../utils/sanitizer';
 
+// Left-accent-border treatment (matches ResultsPanel's SEVERITY_COLORS and
+// the querytuner.com diagnostics visual language) rather than a full
+// same-color border on every side — the accent color carries the severity
+// signal, the rest of the card stays quiet.
 function severityColor(sev) {
   const s = (sev || '').toLowerCase();
-  if (s === 'critical') return 'border-red-500 bg-red-900/20 text-red-200';
-  if (s === 'high') return 'border-orange-500 bg-orange-900/20 text-orange-200';
-  if (s === 'medium') return 'border-yellow-500 bg-yellow-900/20 text-yellow-200';
-  return 'border-slate-600 bg-slate-800 text-slate-200';
+  if (s === 'critical') return 'border-l-red-500 bg-red-900/10 text-red-200';
+  if (s === 'high') return 'border-l-orange-500 bg-orange-900/10 text-orange-200';
+  if (s === 'medium') return 'border-l-yellow-500 bg-yellow-900/10 text-yellow-200';
+  return 'border-l-slate-600 bg-slate-800 text-slate-200';
 }
 
 // Internal heuristic identifiers -> human-readable titles.
@@ -254,7 +258,10 @@ export default function OptimizationSuggestions({
           const confirmedByAi = Boolean(aiConfirmedTypes?.has?.(s.type));
           const evidenceCfg = EVIDENCE_CONFIG[s.evidence_level];
           return (
-            <div key={idx} className={`p-4 rounded border ${severityColor(s.severity)}`}>
+            <div
+              key={idx}
+              className={`p-4 rounded-lg border border-t-slate-700/60 border-r-slate-700/60 border-b-slate-700/60 border-l-4 ${severityColor(s.severity)}`}
+            >
               <div className="flex items-center justify-between gap-3">
                 <p className="font-semibold">{typeLabel(s.type)}</p>
                 <div className="flex items-center gap-2 flex-shrink-0">

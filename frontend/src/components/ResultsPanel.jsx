@@ -137,6 +137,7 @@ function SuggestionCard({ item }) {
       style={{
         background: '#1e293b',
         border: '1px solid #2d3f55',
+        borderLeft: `3px solid ${severityColor(fields.severity)}`,
         borderRadius: 8,
         padding: 14,
         marginBottom: 10,
@@ -385,6 +386,50 @@ function StructuredInsights({ data, aiConfirmedTypes }) {
           >
             {rewritten}
           </pre>
+
+          {/* Real-data-driven: only appears once the AI actually returned a
+              rewritten query. No fabricated execution-time/rows-scanned
+              numbers here — QueryTuner has no live DB connection, so we only
+              ever surface an estimate the model itself provided (see
+              improvements[].estimate below), never invent a metric. */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              marginTop: 10,
+              padding: '10px 14px',
+              borderRadius: 8,
+              background: 'rgba(52,211,153,0.08)',
+              border: '1px solid rgba(52,211,153,0.25)',
+            }}
+          >
+            <span
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: '50%',
+                background: '#34d399',
+                color: '#062018',
+                fontSize: 12,
+                fontWeight: 800,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              ✓
+            </span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>
+                Optimization complete
+              </div>
+              <div style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                Rewrite ready to copy and test against your own EXPLAIN output.
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
