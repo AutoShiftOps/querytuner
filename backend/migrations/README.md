@@ -14,6 +14,7 @@ All files are idempotent — safe to re-run.
 | 007_user_accounts_table.sql | 4 | user_accounts table (is_pro, stripe_customer_id — one row per user, not per user per month) + backfill from user_usage; fixes Pro status silently lapsing every calendar month. Non-destructive: user_usage keeps its (now vestigial) is_pro/stripe_customer_id columns for now |
 | 008_report_expiration.sql | 5 | analyses.expires_at (nullable, not backfilled) — shareable report links now expire (default 90 days, set at write time) and a signed-in owner can revoke their own link early via DELETE /report/{id} (soft-delete: sets expires_at to now()) |
 | 009_sanitized_flag.sql | 5 | analyses.was_sanitized (NOT NULL, default false) + (user_id, was_sanitized) index — self-reported flag from QueryRequest, backs #124's History-page sanitized indicator and sanitized-only filter |
+| 010_enable_rls.sql | Security audit | Enables RLS on analyses, user_usage, user_accounts and drops a dashboard-created public-read policy found on analyses — adds no new policies, so all three stay deny-all for anon/authenticated (service_role, used by the backend, bypasses RLS regardless) |
 
 ## Disaster recovery
 1. Create a new Supabase project

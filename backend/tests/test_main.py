@@ -24,7 +24,9 @@ from app.main import (
     anonymous_daily_store,
     app,
     get_current_user,
+    pro_openai_daily_store,
     rate_limit_store,
+    settings,
 )
 from app.utils import database as database_module
 
@@ -66,18 +68,21 @@ def _patch_persistence(monkeypatch, *, is_pro=False, count=0):
 
 @pytest.fixture(autouse=True)
 def _reset_rate_limit_state():
-    """anonymous_daily_store and rate_limit_store are module-level dicts
-    shared across every test in the process (all keyed by the same
-    TestClient IP) — without clearing both, an earlier test's requests
-    would count against a later test's limit, including the pre-existing
+    """anonymous_daily_store, rate_limit_store, and pro_openai_daily_store
+    are module-level dicts shared across every test in the process (all
+    keyed by the same TestClient IP, or by user_id for the Pro-OpenAI
+    ceiling) — without clearing all three, an earlier test's requests would
+    count against a later test's limit, including the pre-existing
     per-minute abuse throttle in rate_limit_middleware (unrelated to the
     anonymous-daily-limit logic under test here, but it shares the same
     /analyze path and IP key)."""
     anonymous_daily_store.clear()
     rate_limit_store.clear()
+    pro_openai_daily_store.clear()
     yield
     anonymous_daily_store.clear()
     rate_limit_store.clear()
+    pro_openai_daily_store.clear()
 
 
 @pytest.fixture
@@ -237,6 +242,148 @@ class TestOpenAiProGate:
                 },
             )
             assert resp.status_code == 200, resp.text
+        finally:
+            app.dependency_overrides.clear()
+
+
+class TestProOpenAiDailyCeiling:
+    """Security-audit follow-up (2026-09-28): Pro accounts have no monthly
+    analysis-count cap, so nothing previously bounded a compromised or
+    scripted Pro token's real OpenAI spend except the shared per-IP burst
+    rate limiter. These pin down the new per-user daily ceiling on
+    OpenAI-provider calls specifically (settings.pro_openai_daily_limit).
+
+    pro_openai_daily_limit is monkeypatched low (3, or 1/5 where noted) so
+    each test only needs a handful of requests — well under the unrelated
+    10-per-minute burst limiter these requests also pass through.
+    """
+
+    def test_pro_under_daily_ceiling_succeeds(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "pro_openai_daily_limit", 3)
+        _patch_persistence(monkeypatch, is_pro=True)
+        app.dependency_overrides[get_current_user] = lambda: "user_pro_ceiling_test"
+        try:
+            for i in range(3):
+                resp = client.post(
+                    "/analyze",
+                    json={
+                        "query": SIMPLE_QUERY,
+                        "db_type": "postgresql",
+                        "use_llm": True,
+                        "llm_provider": "openai",
+                    },
+                )
+                assert resp.status_code == 200, f"request {i + 1}/3 failed: {resp.text}"
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_pro_over_daily_ceiling_blocked_with_structured_429(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "pro_openai_daily_limit", 3)
+        _patch_persistence(monkeypatch, is_pro=True)
+        app.dependency_overrides[get_current_user] = lambda: "user_pro_ceiling_test"
+        try:
+            for _ in range(3):
+                resp = client.post(
+                    "/analyze",
+                    json={
+                        "query": SIMPLE_QUERY,
+                        "db_type": "postgresql",
+                        "use_llm": True,
+                        "llm_provider": "openai",
+                    },
+                )
+                assert resp.status_code == 200, resp.text
+
+            resp = client.post(
+                "/analyze",
+                json={
+                    "query": SIMPLE_QUERY,
+                    "db_type": "postgresql",
+                    "use_llm": True,
+                    "llm_provider": "openai",
+                },
+            )
+            assert resp.status_code == 429, f"expected 429, got {resp.status_code}: {resp.text}"
+            body = resp.json()
+            assert body["error"] == "pro_openai_daily_limit_reached"
+            assert "message" in body
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_ceiling_is_per_user_not_global(self, client, monkeypatch):
+        """A different Pro user must have their own independent ceiling —
+        the store is keyed by user_id, not shared across every Pro caller."""
+        monkeypatch.setattr(settings, "pro_openai_daily_limit", 1)
+        _patch_persistence(monkeypatch, is_pro=True)
+
+        app.dependency_overrides[get_current_user] = lambda: "user_pro_a"
+        try:
+            resp = client.post(
+                "/analyze",
+                json={"query": SIMPLE_QUERY, "db_type": "postgresql", "use_llm": True, "llm_provider": "openai"},
+            )
+            assert resp.status_code == 200, resp.text
+            resp = client.post(
+                "/analyze",
+                json={"query": SIMPLE_QUERY, "db_type": "postgresql", "use_llm": True, "llm_provider": "openai"},
+            )
+            assert resp.status_code == 429
+        finally:
+            app.dependency_overrides.clear()
+
+        app.dependency_overrides[get_current_user] = lambda: "user_pro_b"
+        try:
+            resp = client.post(
+                "/analyze",
+                json={"query": SIMPLE_QUERY, "db_type": "postgresql", "use_llm": True, "llm_provider": "openai"},
+            )
+            assert resp.status_code == 200, "a different user's own ceiling must not be pre-exhausted"
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_ceiling_does_not_affect_huggingface(self, client, monkeypatch):
+        """The ceiling only counts/gates the OpenAI provider — Hugging Face
+        stays uncapped for Pro, same as before this change."""
+        monkeypatch.setattr(settings, "pro_openai_daily_limit", 1)
+        _patch_persistence(monkeypatch, is_pro=True)
+        app.dependency_overrides[get_current_user] = lambda: "user_pro_hf_test"
+        try:
+            for i in range(3):
+                resp = client.post(
+                    "/analyze",
+                    json={
+                        "query": SIMPLE_QUERY,
+                        "db_type": "postgresql",
+                        "use_llm": True,
+                        "llm_provider": "huggingface",
+                    },
+                )
+                assert resp.status_code == 200, f"request {i + 1}/3 failed: {resp.text}"
+            assert pro_openai_daily_store == {}
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_logs_warning_on_crossing_80_percent_of_ceiling(self, client, monkeypatch, caplog):
+        monkeypatch.setattr(settings, "pro_openai_daily_limit", 5)
+        _patch_persistence(monkeypatch, is_pro=True)
+        app.dependency_overrides[get_current_user] = lambda: "user_pro_warn_test"
+        try:
+            with caplog.at_level("WARNING", logger="app.main"):
+                for _ in range(4):  # 4/5 == 80% exactly — must warn on this 4th call, not before
+                    resp = client.post(
+                        "/analyze",
+                        json={
+                            "query": SIMPLE_QUERY,
+                            "db_type": "postgresql",
+                            "use_llm": True,
+                            "llm_provider": "openai",
+                        },
+                    )
+                    assert resp.status_code == 200, resp.text
+            warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+            assert any("80%" in msg and "user_pro_warn_test" in msg for msg in warnings), warnings
+            # Exactly one warning, not one per call once past the threshold.
+            assert sum("80%" in msg for msg in warnings) == 1
         finally:
             app.dependency_overrides.clear()
 

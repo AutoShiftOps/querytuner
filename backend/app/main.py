@@ -179,6 +179,45 @@ anonymous_daily_store: dict[str, list[float]] = defaultdict(list)
 ANONYMOUS_DAILY_LIMIT = 5
 _ONE_DAY_SECONDS = 24 * 60 * 60
 
+# Security-audit follow-up (2026-09-28): per-user daily ceiling on Pro-tier
+# OpenAI-provider calls specifically. Pro accounts have no monthly
+# analysis-count cap by design ("unlimited analyses" is the product's own
+# value prop), so without this, a compromised or scripted Pro session token
+# could generate unbounded real OpenAI spend — bounded only by the per-IP
+# burst limiter below (10/min, shared across every caller behind that IP).
+# Hugging Face stays uncapped for Pro, same as today; this only counts
+# request.llm_provider == "openai" calls. Same in-memory sliding-window
+# idiom as anonymous_daily_store above — a cost-abuse tripwire, not a
+# security boundary, so it doesn't need a new pattern or persistence.
+pro_openai_daily_store: dict[str, list[float]] = defaultdict(list)
+
+
+def _check_pro_openai_daily_limit(user_id: str) -> bool:
+    """Records one OpenAI call against user_id's rolling 24h window and
+    returns whether it's allowed under settings.pro_openai_daily_limit.
+
+    Logs a warning on the call that first crosses 80% of the limit —
+    once per window, not on every call after — so a legitimately heavy
+    user sitting above the threshold for hours doesn't spam the logs.
+    """
+    limit = settings.pro_openai_daily_limit
+    now = time.time()
+    calls = pro_openai_daily_store[user_id] = [t for t in pro_openai_daily_store[user_id] if now - t < _ONE_DAY_SECONDS]
+    if len(calls) >= limit:
+        return False
+    prev_count = len(calls)
+    calls.append(now)
+    new_count = len(calls)
+    warn_threshold = limit * 0.8
+    if prev_count < warn_threshold <= new_count:
+        logger.warning(
+            "Pro user %s reached %d/%d (80%%) of daily OpenAI call ceiling",
+            user_id,
+            new_count,
+            limit,
+        )
+    return True
+
 
 # -----------------------------------------------------------------------------
 # Phase 4: Clerk auth
@@ -247,9 +286,17 @@ async def get_current_user(request: Request) -> str | None:
         return None
 
 
+# Security-audit follow-up (2026-09-28): /analyze/batch had no request-
+# volume limit at all — it's Pro-gated and doesn't call a paid LLM, but a
+# signed-in Pro account could otherwise hammer it without bound. Shares the
+# same per-IP counter/window as /analyze rather than getting a separate
+# store, matching the existing "one throttle, multiple paths" shape here.
+_RATE_LIMITED_PATHS = {"/analyze", "/analyze/batch"}
+
+
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    if request.url.path == "/analyze":
+    if request.url.path in _RATE_LIMITED_PATHS:
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()
 
@@ -467,6 +514,24 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
                     "upgrade_available": True,
                 },
             )
+
+        # Security-audit follow-up (2026-09-28): even Pro accounts get a
+        # daily ceiling on OpenAI-provider calls specifically — see
+        # settings.pro_openai_daily_limit's own docstring for why. Only
+        # checked (and counted) for the actual OpenAI path; Hugging Face
+        # and heuristic-only analysis stay uncapped for Pro, same as today.
+        if request.use_llm and request.llm_provider == LLMProvider.OPENAI and is_pro:
+            if not _check_pro_openai_daily_limit(user_id):
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "error": "pro_openai_daily_limit_reached",
+                        "message": (
+                            f"Daily OpenAI analysis limit reached ({settings.pro_openai_daily_limit}/day). "
+                            "Switch to Hugging Face for unlimited free AI insights, or try again tomorrow."
+                        ),
+                    },
+                )
 
         logger.info(f"Analyzing query: {request.query[:50]}...")
         logger.info(

@@ -19,14 +19,19 @@ def _supabase_configured() -> bool:
 
 
 def _supabase_headers() -> dict[str, str]:
-    # service_role, not anon — RLS is enabled on both analyses and
-    # user_usage, and service_role is the only key that bypasses it without
-    # requiring custom policies. This used to be the anon key, which only
-    # appeared to work because analyses had RLS disabled; user_usage always
-    # had RLS enabled and every POST/PATCH here 401'd (GET happened to
-    # succeed — RLS's default deny-all still allows reads under some
-    # configurations, but never writes). Never send this key to the
-    # frontend — it's backend-only, on purpose.
+    # service_role, not anon — RLS is enabled on analyses, user_usage, and
+    # user_accounts (migrations/010_enable_rls.sql, with zero policies —
+    # deny-all for anon/authenticated), and service_role is the only key
+    # that bypasses it without requiring custom policies. This used to be
+    # the anon key, which only appeared to work because analyses had RLS
+    # disabled; user_usage always had RLS enabled and every POST/PATCH here
+    # 401'd (GET happened to succeed — RLS's default deny-all still allows
+    # reads under some configurations, but never writes). The security
+    # audit that produced migration 010 also found a dashboard-created
+    # public-read policy on analyses that predated this comment's own
+    # "RLS is enabled" claim — the claim was true, but toothless, since
+    # that policy granted anon/authenticated unrestricted SELECT anyway.
+    # Never send this key to the frontend — it's backend-only, on purpose.
     return {
         "apikey": settings.supabase_service_role_key,
         "Authorization": f"Bearer {settings.supabase_service_role_key}",
