@@ -18,7 +18,7 @@ import json
 
 from fastapi.testclient import TestClient
 
-from app.main import app, get_current_user
+from app.main import app, get_current_user, rate_limit_store
 
 client = TestClient(app)
 
@@ -164,3 +164,37 @@ def test_mysql_performance_schema_source_maps_to_mysql_db_type(monkeypatch):
         assert body["analyzed_count"] == 1
     finally:
         app.dependency_overrides.clear()
+
+
+def test_11th_request_per_minute_returns_429_not_500(monkeypatch):
+    """Security-audit follow-up (2026-09-28): /analyze/batch previously had
+    no request-volume limit at all — Pro-gated, but otherwise unbounded.
+    It now shares rate_limit_middleware's per-IP counter with /analyze (see
+    main.py's _RATE_LIMITED_PATHS), same 10-per-minute cap, same 429 shape
+    as test_main.py's equivalent /analyze test.
+
+    rate_limit_store is cleared before and after — unlike test_main.py,
+    this file has no autouse reset fixture, and other tests in this module
+    (which also hit /analyze/batch) must not inherit a dirty counter.
+    """
+    monkeypatch.setattr("app.main.get_user_usage", _fake_get_user_usage(is_pro=True))
+    app.dependency_overrides[get_current_user] = lambda: "user_pro_batch_ratelimit_test"
+    rate_limit_store.clear()
+    try:
+        for i in range(10):
+            resp = client.post(
+                "/analyze/batch",
+                json={"source": "pg_stat_statements", "export_text": "not a real export"},
+            )
+            assert resp.status_code == 400, f"warm-up request {i + 1}/10 failed: {resp.text}"
+
+        resp = client.post(
+            "/analyze/batch",
+            json={"source": "pg_stat_statements", "export_text": "not a real export"},
+        )
+        assert resp.status_code == 429, f"expected 429, got {resp.status_code}: {resp.text}"
+        body = resp.json()
+        assert body["error"] == "rate_limit_exceeded"
+    finally:
+        app.dependency_overrides.clear()
+        rate_limit_store.clear()

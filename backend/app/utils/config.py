@@ -100,6 +100,20 @@ class Settings(BaseSettings):
     sentry_dsn: str = ""
     environment: str = "production"
 
+    # -------------------------------------------------------------------------
+    # Security-audit follow-up (2026-09-28)
+    # Pro accounts have no monthly analysis-count cap by design ("unlimited
+    # analyses" is the product's own value prop), so without this, a
+    # compromised or scripted Pro session token could generate unbounded
+    # real OpenAI spend — bounded only by /analyze's per-IP burst rate
+    # limiter (10/min). This is a per-user, per-day ceiling on OpenAI-
+    # provider calls specifically (see main.py's _check_pro_openai_daily_limit) —
+    # Hugging Face stays uncapped for Pro, same as today. Configurable so it
+    # can be raised without a deploy if it's ever too tight for a legitimate
+    # heavy user.
+    # -------------------------------------------------------------------------
+    pro_openai_daily_limit: int = 200
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,
