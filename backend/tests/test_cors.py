@@ -87,3 +87,31 @@ def test_cors_allows_bare_domain_even_when_frontend_url_differs():
         },
     )
     assert resp.headers.get("access-control-allow-origin") == "https://querytuner.com"
+
+
+def test_cors_allows_own_vercel_preview_origin():
+    """Feature-branch preview deployments get a per-branch Vercel origin;
+    without this the preview's Analyze call is CORS-blocked and the UI
+    under test can never be seen."""
+    origin = "https://querytuner-git-feature-diagnostics-visual-refresh-autoshiftops.vercel.app"
+    resp = client.get(
+        "/usage",
+        headers={"Origin": origin, "Access-Control-Request-Method": "GET"},
+    )
+    assert resp.headers.get("access-control-allow-origin") == origin
+
+
+def test_cors_rejects_lookalike_vercel_origins():
+    """The preview regex must not match other teams' Vercel hosts or
+    suffix/prefix lookalikes."""
+    for origin in (
+        "https://querytuner-git-x-someoneelse.vercel.app",
+        "https://evil-querytuner-x-autoshiftops.vercel.app",
+        "https://querytuner-x-autoshiftops.vercel.app.evil.com",
+        "http://querytuner-x-autoshiftops.vercel.app",
+    ):
+        resp = client.get(
+            "/usage",
+            headers={"Origin": origin, "Access-Control-Request-Method": "GET"},
+        )
+        assert "access-control-allow-origin" not in resp.headers, origin

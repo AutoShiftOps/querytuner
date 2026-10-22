@@ -134,6 +134,14 @@ app.add_middleware(
     # server port) so local development against a deployed backend still
     # works without setting FRONTEND_URL.
     allow_origins=_cors_allow_origins,
+    # Vercel preview deployments (feature-branch UI tests) get their own
+    # origin per branch/commit, e.g.
+    # https://querytuner-git-<branch>-autoshiftops.vercel.app. Without this
+    # the preview's Analyze call is CORS-blocked. Scoped to this project's
+    # own "querytuner-…-autoshiftops.vercel.app" hosts only — the
+    # "autoshiftops" team slug is unique to this Vercel team, so no
+    # third party can serve an origin that matches.
+    allow_origin_regex=r"^https://querytuner-[a-z0-9-]+-autoshiftops\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
