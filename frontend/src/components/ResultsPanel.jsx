@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { safeParseAiJson } from '../utils/aiInsights';
 import { desanitize } from '../utils/sanitizer';
+import OptimizationComplete from './OptimizationComplete';
 
 // The LLM's top-level JSON schema drifts across providers/models — e.g.
 // OpenAI's gpt-4o-mini has returned "performance_improvements" where the
@@ -316,7 +317,7 @@ function RiskyAssumptionCard({ item }) {
   );
 }
 
-function StructuredInsights({ data, aiConfirmedTypes }) {
+function StructuredInsights({ data, aiConfirmedTypes, showCompletion }) {
   const improvementsRaw = findKey(data, IMPROVEMENTS_KEYS);
   const allImprovements = Array.isArray(improvementsRaw) ? improvementsRaw : [];
   // Types already confirmed on a heuristic card (badged in OptimizationSuggestions)
@@ -387,49 +388,11 @@ function StructuredInsights({ data, aiConfirmedTypes }) {
             {rewritten}
           </pre>
 
-          {/* Real-data-driven: only appears once the AI actually returned a
-              rewritten query. No fabricated execution-time/rows-scanned
-              numbers here — QueryTuner has no live DB connection, so we only
-              ever surface an estimate the model itself provided (see
-              improvements[].estimate below), never invent a metric. */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              marginTop: 10,
-              padding: '10px 14px',
-              borderRadius: 8,
-              background: 'rgba(52,211,153,0.08)',
-              border: '1px solid rgba(52,211,153,0.25)',
-            }}
-          >
-            <span
-              style={{
-                width: 20,
-                height: 20,
-                borderRadius: '50%',
-                background: '#34d399',
-                color: '#062018',
-                fontSize: 12,
-                fontWeight: 800,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              ✓
-            </span>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>
-                Optimization complete
-              </div>
-              <div style={{ fontSize: 11.5, color: '#94a3b8' }}>
-                Rewrite ready to copy and test against your own EXPLAIN output.
-              </div>
+          {showCompletion && (
+            <div style={{ marginTop: 10 }}>
+              <OptimizationComplete />
             </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -461,7 +424,15 @@ function PlainTextInsights({ content }) {
   );
 }
 
-function ResultsPanel({ title, content, icon: Icon, onShare, aiConfirmedTypes, substitutionMap }) {
+function ResultsPanel({
+  title,
+  content,
+  icon: Icon,
+  onShare,
+  aiConfirmedTypes,
+  substitutionMap,
+  showCompletion = true,
+}) {
   const [restoreNames, setRestoreNames] = useState(false);
 
   if (!content) return null;
@@ -592,7 +563,11 @@ function ResultsPanel({ title, content, icon: Icon, onShare, aiConfirmedTypes, s
       </div>
 
       {hasStructuredContent ? (
-        <StructuredInsights data={parsed} aiConfirmedTypes={aiConfirmedTypes} />
+        <StructuredInsights
+          data={parsed}
+          aiConfirmedTypes={aiConfirmedTypes}
+          showCompletion={showCompletion}
+        />
       ) : (
         <PlainTextInsights content={effectiveContent} />
       )}
