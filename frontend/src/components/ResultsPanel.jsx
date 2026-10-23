@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { safeParseAiJson } from '../utils/aiInsights';
 import { desanitize } from '../utils/sanitizer';
+import OptimizationComplete from './OptimizationComplete';
 
 // The LLM's top-level JSON schema drifts across providers/models — e.g.
 // OpenAI's gpt-4o-mini has returned "performance_improvements" where the
@@ -137,6 +138,7 @@ function SuggestionCard({ item }) {
       style={{
         background: '#1e293b',
         border: '1px solid #2d3f55',
+        borderLeft: `3px solid ${severityColor(fields.severity)}`,
         borderRadius: 8,
         padding: 14,
         marginBottom: 10,
@@ -315,7 +317,7 @@ function RiskyAssumptionCard({ item }) {
   );
 }
 
-function StructuredInsights({ data, aiConfirmedTypes }) {
+function StructuredInsights({ data, aiConfirmedTypes, showCompletion }) {
   const improvementsRaw = findKey(data, IMPROVEMENTS_KEYS);
   const allImprovements = Array.isArray(improvementsRaw) ? improvementsRaw : [];
   // Types already confirmed on a heuristic card (badged in OptimizationSuggestions)
@@ -400,6 +402,12 @@ function StructuredInsights({ data, aiConfirmedTypes }) {
           >
             {rewritten}
           </pre>
+
+          {showCompletion && (
+            <div style={{ marginTop: 10 }}>
+              <OptimizationComplete />
+            </div>
+          )}
         </div>
       )}
 
@@ -431,7 +439,15 @@ function PlainTextInsights({ content }) {
   );
 }
 
-function ResultsPanel({ title, content, icon: Icon, onShare, aiConfirmedTypes, substitutionMap }) {
+function ResultsPanel({
+  title,
+  content,
+  icon: Icon,
+  onShare,
+  aiConfirmedTypes,
+  substitutionMap,
+  showCompletion = true,
+}) {
   const [restoreNames, setRestoreNames] = useState(false);
 
   if (!content) return null;
@@ -562,7 +578,11 @@ function ResultsPanel({ title, content, icon: Icon, onShare, aiConfirmedTypes, s
       </div>
 
       {hasStructuredContent ? (
-        <StructuredInsights data={parsed} aiConfirmedTypes={aiConfirmedTypes} />
+        <StructuredInsights
+          data={parsed}
+          aiConfirmedTypes={aiConfirmedTypes}
+          showCompletion={showCompletion}
+        />
       ) : (
         <PlainTextInsights content={effectiveContent} />
       )}

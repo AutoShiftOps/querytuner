@@ -2,14 +2,6 @@ import React, { useState } from 'react';
 import { Zap } from 'lucide-react';
 import { desanitize } from '../utils/sanitizer';
 
-function severityColor(sev) {
-  const s = (sev || '').toLowerCase();
-  if (s === 'critical') return 'border-red-500 bg-red-900/20 text-red-200';
-  if (s === 'high') return 'border-orange-500 bg-orange-900/20 text-orange-200';
-  if (s === 'medium') return 'border-yellow-500 bg-yellow-900/20 text-yellow-200';
-  return 'border-slate-600 bg-slate-800 text-slate-200';
-}
-
 // Internal heuristic identifiers -> human-readable titles.
 // Exported for reuse by utils/quiz.js (Quiz Mode's distractor labels need
 // the exact same wording a real analysis would show, not a second,
@@ -203,26 +195,198 @@ function RestoreNamesToggle({ ddl, substitutionMap }) {
   );
 }
 
-function HeuristicHeader() {
+const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
+const SEVERITY_STYLE = {
+  critical: { color: '#f87171', bg: 'rgba(248,113,113,0.14)' },
+  high: { color: '#f97316', bg: 'rgba(249,115,22,0.14)' },
+  medium: { color: '#fbbf24', bg: 'rgba(251,191,36,0.14)' },
+  low: { color: '#34d399', bg: 'rgba(52,211,153,0.14)' },
+};
+
+function sevKey(sev) {
+  const k = (sev || 'low').toLowerCase();
+  return k in SEVERITY_ORDER ? k : 'low';
+}
+
+// One finding per rule type: five "Missing JOIN Index" cards for one query is
+// noise, so same-type suggestions collapse into a single row (their DDL still
+// appears individually in the Optimization Suggestions card below).
+export function groupFindings(items) {
+  const groups = new Map();
+  for (const s of items) {
+    const key = s.type || 'issue';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(s);
+  }
+  return [...groups.entries()]
+    .map(([type, list]) => ({
+      type,
+      list,
+      severity: list.reduce(
+        (worst, s) =>
+          SEVERITY_ORDER[sevKey(s.severity)] < SEVERITY_ORDER[worst] ? sevKey(s.severity) : worst,
+        'low'
+      ),
+    }))
+    .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+}
+
+function Chip({ children, title }) {
   return (
-    <div className="mb-4">
-      <div className="flex items-center gap-2">
-        <Zap className="w-3.5 h-3.5" style={{ color: '#38bdf8' }} />
+    <span
+      title={title}
+      className="text-xs px-2.5 py-1 rounded-md"
+      style={{ background: 'rgba(148,163,184,0.12)', color: '#94a3b8' }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function CardShell({ icon, title, subtitle, children }) {
+  return (
+    <div
+      className="rounded-xl overflow-hidden"
+      style={{ background: '#1e293b', border: '1px solid #2d3f55' }}
+    >
+      <div
+        className="flex items-center gap-2 px-5 py-3"
+        style={{ borderBottom: '1px solid #2d3f55' }}
+      >
+        {icon}
+        <span className="text-sm font-semibold" style={{ color: '#e2e8f0' }}>
+          {title}
+        </span>
+        {subtitle && (
+          <span className="text-xs ml-1" style={{ color: '#4a6480' }}>
+            {subtitle}
+          </span>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function FindingRow({ group, aiConfirmedTypes }) {
+  const { type, list, severity } = group;
+  const first = list[0];
+  const st = SEVERITY_STYLE[severity];
+  const many = list.length > 1;
+  const confirmedByAi = Boolean(aiConfirmedTypes?.has?.(type));
+  const evidenceCfg = EVIDENCE_CONFIG[first.evidence_level];
+  return (
+    <div
+      className="px-5 py-4"
+      style={{ borderLeft: `4px solid ${st.color}`, borderTop: '1px solid #2d3f55' }}
+    >
+      <div className="flex flex-wrap items-center gap-2">
         <span
+          className="text-xs font-bold px-2 py-0.5 rounded"
+          style={{ color: st.color, background: st.bg, letterSpacing: '0.04em' }}
+        >
+          {severity.toUpperCase()}
+        </span>
+        {confirmedByAi && (
+          <span
+            className="text-xs px-2 py-0.5 rounded-full whitespace-nowrap"
+            style={{
+              color: '#7fa3c4',
+              background: 'rgba(127,163,196,0.1)',
+              border: '1px solid rgba(127,163,196,0.3)',
+            }}
+          >
+            ✓ Confirmed by AI
+          </span>
+        )}
+        <EvidenceBadge level={first.evidence_level} />
+      </div>
+      <p className="mt-2 font-semibold text-white">
+        {typeLabel(type)}
+        {many ? ` ×${list.length}` : ''}
+      </p>
+      {many ? (
+        <ul className="mt-1 text-sm space-y-0.5" style={{ color: '#94a3b8' }}>
+          {list.map((s, i) => (
+            <li key={i}>• {String(s.suggestion || '').split(' — ')[0]}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-sm" style={{ color: '#94a3b8' }}>
+          {first.suggestion}
+        </p>
+      )}
+      {first.reason ? (
+        <p className="mt-1 text-sm" style={{ color: '#7f93ab' }}>
+          {first.reason}
+        </p>
+      ) : null}
+      {(first.cost_estimate ||
+        (first.estimated_improvement &&
+          !/^varies\.?$/i.test(first.estimated_improvement.trim()))) && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {first.estimated_improvement &&
+            !/^varies\.?$/i.test(first.estimated_improvement.trim()) && (
+              <Chip>Impact: {first.estimated_improvement}</Chip>
+            )}
+          {first.cost_estimate && <Chip>Cost: {first.cost_estimate}</Chip>}
+        </div>
+      )}
+      {evidenceCfg && (
+        <p className="mt-2 text-xs" style={{ color: '#64748b' }}>
+          {evidenceCfg.subtitle}
+        </p>
+      )}
+      {/* Issue #63: pasted EXPLAIN plan already shows an index on this column —
+          surfaced explicitly so a stale suggestion doesn't ship with false
+          confidence. */}
+      {list.some((s) => s.plan_contradicts) ? (
+        <div
+          className="mt-2 text-xs rounded px-2 py-1.5 flex items-start gap-1.5"
           style={{
-            fontSize: 11,
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: '0.06em',
-            color: '#38bdf8',
+            background: 'rgba(248,113,113,0.1)',
+            color: '#f87171',
+            border: '1px solid rgba(248,113,113,0.3)',
+          }}
+          title="Your pasted EXPLAIN plan contradicts this suggestion"
+        >
+          <span aria-hidden="true">⚠</span>
+          <span>
+            Your pasted EXPLAIN plan shows an index already covering this column — this suggestion
+            may be outdated. Verify before applying it.
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DdlBlock({ s, substitutionMap }) {
+  return (
+    <div className="px-5 py-3" style={{ borderTop: '1px solid #2d3f55' }}>
+      <div className="flex items-start justify-between gap-3">
+        <pre
+          className="text-xs rounded p-3 flex-1 min-w-0 whitespace-pre-wrap break-words"
+          style={{
+            background: '#0f172a',
+            color: '#7dd3fc',
+            fontFamily: "'JetBrains Mono', monospace",
           }}
         >
-          Heuristic Analysis
-        </span>
+          {s.ddl_hint}
+        </pre>
+        <button
+          type="button"
+          onClick={() => navigator.clipboard.writeText(s.ddl_hint)}
+          className="text-xs text-slate-400 hover:text-white border border-slate-600 hover:border-slate-400 px-3 py-1 rounded transition-colors"
+        >
+          Copy
+        </button>
       </div>
-      <p className="text-xs mt-1" style={{ color: '#4a6480' }}>
-        Deterministic rules — sub-second, always available
-      </p>
+      {substitutionMap ? (
+        <RestoreNamesToggle ddl={s.ddl_hint} substitutionMap={substitutionMap} />
+      ) : null}
+      {s.rollback_ddl ? <RollbackToggle ddl={s.rollback_ddl} /> : null}
     </div>
   );
 }
@@ -233,120 +397,47 @@ export default function OptimizationSuggestions({
   substitutionMap,
 }) {
   const items = Array.isArray(suggestions) ? suggestions : [];
+  const bolt = <Zap className="w-4 h-4" style={{ color: '#f97316' }} />;
 
   if (items.length === 0) {
     return (
-      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-        <HeuristicHeader />
-        <h3 className="text-lg font-bold text-white">Suggestions</h3>
-        <p className="text-slate-400 text-sm mt-2">No suggestions found.</p>
-      </div>
+      <CardShell icon={bolt} title="Findings" subtitle="Deterministic rules — always available">
+        <p className="text-slate-400 text-sm px-5 py-4">No suggestions found.</p>
+      </CardShell>
     );
   }
 
+  const groups = groupFindings(items);
+  const seen = new Set();
+  const ddlItems = items.filter((s) => {
+    if (!s.ddl_hint || seen.has(s.ddl_hint)) return false;
+    seen.add(s.ddl_hint);
+    return true;
+  });
+
   return (
-    <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-      <HeuristicHeader />
-      <h3 className="text-lg font-bold text-white mb-4">Suggestions</h3>
+    <div className="space-y-4">
+      <CardShell
+        icon={bolt}
+        title="Findings"
+        subtitle="Deterministic rules — sub-second, always available"
+      >
+        {groups.map((g) => (
+          <FindingRow key={g.type} group={g} aiConfirmedTypes={aiConfirmedTypes} />
+        ))}
+      </CardShell>
 
-      <div className="space-y-3">
-        {items.map((s, idx) => {
-          const confirmedByAi = Boolean(aiConfirmedTypes?.has?.(s.type));
-          const evidenceCfg = EVIDENCE_CONFIG[s.evidence_level];
-          return (
-            <div key={idx} className={`p-4 rounded border ${severityColor(s.severity)}`}>
-              <div className="flex items-center justify-between gap-3">
-                <p className="font-semibold">{typeLabel(s.type)}</p>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {confirmedByAi && (
-                    <span
-                      className="text-xs px-2 py-0.5 rounded-full whitespace-nowrap"
-                      style={{
-                        color: '#7fa3c4',
-                        background: 'rgba(127,163,196,0.1)',
-                        border: '1px solid rgba(127,163,196,0.3)',
-                      }}
-                    >
-                      ✓ Confirmed by AI
-                    </span>
-                  )}
-                  <EvidenceBadge level={s.evidence_level} />
-                  <span className="text-xs opacity-90">{(s.severity || 'low').toUpperCase()}</span>
-                </div>
-              </div>
-
-              {evidenceCfg && (
-                <p className="mt-1 text-xs" style={{ color: '#64748b' }}>
-                  {evidenceCfg.subtitle}
-                </p>
-              )}
-
-              <p className="mt-2">{s.suggestion}</p>
-
-              {s.reason ? <p className="mt-2 text-sm opacity-90">Reason: {s.reason}</p> : null}
-
-              {s.estimated_improvement ? (
-                <p className="mt-2 text-sm opacity-90">Estimate: {s.estimated_improvement}</p>
-              ) : null}
-
-              {/* Issue #118: the write/storage cost counterpart to the read-side
-                  estimate above — rendered right under it so the trade-off reads
-                  together, not just the upside. Index suggestions only
-                  (cost_estimate is None for every other suggestion type). */}
-              {s.cost_estimate ? (
-                <p className="mt-1 text-sm opacity-90">Cost: {s.cost_estimate}</p>
-              ) : null}
-
-              {/* Issue #63: your pasted EXPLAIN plan shows an index already
-                  covering this exact column — this suggestion (which assumes
-                  it's unindexed) is likely stale or based on incomplete
-                  information. Surfaced explicitly rather than silently
-                  upgrading evidence, so a wrong suggestion doesn't ship with
-                  false confidence. The confirmation case (plan_verified)
-                  needs no equivalent UI — it just reads as evidence_level
-                  "schema-verified" via the existing EvidenceBadge, identical
-                  to a schema-DDL confirmation, per the same UI copy's
-                  existing promise. */}
-              {s.plan_contradicts ? (
-                <div
-                  className="mt-2 text-xs rounded px-2 py-1.5 flex items-start gap-1.5"
-                  style={{
-                    background: 'rgba(248,113,113,0.1)',
-                    color: '#f87171',
-                    border: '1px solid rgba(248,113,113,0.3)',
-                  }}
-                  title="Your pasted EXPLAIN plan contradicts this suggestion"
-                >
-                  <span aria-hidden="true">⚠</span>
-                  <span>
-                    Your pasted EXPLAIN plan shows an index already covering this column — this
-                    suggestion may be outdated. Verify before applying it.
-                  </span>
-                </div>
-              ) : null}
-
-              {s.ddl_hint ? (
-                <pre
-                  className="mt-2 text-xs rounded p-2 overflow-x-auto"
-                  style={{
-                    background: '#0f172a',
-                    color: '#7dd3fc',
-                    fontFamily: "'JetBrains Mono', monospace",
-                  }}
-                >
-                  {s.ddl_hint}
-                </pre>
-              ) : null}
-
-              {s.ddl_hint && substitutionMap ? (
-                <RestoreNamesToggle ddl={s.ddl_hint} substitutionMap={substitutionMap} />
-              ) : null}
-
-              {s.rollback_ddl ? <RollbackToggle ddl={s.rollback_ddl} /> : null}
-            </div>
-          );
-        })}
-      </div>
+      {ddlItems.length > 0 && (
+        <CardShell
+          icon={<span aria-hidden="true">📈</span>}
+          title="Optimization Suggestions"
+          subtitle="Review before applying"
+        >
+          {ddlItems.map((s, i) => (
+            <DdlBlock key={i} s={s} substitutionMap={substitutionMap} />
+          ))}
+        </CardShell>
+      )}
     </div>
   );
 }

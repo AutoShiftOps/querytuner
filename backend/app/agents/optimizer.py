@@ -87,7 +87,7 @@ class QueryOptimizer:
 
     def _rewrite_year_function(self, q: str, db_type: str):
         """
-        YEAR(col) = 2025 → col BETWEEN '2025-01-01' AND '2025-12-31'
+        YEAR(col) = 2025 → (col >= '2025-01-01' AND col < '2026-01-01')
         Issue #73: Oracle uses DATE literal, others use string literal.
         """
         pattern = r"YEAR\s*\(\s*([\w.]+)\s*\)\s*=\s*(\d{4})"
@@ -95,29 +95,28 @@ class QueryOptimizer:
         def _replace(m):
             col = m.group(1).strip()
             yr = m.group(2).strip()
+            nxt = int(yr) + 1
+            # Half-open range: a BETWEEN ending at 'YYYY-12-31' silently drops
+            # any timestamp after midnight on the last day.
             if db_type == "oracle":
-                # Oracle date literals
-                return f"{col} >= DATE '{yr}-01-01' AND {col} < DATE '{int(yr)+1}-01-01'"
-            elif db_type == "sqlserver":
-                # SQL Server uses CAST or string literals
-                return f"{col} >= '{yr}-01-01' AND {col} < '{int(yr)+1}-01-01'"
-            else:
-                # PostgreSQL, MySQL, SQLite — ISO 8601 strings work
-                return f"{col} BETWEEN '{yr}-01-01' AND '{yr}-12-31'"
+                return f"({col} >= DATE '{yr}-01-01' AND {col} < DATE '{nxt}-01-01')"
+            return f"({col} >= '{yr}-01-01' AND {col} < '{nxt}-01-01')"
 
         new_q, n = re.subn(pattern, _replace, q, flags=re.IGNORECASE)
         return new_q, n > 0
 
     def _rewrite_month_function(self, q: str):
-        """MONTH(col) = 3 → col BETWEEN 'YYYY-03-01' AND 'YYYY-03-31' (approximate)"""
+        """MONTH(col) = 3 → (col >= 'YYYY-03-01' AND col < 'YYYY-04-01') (year is a placeholder)"""
         pattern = r"MONTH\s*\(\s*([\w.]+)\s*\)\s*=\s*(\d{1,2})"
 
         def _replace(m):
             col = m.group(1).strip()
             mo = int(m.group(2).strip())
-            mo_s = f"{mo:02d}"
-            last = {1: 31, 2: 28, 3: 31, 4: 30, 5: 31, 6: 30, 7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31}.get(mo, 30)
-            return f"{col} BETWEEN 'YYYY-{mo_s}-01' AND 'YYYY-{mo_s}-{last}'" f" /* replace YYYY */"
+            if not 1 <= mo <= 12:
+                return m.group(0)
+            start = f"'YYYY-{mo:02d}-01'"
+            end = f"'YYYY-{mo + 1:02d}-01'" if mo < 12 else "'<YYYY+1>-01-01'"
+            return f"({col} >= {start} AND {col} < {end}) /* replace YYYY */"
 
         new_q, n = re.subn(pattern, _replace, q, flags=re.IGNORECASE)
         return new_q, n > 0

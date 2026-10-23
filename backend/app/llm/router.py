@@ -1,6 +1,7 @@
 import logging
 
 from app.llm.hf_client import call_hf, safe_parse_json
+from app.llm.prompts import REWRITE_GUARDRAILS
 from app.utils.config import settings
 
 # Issue #74: inject dialect-specific context into LLM system prompts
@@ -104,7 +105,8 @@ async def _call_openai(prompt: str, max_tokens: int, db_type: str) -> dict:
             "No markdown fences, no extra text outside the JSON. "
             "Use exactly these JSON keys: most_impactful_improvements, "
             "recommended_indexes, rewritten_query, risky_assumptions. "
-            "No other top-level keys."
+            "No other top-level keys. "
+            f"{REWRITE_GUARDRAILS}"
         )
 
         response = await client.chat.completions.create(
