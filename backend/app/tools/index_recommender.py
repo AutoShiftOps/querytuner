@@ -183,7 +183,9 @@ def _unindexable_names(query: str, select_items: list[dict[str, Any]] | None) ->
         close = _matching_paren_end(query, open_idx)
         if close == -1:
             continue
-        alias_m = re.match(r"\s*(?:AS\s+)?([A-Za-z_]\w*)", query[close + 1 :], re.IGNORECASE)
+        # lstrip instead of a leading \s* in the pattern: avoids ambiguous
+        # whitespace matching (polynomial backtracking on user-supplied SQL).
+        alias_m = re.match(r"(?:AS\s+)?([A-Za-z_]\w*)", query[close + 1 :].lstrip(), re.IGNORECASE)
         if alias_m and alias_m.group(1).upper() not in _SQL_KEYWORDS_AFTER_PAREN:
             relations.add(alias_m.group(1).lower())
     for m in re.finditer(r"\b([A-Za-z_]\w*)\s+AS\s*\(", query, re.IGNORECASE):
