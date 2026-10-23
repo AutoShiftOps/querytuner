@@ -131,6 +131,14 @@ function RollbackToggle({ ddl, substitutionMap }) {
   );
 }
 
+const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
+const SEVERITY_STYLE = {
+  critical: { color: '#f87171', bg: 'rgba(248,113,113,0.14)' },
+  high: { color: '#f97316', bg: 'rgba(249,115,22,0.14)' },
+  medium: { color: '#fbbf24', bg: 'rgba(251,191,36,0.14)' },
+  low: { color: '#34d399', bg: 'rgba(52,211,153,0.14)' },
+};
+
 function sevKey(sev) {
   const k = (sev || 'low').toLowerCase();
   return k in SEVERITY_ORDER ? k : 'low';
