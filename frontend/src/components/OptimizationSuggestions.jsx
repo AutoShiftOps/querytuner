@@ -95,8 +95,10 @@ function EvidenceBadge({ level }) {
 // read as two layers of analysis rather than duplicated findings.
 // Collapsed by default — rollback DDL is a "break glass" action, not
 // something to surface at the same visual weight as the suggestion itself.
-function RollbackToggle({ ddl }) {
+function RollbackToggle({ ddl, substitutionMap }) {
   const [open, setOpen] = useState(false);
+  // Show the user's real names when the query was sanitized before analysis.
+  const shown = substitutionMap ? desanitize(ddl, substitutionMap) : ddl;
   return (
     <div className="mt-2">
       <button
@@ -122,7 +124,7 @@ function RollbackToggle({ ddl }) {
             fontFamily: "'JetBrains Mono', monospace",
           }}
         >
-          {`To undo this index: ${ddl}`}
+          {`To undo this index: ${shown}`}
         </pre>
       )}
     </div>
@@ -268,8 +270,10 @@ function CardShell({ icon, title, subtitle, children }) {
   );
 }
 
-function FindingRow({ group, aiConfirmedTypes }) {
+function FindingRow({ group, aiConfirmedTypes, substitutionMap }) {
   const { type, list, severity } = group;
+  // Findings are generated from the sanitized query; show the user's own names.
+  const d = (t) => (substitutionMap ? desanitize(String(t ?? ''), substitutionMap) : t);
   const first = list[0];
   const st = SEVERITY_STYLE[severity];
   const many = list.length > 1;
@@ -308,17 +312,17 @@ function FindingRow({ group, aiConfirmedTypes }) {
       {many ? (
         <ul className="mt-1 text-sm space-y-0.5" style={{ color: '#94a3b8' }}>
           {list.map((s, i) => (
-            <li key={i}>• {String(s.suggestion || '').split(' — ')[0]}</li>
+            <li key={i}>• {d(String(s.suggestion || '').split(' — ')[0])}</li>
           ))}
         </ul>
       ) : (
         <p className="mt-1 text-sm" style={{ color: '#94a3b8' }}>
-          {first.suggestion}
+          {d(first.suggestion)}
         </p>
       )}
       {first.reason ? (
         <p className="mt-1 text-sm" style={{ color: '#7f93ab' }}>
-          {first.reason}
+          {d(first.reason)}
         </p>
       ) : null}
       {(first.cost_estimate ||
@@ -386,7 +390,9 @@ function DdlBlock({ s, substitutionMap }) {
       {substitutionMap ? (
         <RestoreNamesToggle ddl={s.ddl_hint} substitutionMap={substitutionMap} />
       ) : null}
-      {s.rollback_ddl ? <RollbackToggle ddl={s.rollback_ddl} /> : null}
+      {s.rollback_ddl ? (
+        <RollbackToggle ddl={s.rollback_ddl} substitutionMap={substitutionMap} />
+      ) : null}
     </div>
   );
 }
@@ -423,7 +429,12 @@ export default function OptimizationSuggestions({
         subtitle="Deterministic rules — sub-second, always available"
       >
         {groups.map((g) => (
-          <FindingRow key={g.type} group={g} aiConfirmedTypes={aiConfirmedTypes} />
+          <FindingRow
+            key={g.type}
+            group={g}
+            aiConfirmedTypes={aiConfirmedTypes}
+            substitutionMap={substitutionMap}
+          />
         ))}
       </CardShell>
 

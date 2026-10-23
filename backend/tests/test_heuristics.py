@@ -471,3 +471,11 @@ def test_month_rewrite_is_half_open_including_december():
     assert "d >= 'YYYY-03-01' AND d < 'YYYY-04-01'" in mar
     dec = agent._rewrite_month_function("WHERE MONTH(d) = 12")[0]
     assert "<YYYY+1>-01-01" in dec
+
+
+def test_llm_rewrite_guardrails_cover_fanout_and_filters():
+    from app.llm.prompts import REWRITE_GUARDRAILS
+
+    text = REWRITE_GUARDRAILS.lower()
+    assert "fan-out" in text and "pre-aggregate" in text
+    assert "same rows" in text and "half-open" in text

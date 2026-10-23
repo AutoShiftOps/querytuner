@@ -17,6 +17,7 @@ import Footer from './components/Footer';
 import UpgradeModal from './components/UpgradeModal';
 import { ToastContainer, useToast } from './components/Toast';
 import { getAiConfirmedTypes, getAiRewrittenQuery, normalizeSql } from './utils/aiInsights';
+import { desanitize } from './utils/sanitizer';
 import {
   buildUrlWithoutUpgradedParam,
   hasUpgradedParam,
@@ -55,7 +56,7 @@ function CollapsibleSection({ title, hint, children }) {
         aria-expanded={open}
         className="w-full flex items-center gap-2 px-4 py-3 text-left"
       >
-        <span style={{ color: '#7c5cfc' }}>{open ? '▾' : '▸'}</span>
+        <span style={{ color: '#38bdf8' }}>{open ? '▾' : '▸'}</span>
         <span className="text-sm font-semibold" style={{ color: '#e2e8f0' }}>
           {title}
         </span>
@@ -433,9 +434,11 @@ function App() {
   // shown only for an AI rewrite that actually differs from the input.
   const aiRewrite =
     result?.used_ai && !result?.ai_error ? getAiRewrittenQuery(result.ai_insights) : '';
-  const rewriteSql = aiRewrite || result?.optimized_query || '';
+  // The backend only ever saw sanitized names; show the user's own.
+  const rewriteRaw = aiRewrite || result?.optimized_query || '';
+  const rewriteSql = substitutionMap ? desanitize(rewriteRaw, substitutionMap) : rewriteRaw;
   const rewriteIsAi = Boolean(aiRewrite);
-  const rewriteChanged = rewriteIsAi && normalizeSql(aiRewrite) !== normalizeSql(query);
+  const rewriteChanged = rewriteIsAi && normalizeSql(rewriteSql) !== normalizeSql(query);
 
   // Quiz Mode questions for this result — [] when nothing in the
   // response is confident enough to quiz on (the evidence_level guard
@@ -527,9 +530,9 @@ function App() {
                 <span
                   className="text-xs px-2 py-0.5 rounded-full"
                   style={{
-                    background: 'rgba(124,92,252,0.15)',
-                    color: '#b8a6ff',
-                    border: '1px solid rgba(124,92,252,0.35)',
+                    background: 'rgba(56,189,248,0.12)',
+                    color: '#38bdf8',
+                    border: '1px solid rgba(56,189,248,0.3)',
                   }}
                 >
                   {result.used_ai ? result.ai_provider || 'AI' : 'Heuristic'}
@@ -550,7 +553,7 @@ function App() {
                     width: 34,
                     height: 34,
                     border: '3px solid #2d3f55',
-                    borderTopColor: '#7c5cfc',
+                    borderTopColor: '#38bdf8',
                   }}
                 />
                 <span className="text-sm" style={{ color: '#94a3b8' }}>
