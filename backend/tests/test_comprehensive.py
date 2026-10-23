@@ -214,9 +214,9 @@ def test_implicit_comma_join_where_columns_detected(analyzer):
     query = "SELECT * FROM orders o, customers c WHERE o.customer_id = c.customer_id"
     suggestions = run(analyzer, query)
     assert_well_formed(suggestions)
-    assert "o.customer_id" in columns_of(suggestions), (
-        "Implicit comma-join condition in WHERE must still yield a column suggestion"
-    )
+    assert "o.customer_id" in columns_of(
+        suggestions
+    ), "Implicit comma-join condition in WHERE must still yield a column suggestion"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -227,9 +227,9 @@ def test_implicit_comma_join_where_columns_detected(analyzer):
 def test_oracle_rownum_is_not_recommended_as_an_indexable_column(analyzer):
     suggestions = run(analyzer, "SELECT * FROM orders WHERE ROWNUM <= 10", db_type="oracle")
     idx = index_suggestions(suggestions)
-    assert not any("ROWNUM" in s.get("columns", []) for s in idx), (
-        "ROWNUM is a pseudo-column, not a real column — it must never appear in a CREATE INDEX hint"
-    )
+    assert not any(
+        "ROWNUM" in s.get("columns", []) for s in idx
+    ), "ROWNUM is a pseudo-column, not a real column — it must never appear in a CREATE INDEX hint"
 
 
 def test_sqlserver_top_n_where_column_still_detected(analyzer):
@@ -293,9 +293,9 @@ def test_window_function_partition_by_does_not_produce_order_by_index(analyzer):
     assert_well_formed(suggestions)
     # The ORDER BY lives inside OVER(...), not at query top-level — it must not
     # generate a column-level order_by_index suggestion.
-    assert not any(s["type"] == "index_review_order_by_index" for s in index_suggestions(suggestions)), (
-        "ORDER BY inside a window function's OVER() clause must not be treated as a query-level ORDER BY"
-    )
+    assert not any(
+        s["type"] == "index_review_order_by_index" for s in index_suggestions(suggestions)
+    ), "ORDER BY inside a window function's OVER() clause must not be treated as a query-level ORDER BY"
 
 
 def test_window_function_order_by_does_not_trigger_naive_order_by_no_limit(analyzer):

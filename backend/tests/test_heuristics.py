@@ -160,9 +160,9 @@ def test_subquery_to_join(analyzer):
         FROM orders o
     """
     suggestions = run(analyzer, query)
-    assert "subquery_to_join" in get_types(suggestions), (
-        "Correlated subquery in SELECT list should trigger subquery_to_join"
-    )
+    assert "subquery_to_join" in get_types(
+        suggestions
+    ), "Correlated subquery in SELECT list should trigger subquery_to_join"
 
 
 # ── 17. Issue #25: PostgreSQL :: cast in WHERE triggers implicit_cast ─────────
@@ -180,9 +180,9 @@ def test_implicit_cast_postgres_operator(analyzer):
 def test_implicit_cast_id_string(analyzer):
     query = "SELECT * FROM orders WHERE customer_id = '42'"
     suggestions = run(analyzer, query)
-    assert "implicit_cast" in get_types(suggestions), (
-        "Comparing ID column to string literal should trigger implicit_cast"
-    )
+    assert "implicit_cast" in get_types(
+        suggestions
+    ), "Comparing ID column to string literal should trigger implicit_cast"
 
 
 # ── 19. Security: DROP statement detected ────────────────────────────────────
@@ -195,9 +195,9 @@ def test_security_drop_detected(analyzer):
     import asyncio
 
     full = asyncio.run(analyzer.analyze(query="DROP TABLE orders", db_type="postgresql", use_llm=False))
-    assert any("DROP" in issue.upper() for issue in full["security_issues"]), (
-        "DROP should be detected as a security issue"
-    )
+    assert any(
+        "DROP" in issue.upper() for issue in full["security_issues"]
+    ), "DROP should be detected as a security issue"
 
 
 # ── 20. Clean simple query returns no critical findings ──────────────────────
@@ -231,9 +231,9 @@ def test_not_in_subquery_triggers_nullable(analyzer):
 def test_not_in_literal_list_no_nullable(analyzer):
     query = "SELECT * FROM orders WHERE customer_id NOT IN (1, 2, 3)"
     suggestions = run(analyzer, query)
-    assert "not_in_nullable" not in get_types(suggestions), (
-        "NOT IN with a literal list (no subquery) should not trigger not_in_nullable"
-    )
+    assert "not_in_nullable" not in get_types(
+        suggestions
+    ), "NOT IN with a literal list (no subquery) should not trigger not_in_nullable"
 
 
 # ── 23. CASE in WHERE triggers case_in_predicate ─────────────────────────────
@@ -251,9 +251,9 @@ def test_case_in_where_triggers_predicate(analyzer):
 def test_case_in_select_only_no_predicate(analyzer):
     query = "SELECT CASE WHEN status = 'active' THEN 1 END AS flag FROM orders WHERE id = 1"
     suggestions = run(analyzer, query)
-    assert "case_in_predicate" not in get_types(suggestions), (
-        "CASE in the SELECT list (not WHERE) should not trigger case_in_predicate"
-    )
+    assert "case_in_predicate" not in get_types(
+        suggestions
+    ), "CASE in the SELECT list (not WHERE) should not trigger case_in_predicate"
 
 
 # ── 25. OR across columns in WHERE triggers or_expansion ─────────────────────
@@ -283,9 +283,9 @@ def test_cte_referenced_twice_triggers_multiple_references(analyzer):
         SELECT * FROM recent r1 JOIN recent r2 ON r1.id = r2.id
     """
     suggestions = run(analyzer, query)
-    assert "cte_multiple_references" in get_types(suggestions), (
-        "CTE referenced twice outside its own definition should trigger cte_multiple_references"
-    )
+    assert "cte_multiple_references" in get_types(
+        suggestions
+    ), "CTE referenced twice outside its own definition should trigger cte_multiple_references"
 
 
 # ── 28. CTE referenced once does NOT trigger cte_multiple_references ────────
@@ -297,9 +297,9 @@ def test_cte_referenced_once_no_multiple_references(analyzer):
         SELECT * FROM recent
     """
     suggestions = run(analyzer, query)
-    assert "cte_multiple_references" not in get_types(suggestions), (
-        "CTE referenced only once should not trigger cte_multiple_references"
-    )
+    assert "cte_multiple_references" not in get_types(
+        suggestions
+    ), "CTE referenced only once should not trigger cte_multiple_references"
 
 
 # ── 29. Issue #141: COUNT(*) existence-check subquery triggers count_star_existence_check ──
@@ -308,17 +308,17 @@ def test_cte_referenced_once_no_multiple_references(analyzer):
 def test_count_star_existence_check_gt_zero(analyzer):
     query = "SELECT * FROM customers c WHERE (SELECT COUNT(*) FROM orders WHERE customer_id = c.id) > 0"
     suggestions = run(analyzer, query)
-    assert "count_star_existence_check" in get_types(suggestions), (
-        "(SELECT COUNT(*) FROM ...) > 0 should trigger count_star_existence_check"
-    )
+    assert "count_star_existence_check" in get_types(
+        suggestions
+    ), "(SELECT COUNT(*) FROM ...) > 0 should trigger count_star_existence_check"
 
 
 def test_count_star_existence_check_eq_zero_negated_form(analyzer):
     query = "SELECT * FROM customers c WHERE (SELECT COUNT(*) FROM orders WHERE customer_id = c.id) = 0"
     suggestions = run(analyzer, query)
-    assert "count_star_existence_check" in get_types(suggestions), (
-        "(SELECT COUNT(*) FROM ...) = 0 (the negated existence check) should also trigger"
-    )
+    assert "count_star_existence_check" in get_types(
+        suggestions
+    ), "(SELECT COUNT(*) FROM ...) = 0 (the negated existence check) should also trigger"
 
 
 # ── 30. Legitimate GROUP BY ... HAVING COUNT(*) does NOT trigger the existence-check heuristic ──
