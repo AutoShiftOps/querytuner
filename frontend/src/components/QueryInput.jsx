@@ -121,17 +121,16 @@ const QueryInput = forwardRef(function QueryInput(
 
   return (
     <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
-      {/* Editor header — file tab on the left, Database selector and the
-          primary action on the right (querytuner.com diagnostics layout).
-          The Database <select> lives here now instead of in the options grid
-          below; it is the same dbType state/handler, just relocated. */}
+      {/* Editor header — label on the left, Database selector on the right.
+          The single primary action (Run Diagnostics) is at the bottom of the
+          form, after the options. */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-slate-700 bg-slate-900/40">
         <span
           className="text-xs font-semibold px-3 py-1 rounded-md"
           style={{
-            background: 'rgba(124,92,252,0.18)',
-            color: '#b8a6ff',
-            border: '1px solid rgba(124,92,252,0.4)',
+            background: 'rgba(56,189,248,0.12)',
+            color: '#38bdf8',
+            border: '1px solid rgba(56,189,248,0.3)',
           }}
         >
           SQL Query
@@ -155,14 +154,6 @@ const QueryInput = forwardRef(function QueryInput(
               <option value="oracle">Oracle</option>
             </select>
           </div>
-          <button
-            onClick={onAnalyze}
-            disabled={loading || !query.trim()}
-            className="disabled:bg-slate-600 text-white px-4 py-1.5 rounded-md text-sm font-semibold transition-all"
-            style={loading || !query.trim() ? undefined : { background: '#7c5cfc' }}
-          >
-            {loading ? 'Running diagnostics…' : '▶ Run Diagnostics'}
-          </button>
         </div>
       </div>
 
