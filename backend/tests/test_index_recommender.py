@@ -375,3 +375,30 @@ def test_indented_sample_has_no_unindexable_suggestions(analyzer, db_type):
     cols = _index_columns(run(analyzer, INDENTED_MULTI_JOIN, db_type=db_type))
     assert "total_items" not in cols, (db_type, cols)
     assert not [c for c in cols if c.startswith("recent.")], (db_type, cols)
+
+
+# ── Rollback names must match the CREATE statement ───────────────────────────
+
+
+@pytest.mark.parametrize("db_type", ["postgresql", "mysql", "sqlserver", "oracle", "sqlite"])
+def test_rollback_drops_the_index_that_create_names(analyzer, db_type):
+    from app.tools.index_recommender import _index_name_from_ddl
+
+    checked = 0
+    for s in run(analyzer, INDENTED_MULTI_JOIN, db_type=db_type):
+        if not s["type"].startswith("index_review_") or not s.get("rollback_ddl"):
+            continue
+        name = _index_name_from_ddl(s["ddl_hint"])
+        assert name and name in s["rollback_ddl"], (db_type, s["ddl_hint"], s["rollback_ddl"])
+        checked += 1
+    assert checked >= 3
+
+
+def test_group_by_composite_has_rollback(analyzer):
+    sugg = [s for s in run(analyzer, INDENTED_MULTI_JOIN) if s["type"] == "index_review_group_by_index"]
+    assert sugg and "idx_users_name_email" in sugg[0]["rollback_ddl"]
+
+
+def test_oracle_partial_candidate_indexes_the_column_not_the_pk(analyzer):
+    sugg = [s for s in run(analyzer, INDENTED_MULTI_JOIN, db_type="oracle") if "partial" in s["type"]]
+    assert sugg and "(status)" in sugg[0]["ddl_hint"] and "(id)" not in sugg[0]["ddl_hint"]
