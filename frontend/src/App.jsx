@@ -17,6 +17,7 @@ import Footer from './components/Footer';
 import UpgradeModal from './components/UpgradeModal';
 import { ToastContainer, useToast } from './components/Toast';
 import { getAiConfirmedTypes, getAiRewrittenQuery, normalizeSql } from './utils/aiInsights';
+import { desanitize } from './utils/sanitizer';
 import {
   buildUrlWithoutUpgradedParam,
   hasUpgradedParam,
@@ -433,9 +434,11 @@ function App() {
   // shown only for an AI rewrite that actually differs from the input.
   const aiRewrite =
     result?.used_ai && !result?.ai_error ? getAiRewrittenQuery(result.ai_insights) : '';
-  const rewriteSql = aiRewrite || result?.optimized_query || '';
+  // The backend only ever saw sanitized names; show the user's own.
+  const rewriteRaw = aiRewrite || result?.optimized_query || '';
+  const rewriteSql = substitutionMap ? desanitize(rewriteRaw, substitutionMap) : rewriteRaw;
   const rewriteIsAi = Boolean(aiRewrite);
-  const rewriteChanged = rewriteIsAi && normalizeSql(aiRewrite) !== normalizeSql(query);
+  const rewriteChanged = rewriteIsAi && normalizeSql(rewriteSql) !== normalizeSql(query);
 
   // Quiz Mode questions for this result — [] when nothing in the
   // response is confident enough to quiz on (the evidence_level guard

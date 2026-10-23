@@ -270,8 +270,10 @@ function CardShell({ icon, title, subtitle, children }) {
   );
 }
 
-function FindingRow({ group, aiConfirmedTypes }) {
+function FindingRow({ group, aiConfirmedTypes, substitutionMap }) {
   const { type, list, severity } = group;
+  // Findings are generated from the sanitized query; show the user's own names.
+  const d = (t) => (substitutionMap ? desanitize(String(t ?? ''), substitutionMap) : t);
   const first = list[0];
   const st = SEVERITY_STYLE[severity];
   const many = list.length > 1;
@@ -310,17 +312,17 @@ function FindingRow({ group, aiConfirmedTypes }) {
       {many ? (
         <ul className="mt-1 text-sm space-y-0.5" style={{ color: '#94a3b8' }}>
           {list.map((s, i) => (
-            <li key={i}>• {String(s.suggestion || '').split(' — ')[0]}</li>
+            <li key={i}>• {d(String(s.suggestion || '').split(' — ')[0])}</li>
           ))}
         </ul>
       ) : (
         <p className="mt-1 text-sm" style={{ color: '#94a3b8' }}>
-          {first.suggestion}
+          {d(first.suggestion)}
         </p>
       )}
       {first.reason ? (
         <p className="mt-1 text-sm" style={{ color: '#7f93ab' }}>
-          {first.reason}
+          {d(first.reason)}
         </p>
       ) : null}
       {(first.cost_estimate ||
@@ -427,7 +429,12 @@ export default function OptimizationSuggestions({
         subtitle="Deterministic rules — sub-second, always available"
       >
         {groups.map((g) => (
-          <FindingRow key={g.type} group={g} aiConfirmedTypes={aiConfirmedTypes} />
+          <FindingRow
+            key={g.type}
+            group={g}
+            aiConfirmedTypes={aiConfirmedTypes}
+            substitutionMap={substitutionMap}
+          />
         ))}
       </CardShell>
 
