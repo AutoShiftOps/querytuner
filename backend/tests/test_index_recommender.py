@@ -339,3 +339,39 @@ def test_select_alias_correlated_subquery_not_indexed(analyzer):
         "FROM products p WHERE p.category = 'electronics' ORDER BY times_ordered DESC"
     )
     assert "times_ordered" not in _index_columns(run(analyzer, q))
+
+
+# ── Regression: indented multi-line SELECT lists (the app's own samples) ─────
+
+INDENTED_MULTI_JOIN = """SELECT
+  u.id,
+  u.name,
+  u.email,
+  recent.last_order_date,
+  COUNT(oi.id) AS total_items
+FROM users u
+JOIN orders o ON o.user_id = u.id
+JOIN order_items oi ON oi.order_id = o.id
+JOIN (
+  SELECT user_id, MAX(created_at) AS last_order_date
+  FROM orders
+  GROUP BY user_id
+) recent ON recent.user_id = u.id
+WHERE YEAR(o.created_at) = 2024
+  AND u.status = 'active'
+GROUP BY u.id, u.name, u.email, recent.last_order_date
+ORDER BY total_items DESC;"""
+
+
+def test_indented_select_list_keeps_full_alias():
+    from app.tools.query_parser import QueryParser
+
+    items = QueryParser().parse(INDENTED_MULTI_JOIN)["select_items"]
+    assert items[-1] == {"output": "total_items", "expr": "COUNT(oi.id)", "has_alias": True}
+
+
+@pytest.mark.parametrize("db_type", ["postgresql", "mysql", "sqlserver", "oracle", "sqlite"])
+def test_indented_sample_has_no_unindexable_suggestions(analyzer, db_type):
+    cols = _index_columns(run(analyzer, INDENTED_MULTI_JOIN, db_type=db_type))
+    assert "total_items" not in cols, (db_type, cols)
+    assert not [c for c in cols if c.startswith("recent.")], (db_type, cols)
