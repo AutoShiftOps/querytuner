@@ -277,7 +277,12 @@ class QueryParser:
         return out
 
     def _extract_select_clause_text(self, query: str) -> str:
-        q = _strip_trailing_semicolon(query)
+        # _find_top_level_keyword_pos works on whitespace-collapsed text and
+        # returns indices into that text, so slice the collapsed text too.
+        # Slicing the raw query (as this did) shifts every index by the
+        # number of collapsed characters: with indented multi-line SQL the
+        # last select alias was cut short (`total_items` -> `total_i`).
+        q = re.sub(r"\s+", " ", _strip_trailing_semicolon(query)).strip()
 
         s_idx = _find_top_level_keyword_pos(q, "select", 0)
         if s_idx == -1:
