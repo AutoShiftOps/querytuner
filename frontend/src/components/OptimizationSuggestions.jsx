@@ -95,8 +95,10 @@ function EvidenceBadge({ level }) {
 // read as two layers of analysis rather than duplicated findings.
 // Collapsed by default — rollback DDL is a "break glass" action, not
 // something to surface at the same visual weight as the suggestion itself.
-function RollbackToggle({ ddl }) {
+function RollbackToggle({ ddl, substitutionMap }) {
   const [open, setOpen] = useState(false);
+  // Show the user's real names when the query was sanitized before analysis.
+  const shown = substitutionMap ? desanitize(ddl, substitutionMap) : ddl;
   return (
     <div className="mt-2">
       <button
@@ -122,7 +124,7 @@ function RollbackToggle({ ddl }) {
             fontFamily: "'JetBrains Mono', monospace",
           }}
         >
-          {`To undo this index: ${ddl}`}
+          {`To undo this index: ${shown}`}
         </pre>
       )}
     </div>
@@ -386,7 +388,9 @@ function DdlBlock({ s, substitutionMap }) {
       {substitutionMap ? (
         <RestoreNamesToggle ddl={s.ddl_hint} substitutionMap={substitutionMap} />
       ) : null}
-      {s.rollback_ddl ? <RollbackToggle ddl={s.rollback_ddl} /> : null}
+      {s.rollback_ddl ? (
+        <RollbackToggle ddl={s.rollback_ddl} substitutionMap={substitutionMap} />
+      ) : null}
     </div>
   );
 }
