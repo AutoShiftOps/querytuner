@@ -38,6 +38,38 @@ import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+function formatDuration(ms) {
+  const n = Number(ms || 0);
+  return n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`;
+}
+
+// Secondary detail, collapsed by default so the primary view is the three
+// result cards (Findings, Optimization Suggestions, Rewritten Query).
+function CollapsibleSection({ title, hint, children }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl" style={{ border: '1px solid #2d3f55', background: '#172033' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-2 px-4 py-3 text-left"
+      >
+        <span style={{ color: '#7c5cfc' }}>{open ? '▾' : '▸'}</span>
+        <span className="text-sm font-semibold" style={{ color: '#e2e8f0' }}>
+          {title}
+        </span>
+        {hint && (
+          <span className="text-xs" style={{ color: '#4a6480' }}>
+            {hint}
+          </span>
+        )}
+      </button>
+      {open && <div className="px-3 pb-3">{children}</div>}
+    </div>
+  );
+}
+
 function App() {
   const [query, setQuery] = useState('');
   const [explainPlan, setExplainPlan] = useState('');
@@ -374,16 +406,6 @@ function App() {
     ? result.optimization_suggestions.length
     : 0;
 
-  // Severity tallies for the Findings summary row (real counts, from the
-  // heuristic suggestions only).
-  const severityCounts = { critical: 0, high: 0, medium: 0, low: 0 };
-  if (Array.isArray(result?.optimization_suggestions)) {
-    for (const sug of result.optimization_suggestions) {
-      const sev = String(sug?.severity || 'low').toLowerCase();
-      severityCounts[sev in severityCounts ? sev : 'low'] += 1;
-    }
-  }
-
   // Best-effort "Est. improvement" for the stat strip: the first percentage
   // the engine/model itself wrote in an estimated_improvement field. Never
   // computed or invented here — QueryTuner has no live DB to measure against.
@@ -571,7 +593,7 @@ function App() {
                     },
                     {
                       label: 'Analysis time',
-                      value: `${Number(result.analysis_time_ms || 0).toFixed(1)}ms`,
+                      value: formatDuration(result.analysis_time_ms),
                     },
                   ].map(({ label, value, danger, title }) => (
                     <div
@@ -608,32 +630,13 @@ function App() {
                 </div>
 
                 {/* Query Diagnosis — structured dark renderer, no prose plugin needed */}
-                {result.plain_explanation && <QueryDiagnosis content={result.plain_explanation} />}
-
-                {/* Findings summary — real severity tallies, shown only once the
-                  findings themselves are revealed (same gate as the cards). */}
-                {issueCount > 0 && !(quizQuestions.length > 0 && !quizRevealed) && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-semibold" style={{ color: '#e2e8f0' }}>
-                      Findings
-                    </span>
-                    {[
-                      ['critical', '#f87171'],
-                      ['high', '#f97316'],
-                      ['medium', '#fbbf24'],
-                      ['low', '#34d399'],
-                    ]
-                      .filter(([sev]) => severityCounts[sev] > 0)
-                      .map(([sev, color]) => (
-                        <span
-                          key={sev}
-                          className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                          style={{ color, border: `1px solid ${color}` }}
-                        >
-                          {severityCounts[sev]} {sev}
-                        </span>
-                      ))}
-                  </div>
+                {result.plain_explanation && (
+                  <CollapsibleSection
+                    title="Query details"
+                    hint="summary, complexity, maintenance commands"
+                  >
+                    <QueryDiagnosis content={result.plain_explanation} />
+                  </CollapsibleSection>
                 )}
 
                 {/* Quiz Mode gates the findings behind a few test-yourself
@@ -647,33 +650,6 @@ function App() {
                     suggestions={result.optimization_suggestions || []}
                     aiConfirmedTypes={aiConfirmedTypes}
                     substitutionMap={substitutionMap}
-                  />
-                )}
-
-                {/* AI Insights — gated behind the same quiz-then-reveal
-                  condition as OptimizationSuggestions above (bug fix: this
-                  panel's own DDL recommendations answer the exact question
-                  Quiz Mode just asked, so it previously leaked the answer
-                  by rendering unconditionally whenever AI insights was
-                  turned on — see isAiInsightsRevealed's own docstring).
-                  docs/querytuner-quiz-provider-fixes.md, Bug 1 */}
-                {isAiInsightsRevealed(quizQuestions, quizRevealed, result) && (
-                  <ResultsPanel
-                    title={`AI Insights${
-                      result.ai_provider
-                        ? ` (${result.ai_provider}${result.ai_model ? ` / ${result.ai_model}` : ''})`
-                        : ''
-                    }`}
-                    content={result.ai_insights}
-                    icon={Zap}
-                    aiConfirmedTypes={aiConfirmedTypes}
-                    substitutionMap={substitutionMap}
-                    showCompletion={!result.optimized_query}
-                    onShare={() => {
-                      navigator.clipboard.writeText(result.ai_insights || '');
-                      showToast('AI insights copied to clipboard', 'success');
-                      trackAiInsightsCopied();
-                    }}
                   />
                 )}
 
@@ -711,7 +687,7 @@ function App() {
                     >
                       <div className="flex items-center gap-2">
                         <Zap className="w-4 h-4 text-blue-400" />
-                        <span className="text-sm font-semibold text-white">Optimized Query</span>
+                        <span className="text-sm font-semibold text-white">Rewritten Query</span>
                       </div>
                       <div className="flex items-center gap-3">
                         <span
@@ -722,7 +698,7 @@ function App() {
                             fontWeight: 500,
                           }}
                         >
-                          ✓ rewritten
+                          ✓ review before applying
                         </span>
                         <button
                           onClick={() => {
@@ -747,6 +723,38 @@ function App() {
                       <OptimizationComplete />
                     </div>
                   </div>
+                )}
+
+                {/* AI Insights — gated behind the same quiz-then-reveal
+                  condition as OptimizationSuggestions above (bug fix: this
+                  panel's own DDL recommendations answer the exact question
+                  Quiz Mode just asked, so it previously leaked the answer
+                  by rendering unconditionally whenever AI insights was
+                  turned on — see isAiInsightsRevealed's own docstring).
+                  docs/querytuner-quiz-provider-fixes.md, Bug 1 */}
+                {isAiInsightsRevealed(quizQuestions, quizRevealed, result) && (
+                  <CollapsibleSection
+                    title="AI Insights — full report"
+                    hint="deeper reasoning from the model; the cards above are the summary"
+                  >
+                    <ResultsPanel
+                      title={`AI Insights${
+                        result.ai_provider
+                          ? ` (${result.ai_provider}${result.ai_model ? ` / ${result.ai_model}` : ''})`
+                          : ''
+                      }`}
+                      content={result.ai_insights}
+                      icon={Zap}
+                      aiConfirmedTypes={aiConfirmedTypes}
+                      substitutionMap={substitutionMap}
+                      showCompletion={!result.optimized_query}
+                      onShare={() => {
+                        navigator.clipboard.writeText(result.ai_insights || '');
+                        showToast('AI insights copied to clipboard', 'success');
+                        trackAiInsightsCopied();
+                      }}
+                    />
+                  </CollapsibleSection>
                 )}
 
                 {/* Execution Plan */}
