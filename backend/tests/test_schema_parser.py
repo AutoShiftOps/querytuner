@@ -547,10 +547,59 @@ def test_ddl_hint_uses_real_table_name_when_schema_verified():
     assert "<table_name>" not in ddl
 
 
-def test_ddl_hint_falls_back_to_placeholder_when_not_schema_verified():
+def test_ddl_hint_falls_back_to_query_alias_map_without_schema_info():
+    # Issue: without schema_info (the common case for real users), DDL hints
+    # previously always fell back to a literal, non-executable <alias_table>
+    # placeholder, even though the real table name is right there in the
+    # query's own FROM clause. Now resolved via query_parser.py's
+    # _extract_table_aliases instead of requiring a pasted schema.
     suggestions = _recommend("SELECT * FROM orders o WHERE o.status = 'active'")
     partials = _by_type(suggestions, "index_review_partial_index_candidate")
-    assert "<o_table>" in partials[0]["ddl_hint"]
+    assert partials, "expected a partial_index_candidate suggestion for o.status"
+    # Not schema-verified (no schema_info was supplied) — but still resolves
+    # the real table name, not a placeholder.
+    assert partials[0]["schema_verified"] is False
+    ddl = partials[0]["ddl_hint"]
+    assert "orders" in ddl
+    assert "<o_table>" not in ddl
+    assert "<table_name>" not in ddl
+
+
+def test_ddl_hint_falls_back_to_bracket_quoted_sqlserver_table_without_schema_info():
+    # Same fallback, but exercising the bracket-aware table resolution that
+    # fixes the <SH_table> bug found on a real SQL Server report
+    # (report 8f05a5fc-7f7b-4103-b24a-eb8afc6e7f1e): a WHERE-column finding
+    # on a bracket-quoted, space-containing table name with no schema_info
+    # pasted should still resolve the real table, not a placeholder.
+    #
+    # Note: deliberately uses a plain (non-bracket-quoted) column name in
+    # the WHERE clause here — _extract_join_columns'/_extract_where_columns'
+    # own column-matching regexes have a separate, not-yet-fixed
+    # bracket-awareness gap for column names (distinct from the table-name
+    # placeholder bug this test targets), so a bracket-quoted column would
+    # fail to extract at all and mask what this test is actually checking.
+    query = "SELECT SH.status FROM [dbo].[Metropolitan$Sales Header] SH WITH(NOLOCK) WHERE SH.status = 'active'"
+    suggestions = _recommend(query, db_type="sqlserver")
+    partials = _by_type(suggestions, "index_review_partial_index_candidate")
+    assert partials, "expected a partial_index_candidate suggestion for SH.status"
+    ddl = partials[0]["ddl_hint"]
+    assert "[dbo].[Metropolitan$Sales Header]" in ddl
+    assert "<SH_table>" not in ddl
+
+
+def test_ddl_hint_still_falls_back_to_placeholder_when_alias_cannot_be_resolved_at_all():
+    # Issue fix: without schema_info, DDL hints now resolve via the query's
+    # own FROM/JOIN alias map (see test_ddl_hint_falls_back_to_query_alias_map
+    # _without_schema_info above) instead of always falling back to a
+    # placeholder. This test keeps coverage for the genuine remaining edge
+    # case — an alias that isn't declared anywhere in the query's own
+    # FROM/JOIN (e.g. a typo, or a correlated-subquery alias this
+    # single-statement-scoped parser doesn't follow) — where a placeholder
+    # is still the only honest thing to emit.
+    suggestions = _recommend("SELECT * FROM orders WHERE x.status = 'active'")
+    partials = _by_type(suggestions, "index_review_partial_index_candidate")
+    assert partials, "expected a partial_index_candidate suggestion for x.status"
+    assert "<x_table>" in partials[0]["ddl_hint"]
 
 
 def test_suggestion_suppressed_when_index_already_exists_in_schema():

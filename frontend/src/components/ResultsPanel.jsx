@@ -331,9 +331,17 @@ function StructuredInsights({ data, aiConfirmedTypes }) {
   const riskyRaw = findKey(data, RISKY_ASSUMPTIONS_KEYS);
   const risky = Array.isArray(riskyRaw) ? riskyRaw : [];
 
+  // Issue: when every AI-returned improvement/risk item already matches a
+  // heuristic finding shown above (dedup via aiConfirmedTypes), both
+  // sections below render nothing — which looks identical to the AI call
+  // having failed, even though it succeeded and genuinely had nothing new
+  // to add. Show that explicitly instead of a silent gap.
+  const hadAiImprovements = allImprovements.length > 0;
+  const dedupedAllAway = hadAiImprovements && improvements.length === 0;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      {improvements.length > 0 && (
+      {improvements.length > 0 ? (
         <div>
           <SectionTitle>
             Most Impactful Improvements
@@ -352,6 +360,13 @@ function StructuredInsights({ data, aiConfirmedTypes }) {
             <SuggestionCard key={idx} item={item} />
           ))}
         </div>
+      ) : (
+        dedupedAllAway && (
+          <p style={{ fontSize: 13, color: '#7fa3c4', margin: 0 }}>
+            AI analysis confirmed the heuristic findings above — no additional improvements
+            identified.
+          </p>
+        )
       )}
 
       {indexes.length > 0 && (
