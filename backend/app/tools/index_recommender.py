@@ -154,6 +154,18 @@ def _extract_group_by_columns(group_by: list[str]) -> list[tuple[str | None, str
     return cols
 
 
+_INDEX_NAME_RE = re.compile(
+    r"(?:CREATE\s+(?:NONCLUSTERED\s+)?INDEX(?:\s+CONCURRENTLY)?(?:\s+IF\s+NOT\s+EXISTS)?|ADD\s+INDEX)"
+    r"\s+([A-Za-z_]\w*)",
+    re.IGNORECASE,
+)
+
+
+def _index_name_from_ddl(ddl: str) -> str | None:
+    m = _INDEX_NAME_RE.search(ddl or "")
+    return m.group(1) if m else None
+
+
 def _matching_paren_end(text: str, open_idx: int) -> int:
     """Index of the ')' matching the '(' at open_idx, or -1."""
     depth = 0
@@ -781,9 +793,8 @@ class IndexRecommender:
             ddl = f"CREATE NONCLUSTERED INDEX {idx} ON {table_ph}(id) WHERE {col} = '<active_value>' WITH (ONLINE=ON);"
         elif db_type == "oracle":
             ddl = (
-                f"-- Oracle: use a function-based index or partition:\n"
-                f"CREATE INDEX {idx} ON {table_ph}(id) NOLOGGING;\n"
-                f"-- Or: use list partitioning on {col}."
+                f"-- Oracle has no partial indexes: index the column itself, or use list partitioning on {col}.\n"
+                f"CREATE INDEX {idx} ON {table_ph}({col}) NOLOGGING;"
             )
         else:
             # SQLite and fallback
@@ -831,12 +842,14 @@ class IndexRecommender:
         bare_columns = composite_bare_columns if composite_bare_columns is not None else ([col] if col else None)
         if bare_columns:
             result["cost_estimate"] = _estimate_index_cost(bare_columns, table_ph, schema or {})
-        if col and table_ph:
+        # Roll back the index the CREATE statement above actually names. The
+        # name used to be rebuilt here from the table *alias* (idx_o_user_id)
+        # while the DDL used the real table (idx_orders_user_id), so the
+        # rollback dropped an index that never existed.
+        index_name = _index_name_from_ddl(ddl_hint) or (f"idx_{alias or 'tbl'}_{col}" if col else None)
+        if index_name and table_ph:
             cfg = get_dialect(db_type)
-            result["rollback_ddl"] = cfg.rollback_index.format(
-                index=f"idx_{alias or 'tbl'}_{col}",
-                table=table_ph,
-            )
+            result["rollback_ddl"] = cfg.rollback_index.format(index=index_name, table=table_ph)
         return result
 
     def _dedupe(self, suggestions):
