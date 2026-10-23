@@ -16,7 +16,7 @@ import Hero from './components/Hero';
 import Footer from './components/Footer';
 import UpgradeModal from './components/UpgradeModal';
 import { ToastContainer, useToast } from './components/Toast';
-import { getAiConfirmedTypes } from './utils/aiInsights';
+import { getAiConfirmedTypes, getAiRewrittenQuery, normalizeSql } from './utils/aiInsights';
 import {
   buildUrlWithoutUpgradedParam,
   hasUpgradedParam,
@@ -427,6 +427,16 @@ function App() {
       ? getAiConfirmedTypes(result.optimization_suggestions, result.ai_insights)
       : new Set();
 
+  // Rewritten Query card: prefer the AI's rewrite (it can restructure, e.g.
+  // correlated subquery -> JOIN/CTE); fall back to the heuristic rewrite,
+  // which only applies safe mechanical tweaks. "Optimization complete" is
+  // shown only for an AI rewrite that actually differs from the input.
+  const aiRewrite =
+    result?.used_ai && !result?.ai_error ? getAiRewrittenQuery(result.ai_insights) : '';
+  const rewriteSql = aiRewrite || result?.optimized_query || '';
+  const rewriteIsAi = Boolean(aiRewrite);
+  const rewriteChanged = rewriteIsAi && normalizeSql(aiRewrite) !== normalizeSql(query);
+
   // Quiz Mode questions for this result — [] when nothing in the
   // response is confident enough to quiz on (the evidence_level guard
   // inside generateQuiz), in which case the quiz UI is skipped entirely
@@ -676,7 +686,7 @@ function App() {
                 )}
 
                 {/* Optimized Query */}
-                {result.optimized_query && (
+                {rewriteSql && (
                   <div
                     className="rounded-xl overflow-hidden"
                     style={{ background: '#1e293b', border: '1px solid #2d3f55' }}
@@ -698,11 +708,13 @@ function App() {
                             fontWeight: 500,
                           }}
                         >
-                          ✓ review before applying
+                          {rewriteIsAi
+                            ? '✓ AI rewrite · review before applying'
+                            : 'Heuristic rewrite · review before applying'}
                         </span>
                         <button
                           onClick={() => {
-                            navigator.clipboard.writeText(result.optimized_query);
+                            navigator.clipboard.writeText(rewriteSql);
                             showToast('Optimized query copied', 'success');
                             trackOptimizedQueryCopied();
                           }}
@@ -717,11 +729,13 @@ function App() {
                       className="whitespace-pre-wrap text-sm leading-relaxed overflow-x-auto p-4"
                       style={{ color: '#34d399', fontFamily: "'JetBrains Mono', monospace" }}
                     >
-                      {result.optimized_query}
+                      {rewriteSql}
                     </pre>
-                    <div className="p-3 pt-0">
-                      <OptimizationComplete />
-                    </div>
+                    {rewriteChanged && (
+                      <div className="p-3 pt-0">
+                        <OptimizationComplete />
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -747,7 +761,7 @@ function App() {
                       icon={Zap}
                       aiConfirmedTypes={aiConfirmedTypes}
                       substitutionMap={substitutionMap}
-                      showCompletion={!result.optimized_query}
+                      showCompletion={false}
                       onShare={() => {
                         navigator.clipboard.writeText(result.ai_insights || '');
                         showToast('AI insights copied to clipboard', 'success');
