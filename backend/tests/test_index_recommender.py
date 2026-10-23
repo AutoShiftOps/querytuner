@@ -302,3 +302,40 @@ def test_cost_estimate_flags_large_type_end_to_end(analyzer):
     # there's genuinely no type information available.
     baseline_suggestion = next(s for s in suggestions if s["type"].startswith("index_review_"))
     assert "large-text column" not in baseline_suggestion["cost_estimate"]
+
+
+# ── Analysis correctness: only suggest indexes that can exist ────────────────
+
+MULTI_JOIN = """SELECT u.id, u.name, u.email, recent.last_order_date, COUNT(oi.id) AS total_items
+FROM users u
+JOIN orders o ON o.user_id = u.id
+JOIN order_items oi ON oi.order_id = o.id
+JOIN (SELECT user_id, MAX(created_at) AS last_order_date FROM orders GROUP BY user_id) recent ON recent.user_id = u.id
+WHERE YEAR(o.created_at) = 2024 AND u.status = 'active'
+GROUP BY u.id, u.name, u.email, recent.last_order_date
+ORDER BY total_items DESC;"""
+
+
+def _index_columns(suggestions):
+    return [c for s in suggestions if s["type"].startswith("index_review_") for c in s.get("columns", [])]
+
+
+def test_no_index_on_derived_table_or_aggregate_alias(analyzer):
+    cols = _index_columns(run(analyzer, MULTI_JOIN))
+    assert not [c for c in cols if c.startswith("recent.")], cols
+    assert "total_items" not in cols, cols
+
+
+def test_group_by_columns_collapse_into_one_composite(analyzer):
+    sugg = [s for s in run(analyzer, MULTI_JOIN) if s["type"] == "index_review_group_by_index"]
+    assert len(sugg) == 1
+    assert sugg[0]["columns"] == ["u.name", "u.email"]
+    assert "u_table" in sugg[0]["ddl_hint"] and "name, email" in sugg[0]["ddl_hint"]
+
+
+def test_select_alias_correlated_subquery_not_indexed(analyzer):
+    q = (
+        "SELECT p.id, (SELECT COUNT(*) FROM order_items oi WHERE oi.product_id = p.id) AS times_ordered "
+        "FROM products p WHERE p.category = 'electronics' ORDER BY times_ordered DESC"
+    )
+    assert "times_ordered" not in _index_columns(run(analyzer, q))

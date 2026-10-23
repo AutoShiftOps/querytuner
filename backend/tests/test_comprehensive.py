@@ -153,10 +153,12 @@ def test_cte_name_does_not_leak_into_or_break_table_extraction(analyzer):
 
 
 def test_subquery_alias_does_not_confuse_column_extraction(analyzer):
-    query = "SELECT * FROM users u " "JOIN (SELECT id, customer_ref FROM orders) sub ON sub.customer_ref = u.id"
+    query = "SELECT * FROM users u JOIN (SELECT id, customer_ref FROM orders) sub ON sub.customer_ref = u.id"
     suggestions = run(analyzer, query)
     assert_well_formed(suggestions)
-    assert "sub.customer_ref" in columns_of(suggestions), "JOIN key on a derived-table alias must still be extracted"
+    # The alias must not confuse extraction (well-formed output above), but an index
+    # cannot be created on a derived table's column, so no index is suggested for it.
+    assert "sub.customer_ref" not in columns_of(suggestions), "derived-table columns are not indexable"
 
 
 def test_cartesian_join_still_fires_with_cte_present(analyzer):
@@ -201,7 +203,7 @@ def test_using_clause_produces_join_key_suggestion(analyzer):
 
 
 def test_multiple_conditions_in_on_clause_all_captured(analyzer):
-    query = "SELECT * FROM orders o JOIN customers c " "ON o.customer_id = c.id AND o.region_code = c.region_code"
+    query = "SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id AND o.region_code = c.region_code"
     suggestions = run(analyzer, query)
     cols = columns_of(suggestions)
     assert "o.customer_id" in cols
@@ -212,9 +214,9 @@ def test_implicit_comma_join_where_columns_detected(analyzer):
     query = "SELECT * FROM orders o, customers c WHERE o.customer_id = c.customer_id"
     suggestions = run(analyzer, query)
     assert_well_formed(suggestions)
-    assert "o.customer_id" in columns_of(
-        suggestions
-    ), "Implicit comma-join condition in WHERE must still yield a column suggestion"
+    assert "o.customer_id" in columns_of(suggestions), (
+        "Implicit comma-join condition in WHERE must still yield a column suggestion"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -225,9 +227,9 @@ def test_implicit_comma_join_where_columns_detected(analyzer):
 def test_oracle_rownum_is_not_recommended_as_an_indexable_column(analyzer):
     suggestions = run(analyzer, "SELECT * FROM orders WHERE ROWNUM <= 10", db_type="oracle")
     idx = index_suggestions(suggestions)
-    assert not any(
-        "ROWNUM" in s.get("columns", []) for s in idx
-    ), "ROWNUM is a pseudo-column, not a real column — it must never appear in a CREATE INDEX hint"
+    assert not any("ROWNUM" in s.get("columns", []) for s in idx), (
+        "ROWNUM is a pseudo-column, not a real column — it must never appear in a CREATE INDEX hint"
+    )
 
 
 def test_sqlserver_top_n_where_column_still_detected(analyzer):
@@ -291,9 +293,9 @@ def test_window_function_partition_by_does_not_produce_order_by_index(analyzer):
     assert_well_formed(suggestions)
     # The ORDER BY lives inside OVER(...), not at query top-level — it must not
     # generate a column-level order_by_index suggestion.
-    assert not any(
-        s["type"] == "index_review_order_by_index" for s in index_suggestions(suggestions)
-    ), "ORDER BY inside a window function's OVER() clause must not be treated as a query-level ORDER BY"
+    assert not any(s["type"] == "index_review_order_by_index" for s in index_suggestions(suggestions)), (
+        "ORDER BY inside a window function's OVER() clause must not be treated as a query-level ORDER BY"
+    )
 
 
 def test_window_function_order_by_does_not_trigger_naive_order_by_no_limit(analyzer):
