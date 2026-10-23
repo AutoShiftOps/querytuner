@@ -145,7 +145,8 @@ const QueryInput = forwardRef(function QueryInput(
               id="qt-database"
               value={dbType}
               onChange={(e) => setDbType(e.target.value)}
-              className="bg-transparent text-white text-sm font-semibold focus:outline-none"
+              className="bg-transparent text-white text-sm font-semibold focus:outline-none [&>option]:bg-slate-900 [&>option]:text-white"
+              style={{ colorScheme: 'dark' }}
             >
               <option value="postgresql">PostgreSQL</option>
               <option value="mysql">MySQL</option>
