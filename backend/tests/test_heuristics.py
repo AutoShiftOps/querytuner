@@ -450,3 +450,24 @@ def test_index_recommendation_upgrades_to_schema_verified_with_schema(analyzer):
     upgraded = next(s for s in with_schema if s["type"].startswith("index_review_"))
     assert baseline["evidence_level"] == "needs-runtime-evidence"
     assert upgraded["evidence_level"] == "schema-verified"
+
+
+# ── YEAR()/MONTH() rewrites use half-open ranges (no Dec 31 gap) ─────────────
+
+
+def test_year_rewrite_is_half_open():
+    from app.agents.optimizer import QueryOptimizer
+
+    out = QueryOptimizer()._rewrite_year_function("WHERE YEAR(o.created_at) = 2024", "postgresql")[0]
+    assert out == "WHERE (o.created_at >= '2024-01-01' AND o.created_at < '2025-01-01')"
+    assert "BETWEEN" not in out
+
+
+def test_month_rewrite_is_half_open_including_december():
+    from app.agents.optimizer import QueryOptimizer
+
+    agent = QueryOptimizer()
+    mar = agent._rewrite_month_function("WHERE MONTH(d) = 3")[0]
+    assert "d >= 'YYYY-03-01' AND d < 'YYYY-04-01'" in mar
+    dec = agent._rewrite_month_function("WHERE MONTH(d) = 12")[0]
+    assert "<YYYY+1>-01-01" in dec

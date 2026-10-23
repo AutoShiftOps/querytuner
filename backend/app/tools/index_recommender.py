@@ -154,6 +154,68 @@ def _extract_group_by_columns(group_by: list[str]) -> list[tuple[str | None, str
     return cols
 
 
+def _matching_paren_end(text: str, open_idx: int) -> int:
+    """Index of the ')' matching the '(' at open_idx, or -1."""
+    depth = 0
+    for i in range(open_idx, len(text)):
+        if text[i] == "(":
+            depth += 1
+        elif text[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def _unindexable_names(query: str, select_items: list[dict[str, Any]] | None) -> tuple[set[str], set[str]]:
+    """Names that look like columns but cannot carry an index.
+
+    Returns (relation_aliases, computed_aliases):
+    - relation_aliases: derived-table / CTE names — `FROM (SELECT ...) recent`,
+      `WITH recent AS (...)` — whose "columns" only exist at query time.
+    - computed_aliases: SELECT aliases of aggregates/expressions/subqueries
+      (`COUNT(oi.id) AS total_items`), which ORDER BY / GROUP BY may reference
+      but no index can cover.
+    """
+    relations: set[str] = set()
+    for m in re.finditer(r"\b(?:FROM|JOIN)\s*\(", query, re.IGNORECASE):
+        open_idx = m.end() - 1
+        close = _matching_paren_end(query, open_idx)
+        if close == -1:
+            continue
+        # lstrip instead of a leading \s* in the pattern: avoids ambiguous
+        # whitespace matching (polynomial backtracking on user-supplied SQL).
+        alias_m = re.match(r"(?:AS\s+)?([A-Za-z_]\w*)", query[close + 1 :].lstrip(), re.IGNORECASE)
+        if alias_m and alias_m.group(1).upper() not in _SQL_KEYWORDS_AFTER_PAREN:
+            relations.add(alias_m.group(1).lower())
+    for m in re.finditer(r"\b([A-Za-z_]\w*)\s+AS\s*\(", query, re.IGNORECASE):
+        relations.add(m.group(1).lower())
+
+    computed: set[str] = set()
+    for item in select_items or []:
+        if not isinstance(item, dict):
+            continue
+        output = item.get("output")
+        if item.get("has_alias") and output and "(" in str(item.get("expr") or ""):
+            computed.add(str(output).lower())
+    return relations, computed
+
+
+_SQL_KEYWORDS_AFTER_PAREN = {
+    "ON",
+    "WHERE",
+    "GROUP",
+    "ORDER",
+    "LEFT",
+    "RIGHT",
+    "INNER",
+    "OUTER",
+    "JOIN",
+    "LIMIT",
+    "UNION",
+}
+
+
 def _resolve_real_table(alias: str | None, schema: dict[str, dict[str, str]]) -> str | None:
     """
     Best-effort alias -> real table name resolution against a parsed schema.
@@ -412,6 +474,23 @@ class IndexRecommender:
         order_cols = _extract_order_by_columns(order_by)
         group_cols = _extract_group_by_columns(group_by)
 
+        # A suggested index must land on a real base-table column. Drop
+        # candidates that live on a derived table/CTE (`recent.user_id`) or are
+        # SELECT aliases of aggregates/subqueries (`ORDER BY total_items`).
+        relation_aliases, computed_aliases = _unindexable_names(query, parsed.get("select_items"))
+
+        def _indexable(alias: str | None, col: str) -> bool:
+            if alias and alias.lower() in relation_aliases:
+                return False
+            if not alias and col.lower() in computed_aliases:
+                return False
+            return True
+
+        join_cols = [(a, c) for a, c in join_cols if _indexable(a, c)]
+        where_cols = [(a, c, p) for a, c, p in where_cols if _indexable(a, c)]
+        order_cols = [(a, c) for a, c in order_cols if _indexable(a, c)]
+        group_cols = [(a, c) for a, c in group_cols if _indexable(a, c)]
+
         seen_join_cols: set[str] = set()
         for alias, col in join_cols:
             if _is_primary_key(col):
@@ -529,6 +608,9 @@ class IndexRecommender:
                 )
             )
 
+        # One finding per table: separate single-column indexes on every GROUP BY
+        # column is bad advice (a single composite is what the planner can use).
+        group_by_alias: dict[str | None, list[str]] = {}
         for alias, col in group_cols:
             if _is_primary_key(col):
                 continue
@@ -538,24 +620,53 @@ class IndexRecommender:
             real = self._real_table(alias, schema)
             if real and col in already_indexed.get(real, set()):
                 continue
-            label = f"`{alias}.{col}`" if alias else f"`{col}`"
-            ddl, schema_verified, table_ph = self._ddl_hint(alias, col, db_type, schema)
+            if col not in group_by_alias.setdefault(alias, []):
+                group_by_alias[alias].append(col)
+
+        for alias, cols in group_by_alias.items():
+            if len(cols) == 1:
+                col = cols[0]
+                key = f"{alias}.{col}" if alias else col
+                label = f"`{alias}.{col}`" if alias else f"`{col}`"
+                ddl, schema_verified, table_ph = self._ddl_hint(alias, col, db_type, schema)
+                suggestions.append(
+                    self._make(
+                        index_type="group_by_index",
+                        severity="medium",
+                        columns=[key],
+                        suggestion=f"GROUP BY column {label} may benefit from an index — avoids temporary table for aggregation",
+                        reason="An index on GROUP BY columns lets the planner use index scan for grouping instead of a hash aggregate or temp table.",
+                        estimated="15-50% faster GROUP BY on large tables",
+                        ddl_hint=ddl,
+                        ddl_note=get_dialect(db_type).index_ddl_note(),
+                        schema_verified=schema_verified,
+                        db_type=db_type,
+                        alias=alias,
+                        col=col,
+                        table_ph=table_ph,
+                        schema=schema,
+                    )
+                )
+                continue
+            real_table = self._real_table(alias, schema)
+            table_ph = real_table or (f"<{alias}_table>" if alias else "<table_name>")
+            idx_name = f"idx_{real_table or alias or 'tbl'}_{'_'.join(cols)}"
             suggestions.append(
                 self._make(
                     index_type="group_by_index",
                     severity="medium",
-                    columns=[key],
-                    suggestion=f"GROUP BY column {label} may benefit from an index — avoids temporary table for aggregation",
-                    reason="An index on GROUP BY columns lets the planner use index scan for grouping instead of a hash aggregate or temp table.",
+                    columns=[f"{alias}.{c}" if alias else c for c in cols],
+                    suggestion=(
+                        f"GROUP BY columns {', '.join(f'`{c}`' for c in cols)} on "
+                        f"`{alias or 'the table'}` may benefit from one composite index — avoids temporary table for aggregation"
+                    ),
+                    reason="One composite index matching the GROUP BY column order lets the planner group via an ordered index scan; separate single-column indexes would not.",
                     estimated="15-50% faster GROUP BY on large tables",
-                    ddl_hint=ddl,
+                    ddl_hint=get_index_ddl(db_type, table_ph, ", ".join(cols), idx_name),
                     ddl_note=get_dialect(db_type).index_ddl_note(),
-                    schema_verified=schema_verified,
-                    db_type=db_type,
-                    alias=alias,
-                    col=col,
                     table_ph=table_ph,
                     schema=schema,
+                    composite_bare_columns=cols,
                 )
             )
 

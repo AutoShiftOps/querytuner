@@ -300,7 +300,7 @@ class SQLAnalyzerAgent:
                     suggestion="Avoid wrapping filtered columns in functions inside WHERE",
                     reason=(
                         "Functions on indexed columns prevent index seeks. "
-                        "Rewrite as a range condition (e.g. YEAR(col)=2025 → col BETWEEN '2025-01-01' AND '2025-12-31')"
+                        "Rewrite as a range condition (e.g. YEAR(col)=2025 → col >= '2025-01-01' AND col < '2026-01-01')"
                     ),
                     estimated="Often large — enables index seek instead of full scan",
                 )
@@ -410,8 +410,7 @@ class SQLAnalyzerAgent:
                     type_="implicit_cast",
                     severity="high",
                     suggestion=(
-                        "Implicit or explicit type cast detected in WHERE — "
-                        "may prevent index use and cause full scans"
+                        "Implicit or explicit type cast detected in WHERE — may prevent index use and cause full scans"
                     ),
                     reason=(
                         f"{implicit_cast_reasons[0]}. "

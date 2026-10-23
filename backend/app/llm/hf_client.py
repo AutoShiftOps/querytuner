@@ -4,6 +4,7 @@ import re
 
 import httpx
 
+from app.llm.prompts import REWRITE_GUARDRAILS
 from app.utils.config import settings
 
 # Issue #74: inject dialect-specific context into HF system prompts
@@ -83,7 +84,8 @@ async def _call_router(
         "No markdown fences, no explanatory text outside the JSON. "
         "Use exactly these JSON keys: most_impactful_improvements, "
         "recommended_indexes, rewritten_query, risky_assumptions. "
-        "No other top-level keys."
+        "No other top-level keys. "
+        f"{REWRITE_GUARDRAILS}"
     )
 
     payload = {
@@ -150,11 +152,11 @@ async def _call_legacy(
         resp = await client.post(url, headers=headers, json=payload)
 
     if resp.status_code == 503:
-        raise RuntimeError("HuggingFace model is loading (free tier cold start). " "Please try again in 20–30 seconds.")
+        raise RuntimeError("HuggingFace model is loading (free tier cold start). Please try again in 20–30 seconds.")
 
     if not resp.is_success:
         raise RuntimeError(
-            f"HuggingFace inference API returned {resp.status_code}. " "Check HF_API_KEY and model availability."
+            f"HuggingFace inference API returned {resp.status_code}. Check HF_API_KEY and model availability."
         )
 
     data = resp.json()
@@ -187,7 +189,8 @@ def _build_instruct_prompt(user_prompt: str, db_type: str = "postgresql") -> str
         "No markdown fences, no extra text. "
         "Use exactly these JSON keys: most_impactful_improvements, "
         "recommended_indexes, rewritten_query, risky_assumptions. "
-        "No other top-level keys."
+        "No other top-level keys. "
+        f"{REWRITE_GUARDRAILS}"
     )
     return f"<s>[INST] {system}\n\n{user_prompt} [/INST]"
 
