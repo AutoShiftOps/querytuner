@@ -321,9 +321,14 @@ function FindingRow({ group, aiConfirmedTypes }) {
           {first.reason}
         </p>
       ) : null}
-      {(first.estimated_improvement || first.cost_estimate) && (
+      {(first.cost_estimate ||
+        (first.estimated_improvement &&
+          !/^varies\.?$/i.test(first.estimated_improvement.trim()))) && (
         <div className="mt-3 flex flex-wrap gap-2">
-          {first.estimated_improvement && <Chip>Impact: {first.estimated_improvement}</Chip>}
+          {first.estimated_improvement &&
+            !/^varies\.?$/i.test(first.estimated_improvement.trim()) && (
+              <Chip>Impact: {first.estimated_improvement}</Chip>
+            )}
           {first.cost_estimate && <Chip>Cost: {first.cost_estimate}</Chip>}
         </div>
       )}
@@ -361,7 +366,7 @@ function DdlBlock({ s, substitutionMap }) {
     <div className="px-5 py-3" style={{ borderTop: '1px solid #2d3f55' }}>
       <div className="flex items-start justify-between gap-3">
         <pre
-          className="text-xs rounded p-3 overflow-x-auto flex-1"
+          className="text-xs rounded p-3 flex-1 min-w-0 whitespace-pre-wrap break-words"
           style={{
             background: '#0f172a',
             color: '#7dd3fc',
