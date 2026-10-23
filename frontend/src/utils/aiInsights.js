@@ -97,3 +97,26 @@ export function getAiConfirmedTypes(heuristicSuggestions, aiInsightsContent) {
 
   return new Set(improvements.map((i) => i?.type).filter((t) => t && heuristicTypes.has(t)));
 }
+
+// The AI's rewritten query as a plain string ('' when absent or unparseable).
+// Mirrors ResultsPanel's key lookup so both read the same field.
+const AI_REWRITE_KEYS = ['rewritten_query', 'optimized_query', 'rewrite'];
+export function getAiRewrittenQuery(content) {
+  const parsed = content && typeof content === 'object' ? content : safeParseAiJson(content);
+  if (!parsed) return '';
+  for (const key of AI_REWRITE_KEYS) {
+    if (typeof parsed[key] === 'string') return parsed[key].trim();
+  }
+  return '';
+}
+
+// SQL with comments/whitespace/case stripped, for "did the rewrite change
+// anything?" comparisons.
+export function normalizeSql(sql) {
+  return String(sql || '')
+    .replace(/--[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/[\s;]+/g, ' ')
+    .trim()
+    .toLowerCase();
+}

@@ -198,7 +198,7 @@ export default function SampleQueries({ onSelect }) {
 
           <p className="text-xs text-slate-500 pt-1">
             Click any query to load it into the editor, then hit{' '}
-            <strong className="text-slate-400">Analyze</strong>.
+            <strong className="text-slate-400">Run Diagnostics</strong>.
           </p>
         </div>
       )}

@@ -9,13 +9,14 @@ import OptimizationSuggestions from './components/OptimizationSuggestions';
 import QuizMode from './components/QuizMode';
 import { generateQuiz, isAiInsightsRevealed } from './utils/quiz';
 import ExecutionPlan from './components/ExecutionPlan';
+import OptimizationComplete from './components/OptimizationComplete';
 import SampleQueries from './components/SampleQueries';
 import Header from './components/Header';
 import Hero from './components/Hero';
 import Footer from './components/Footer';
 import UpgradeModal from './components/UpgradeModal';
 import { ToastContainer, useToast } from './components/Toast';
-import { getAiConfirmedTypes } from './utils/aiInsights';
+import { getAiConfirmedTypes, getAiRewrittenQuery, normalizeSql } from './utils/aiInsights';
 import {
   buildUrlWithoutUpgradedParam,
   hasUpgradedParam,
@@ -36,6 +37,38 @@ import {
 import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+function formatDuration(ms) {
+  const n = Number(ms || 0);
+  return n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`;
+}
+
+// Secondary detail, collapsed by default so the primary view is the three
+// result cards (Findings, Optimization Suggestions, Rewritten Query).
+function CollapsibleSection({ title, hint, children }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl" style={{ border: '1px solid #2d3f55', background: '#172033' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-2 px-4 py-3 text-left"
+      >
+        <span style={{ color: '#7c5cfc' }}>{open ? '▾' : '▸'}</span>
+        <span className="text-sm font-semibold" style={{ color: '#e2e8f0' }}>
+          {title}
+        </span>
+        {hint && (
+          <span className="text-xs" style={{ color: '#4a6480' }}>
+            {hint}
+          </span>
+        )}
+      </button>
+      {open && <div className="px-3 pb-3">{children}</div>}
+    </div>
+  );
+}
 
 function App() {
   const [query, setQuery] = useState('');
@@ -373,6 +406,18 @@ function App() {
     ? result.optimization_suggestions.length
     : 0;
 
+  // Best-effort "Est. improvement" for the stat strip: the first percentage
+  // the engine/model itself wrote in an estimated_improvement field. Never
+  // computed or invented here — QueryTuner has no live DB to measure against.
+  const estImprovement = (() => {
+    if (!Array.isArray(result?.optimization_suggestions)) return null;
+    for (const sug of result.optimization_suggestions) {
+      const m = String(sug?.estimated_improvement || '').match(/(\d+(?:\.\d+)?)\s*%/);
+      if (m) return `${m[1]}%`;
+    }
+    return null;
+  })();
+
   // Heuristic types the AI's most_impactful_improvements also flagged — only
   // computed when AI was actually used and returned usable content. Drives
   // the "✓ Confirmed by AI" badge in OptimizationSuggestions and suppresses
@@ -381,6 +426,16 @@ function App() {
     result?.used_ai && result?.ai_insights && !result?.ai_error
       ? getAiConfirmedTypes(result.optimization_suggestions, result.ai_insights)
       : new Set();
+
+  // Rewritten Query card: prefer the AI's rewrite (it can restructure, e.g.
+  // correlated subquery -> JOIN/CTE); fall back to the heuristic rewrite,
+  // which only applies safe mechanical tweaks. "Optimization complete" is
+  // shown only for an AI rewrite that actually differs from the input.
+  const aiRewrite =
+    result?.used_ai && !result?.ai_error ? getAiRewrittenQuery(result.ai_insights) : '';
+  const rewriteSql = aiRewrite || result?.optimized_query || '';
+  const rewriteIsAi = Boolean(aiRewrite);
+  const rewriteChanged = rewriteIsAi && normalizeSql(aiRewrite) !== normalizeSql(query);
 
   // Quiz Mode questions for this result — [] when nothing in the
   // response is confident enough to quiz on (the evidence_level guard
@@ -411,13 +466,7 @@ function App() {
 
       {/* ── Main two-column grid ── */}
       <div className="flex-grow w-full mx-auto px-4 py-8" style={{ maxWidth: 1280 }}>
-        <div
-          className="grid gap-6"
-          style={{
-            gridTemplateColumns: result ? '1fr 1fr' : '1fr',
-            alignItems: 'start',
-          }}
-        >
+        <div className="grid gap-6 grid-cols-1 lg:grid-cols-2" style={{ alignItems: 'start' }}>
           {/* ── LEFT COLUMN — always visible ── */}
           <div className="space-y-4 min-w-0">
             <SampleQueries
@@ -468,222 +517,290 @@ function App() {
             )}
           </div>
 
-          {/* ── RIGHT COLUMN — appears only after analysis ── */}
-          {result && (
-            <div className="space-y-4 min-w-0">
-              {/* Stat strip */}
-              <div
-                className="grid grid-cols-4 rounded-xl overflow-hidden"
-                style={{
-                  gap: 1,
-                  background: '#2d3f55',
-                  border: '1px solid #2d3f55',
-                }}
-              >
-                {[
-                  {
-                    label: 'Analysis time',
-                    value: `${Number(result.analysis_time_ms || 0).toFixed(1)}ms`,
-                  },
-                  {
-                    label: 'Readability',
-                    value: `${Math.round(Number(result.readability_score || 0))}/100`,
-                  },
-                  { label: 'Issues', value: issueCount, danger: issueCount > 0 },
-                  {
-                    label: 'Engine',
-                    value: result.used_ai ? result.ai_provider || 'AI' : 'Heuristic',
-                  },
-                ].map(({ label, value, danger }) => (
-                  <div
-                    key={label}
-                    className="flex flex-col gap-1 px-3 py-3"
-                    style={{ background: '#1e293b' }}
-                  >
-                    <span
-                      className="text-xs font-medium uppercase tracking-wider"
-                      style={{ fontSize: 9, color: '#4a6480', letterSpacing: '0.08em' }}
-                    >
-                      {label}
-                    </span>
-                    <span
-                      className="font-mono font-medium text-sm"
-                      style={{ color: danger ? '#f87171' : '#38bdf8' }}
-                    >
-                      {value}
-                    </span>
-                  </div>
-                ))}
-              </div>
+          {/* ── RIGHT COLUMN — Analysis Results: empty → running → results ── */}
+          <div className="space-y-4 min-w-0">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold" style={{ color: '#94a3b8' }}>
+                Analysis Results
+              </h2>
+              {result && (
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full"
+                  style={{
+                    background: 'rgba(124,92,252,0.15)',
+                    color: '#b8a6ff',
+                    border: '1px solid rgba(124,92,252,0.35)',
+                  }}
+                >
+                  {result.used_ai ? result.ai_provider || 'AI' : 'Heuristic'}
+                </span>
+              )}
+            </div>
 
-              {/* Share button */}
-              <div className="flex justify-end">
-                <ShareButton
-                  analysisId={result.analysis_id}
-                  onShare={() => {
-                    showToast('Share link copied to clipboard', 'success');
-                    trackShareClicked(result.analysis_id);
+            {!result && loading && (
+              <div
+                className="rounded-xl flex flex-col items-center justify-center gap-4 py-16"
+                style={{ background: '#1e293b', border: '1px solid #2d3f55' }}
+                role="status"
+                aria-live="polite"
+              >
+                <div
+                  className="animate-spin rounded-full"
+                  style={{
+                    width: 34,
+                    height: 34,
+                    border: '3px solid #2d3f55',
+                    borderTopColor: '#7c5cfc',
                   }}
                 />
+                <span className="text-sm" style={{ color: '#94a3b8' }}>
+                  {useLlm ? 'Running AI diagnostics…' : 'Running diagnostics…'}
+                </span>
               </div>
+            )}
 
-              {/* Query Diagnosis — structured dark renderer, no prose plugin needed */}
-              {result.plain_explanation && <QueryDiagnosis content={result.plain_explanation} />}
+            {!result && !loading && (
+              <div
+                className="rounded-xl text-center py-16 px-6"
+                style={{ background: '#1e293b', border: '1px dashed #2d3f55', color: '#4a6480' }}
+              >
+                <p className="text-sm">
+                  Paste a query and press{' '}
+                  <kbd
+                    className="px-2 py-0.5 rounded text-xs font-mono"
+                    style={{ background: '#0f172a', border: '1px solid #2d3f55', color: '#7fa3c4' }}
+                  >
+                    ⌘ Enter
+                  </kbd>{' '}
+                  or <strong style={{ color: '#7fa3c4' }}>Run Diagnostics</strong> to see findings,
+                  index recommendations and a rewritten query here.
+                </p>
+              </div>
+            )}
 
-              {/* Quiz Mode gates the findings behind a few test-yourself
+            {result && (
+              <div className="space-y-4 min-w-0">
+                {/* Stat strip */}
+                <div
+                  className="grid grid-cols-4 rounded-xl overflow-hidden"
+                  style={{
+                    gap: 1,
+                    background: '#2d3f55',
+                    border: '1px solid #2d3f55',
+                  }}
+                >
+                  {[
+                    { label: 'Issues', value: issueCount, danger: issueCount > 0 },
+                    {
+                      label: 'Est. improvement',
+                      value: estImprovement || '—',
+                      title:
+                        'Taken from the analysis estimates; not measured against a live database',
+                    },
+                    {
+                      label: 'Readability',
+                      value: `${Math.round(Number(result.readability_score || 0))}/100`,
+                    },
+                    {
+                      label: 'Analysis time',
+                      value: formatDuration(result.analysis_time_ms),
+                    },
+                  ].map(({ label, value, danger, title }) => (
+                    <div
+                      key={label}
+                      title={title}
+                      className="flex flex-col gap-1 px-3 py-3"
+                      style={{ background: '#1e293b' }}
+                    >
+                      <span
+                        className="text-xs font-medium uppercase tracking-wider"
+                        style={{ fontSize: 9, color: '#4a6480', letterSpacing: '0.08em' }}
+                      >
+                        {label}
+                      </span>
+                      <span
+                        className="font-mono font-medium text-sm"
+                        style={{ color: danger ? '#f87171' : '#38bdf8' }}
+                      >
+                        {value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Share button */}
+                <div className="flex justify-end">
+                  <ShareButton
+                    analysisId={result.analysis_id}
+                    onShare={() => {
+                      showToast('Share link copied to clipboard', 'success');
+                      trackShareClicked(result.analysis_id);
+                    }}
+                  />
+                </div>
+
+                {/* Query Diagnosis — structured dark renderer, no prose plugin needed */}
+                {result.plain_explanation && (
+                  <CollapsibleSection
+                    title="Query details"
+                    hint="summary, complexity, maintenance commands"
+                  >
+                    <QueryDiagnosis content={result.plain_explanation} />
+                  </CollapsibleSection>
+                )}
+
+                {/* Quiz Mode gates the findings behind a few test-yourself
                   questions; OptimizationSuggestions renders once revealed
                   (or immediately if there was nothing confident enough to
                   quiz on) — docs/querytuner-quiz-mode-issue.md */}
-              {quizQuestions.length > 0 && !quizRevealed ? (
-                <QuizMode questions={quizQuestions} onReveal={() => setQuizRevealed(true)} />
-              ) : (
-                <OptimizationSuggestions
-                  suggestions={result.optimization_suggestions || []}
-                  aiConfirmedTypes={aiConfirmedTypes}
-                  substitutionMap={substitutionMap}
-                />
-              )}
+                {quizQuestions.length > 0 && !quizRevealed ? (
+                  <QuizMode questions={quizQuestions} onReveal={() => setQuizRevealed(true)} />
+                ) : (
+                  <OptimizationSuggestions
+                    suggestions={result.optimization_suggestions || []}
+                    aiConfirmedTypes={aiConfirmedTypes}
+                    substitutionMap={substitutionMap}
+                  />
+                )}
 
-              {/* AI Insights — gated behind the same quiz-then-reveal
+                {/* AI error — graceful fallback, no raw error strings shown to user */}
+                {result.ai_error && (
+                  <div
+                    className="rounded-xl p-4 flex gap-3 items-start"
+                    style={{
+                      background: 'rgba(251,191,36,0.06)',
+                      border: '1px solid rgba(251,191,36,0.2)',
+                    }}
+                  >
+                    <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#fbbf24' }} />
+                    <div>
+                      <p className="text-sm font-medium" style={{ color: '#fbbf24' }}>
+                        AI insights unavailable
+                      </p>
+                      <p className="text-xs mt-1" style={{ color: '#7fa3c4' }}>
+                        The AI model is warming up (free tier cold start). Heuristic analysis above
+                        is complete. Toggle AI off and re-analyze, or try again in 30 seconds.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Optimized Query */}
+                {rewriteSql && (
+                  <div
+                    className="rounded-xl overflow-hidden"
+                    style={{ background: '#1e293b', border: '1px solid #2d3f55' }}
+                  >
+                    <div
+                      className="flex items-center justify-between px-4 py-2"
+                      style={{ background: 'rgba(0,0,0,0.25)', borderBottom: '1px solid #2d3f55' }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-blue-400" />
+                        <span className="text-sm font-semibold text-white">Rewritten Query</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span
+                          style={{
+                            fontSize: 10,
+                            color: '#34d399',
+                            fontFamily: 'monospace',
+                            fontWeight: 500,
+                          }}
+                        >
+                          {rewriteIsAi
+                            ? '✓ AI rewrite · review before applying'
+                            : 'Heuristic rewrite · review before applying'}
+                        </span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(rewriteSql);
+                            showToast('Optimized query copied', 'success');
+                            trackOptimizedQueryCopied();
+                          }}
+                          className="text-xs text-slate-400 hover:text-white border border-slate-600
+                                   hover:border-slate-400 px-3 py-1 rounded transition-colors"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                    </div>
+                    <pre
+                      className="whitespace-pre-wrap text-sm leading-relaxed overflow-x-auto p-4"
+                      style={{ color: '#34d399', fontFamily: "'JetBrains Mono', monospace" }}
+                    >
+                      {rewriteSql}
+                    </pre>
+                    {rewriteChanged && (
+                      <div className="p-3 pt-0">
+                        <OptimizationComplete />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* AI Insights — gated behind the same quiz-then-reveal
                   condition as OptimizationSuggestions above (bug fix: this
                   panel's own DDL recommendations answer the exact question
                   Quiz Mode just asked, so it previously leaked the answer
                   by rendering unconditionally whenever AI insights was
                   turned on — see isAiInsightsRevealed's own docstring).
                   docs/querytuner-quiz-provider-fixes.md, Bug 1 */}
-              {isAiInsightsRevealed(quizQuestions, quizRevealed, result) && (
-                <ResultsPanel
-                  title={`AI Insights${
-                    result.ai_provider
-                      ? ` (${result.ai_provider}${result.ai_model ? ` / ${result.ai_model}` : ''})`
-                      : ''
-                  }`}
-                  content={result.ai_insights}
-                  icon={Zap}
-                  aiConfirmedTypes={aiConfirmedTypes}
-                  substitutionMap={substitutionMap}
-                  onShare={() => {
-                    navigator.clipboard.writeText(result.ai_insights || '');
-                    showToast('AI insights copied to clipboard', 'success');
-                    trackAiInsightsCopied();
-                  }}
-                />
-              )}
+                {isAiInsightsRevealed(quizQuestions, quizRevealed, result) && (
+                  <CollapsibleSection
+                    title="AI Insights — full report"
+                    hint="deeper reasoning from the model; the cards above are the summary"
+                  >
+                    <ResultsPanel
+                      title={`AI Insights${
+                        result.ai_provider
+                          ? ` (${result.ai_provider}${result.ai_model ? ` / ${result.ai_model}` : ''})`
+                          : ''
+                      }`}
+                      content={result.ai_insights}
+                      icon={Zap}
+                      aiConfirmedTypes={aiConfirmedTypes}
+                      substitutionMap={substitutionMap}
+                      showCompletion={false}
+                      onShare={() => {
+                        navigator.clipboard.writeText(result.ai_insights || '');
+                        showToast('AI insights copied to clipboard', 'success');
+                        trackAiInsightsCopied();
+                      }}
+                    />
+                  </CollapsibleSection>
+                )}
 
-              {/* AI error — graceful fallback, no raw error strings shown to user */}
-              {result.ai_error && (
-                <div
-                  className="rounded-xl p-4 flex gap-3 items-start"
-                  style={{
-                    background: 'rgba(251,191,36,0.06)',
-                    border: '1px solid rgba(251,191,36,0.2)',
-                  }}
-                >
-                  <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#fbbf24' }} />
-                  <div>
-                    <p className="text-sm font-medium" style={{ color: '#fbbf24' }}>
-                      AI insights unavailable
-                    </p>
-                    <p className="text-xs mt-1" style={{ color: '#7fa3c4' }}>
-                      The AI model is warming up (free tier cold start). Heuristic analysis above is
-                      complete. Toggle AI off and re-analyze, or try again in 30 seconds.
-                    </p>
-                  </div>
-                </div>
-              )}
+                {/* Execution Plan */}
+                {result.execution_plan && <ExecutionPlan plan={result.execution_plan} />}
 
-              {/* Optimized Query */}
-              {result.optimized_query && (
-                <div
-                  className="rounded-xl overflow-hidden"
-                  style={{ background: '#1e293b', border: '1px solid #2d3f55' }}
-                >
+                {/* Security Issues */}
+                {Array.isArray(result.security_issues) && result.security_issues.length > 0 && (
                   <div
-                    className="flex items-center justify-between px-4 py-2"
-                    style={{ background: 'rgba(0,0,0,0.25)', borderBottom: '1px solid #2d3f55' }}
+                    className="rounded-xl p-5"
+                    style={{
+                      background: 'rgba(248,113,113,0.06)',
+                      border: '1px solid rgba(248,113,113,0.3)',
+                    }}
                   >
-                    <div className="flex items-center gap-2">
-                      <Zap className="w-4 h-4 text-blue-400" />
-                      <span className="text-sm font-semibold text-white">Optimized Query</span>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Shield className="w-4 h-4 text-red-400" />
+                      <h3 className="text-sm font-semibold text-white">Security Issues</h3>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span
-                        style={{
-                          fontSize: 10,
-                          color: '#34d399',
-                          fontFamily: 'monospace',
-                          fontWeight: 500,
-                        }}
-                      >
-                        ✓ rewritten
-                      </span>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(result.optimized_query);
-                          showToast('Optimized query copied', 'success');
-                          trackOptimizedQueryCopied();
-                        }}
-                        className="text-xs text-slate-400 hover:text-white border border-slate-600
-                                   hover:border-slate-400 px-3 py-1 rounded transition-colors"
-                      >
-                        Copy
-                      </button>
-                    </div>
+                    <ul className="space-y-2">
+                      {result.security_issues.map((issue, idx) => (
+                        <li key={idx} className="text-sm text-red-200 flex gap-2">
+                          <span style={{ color: '#f87171' }}>·</span>
+                          {issue}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                  <pre
-                    className="whitespace-pre-wrap text-sm leading-relaxed overflow-x-auto p-4"
-                    style={{ color: '#34d399', fontFamily: "'JetBrains Mono', monospace" }}
-                  >
-                    {result.optimized_query}
-                  </pre>
-                </div>
-              )}
-
-              {/* Execution Plan */}
-              {result.execution_plan && <ExecutionPlan plan={result.execution_plan} />}
-
-              {/* Security Issues */}
-              {Array.isArray(result.security_issues) && result.security_issues.length > 0 && (
-                <div
-                  className="rounded-xl p-5"
-                  style={{
-                    background: 'rgba(248,113,113,0.06)',
-                    border: '1px solid rgba(248,113,113,0.3)',
-                  }}
-                >
-                  <div className="flex items-center gap-2 mb-3">
-                    <Shield className="w-4 h-4 text-red-400" />
-                    <h3 className="text-sm font-semibold text-white">Security Issues</h3>
-                  </div>
-                  <ul className="space-y-2">
-                    {result.security_issues.map((issue, idx) => (
-                      <li key={idx} className="text-sm text-red-200 flex gap-2">
-                        <span style={{ color: '#f87171' }}>·</span>
-                        {issue}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Empty state — shown before first analysis */}
-        {!result && !loading && (
-          <div className="mt-12 text-center" style={{ color: '#4a6480' }}>
-            <p className="text-sm">
-              Paste a query above and press{' '}
-              <kbd
-                className="px-2 py-0.5 rounded text-xs font-mono"
-                style={{ background: '#1e293b', border: '1px solid #2d3f55', color: '#7fa3c4' }}
-              >
-                ⌘ Enter
-              </kbd>{' '}
-              to analyze
-            </p>
+                )}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       <Footer />

@@ -120,241 +120,279 @@ const QueryInput = forwardRef(function QueryInput(
   };
 
   return (
-    <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
-      <label className="block text-sm font-medium text-slate-300 mb-2">SQL Query</label>
-      <textarea
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        className={`w-full h-40 bg-slate-900 text-white rounded border p-3 font-mono text-sm ${
-          substitutionMap ? 'border-emerald-500' : 'border-slate-600'
-        }`}
-        placeholder="SELECT * FROM orders WHERE status = 'pending'"
-      />
-
-      <SanitizerPanel
-        query={query}
-        setQuery={setQuery}
-        explainPlan={explainPlan}
-        setExplainPlan={setExplainPlan}
-        substitutionMap={substitutionMap}
-        setSubstitutionMap={setSubstitutionMap}
-      />
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-        <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">Database</label>
-          <select
-            value={dbType}
-            onChange={(e) => setDbType(e.target.value)}
-            className="w-full bg-slate-900 text-white rounded border border-slate-600 p-2"
+    <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+      {/* Editor header — file tab on the left, Database selector and the
+          primary action on the right (querytuner.com diagnostics layout).
+          The Database <select> lives here now instead of in the options grid
+          below; it is the same dbType state/handler, just relocated. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-slate-700 bg-slate-900/40">
+        <span
+          className="text-xs font-semibold px-3 py-1 rounded-md"
+          style={{
+            background: 'rgba(124,92,252,0.18)',
+            color: '#b8a6ff',
+            border: '1px solid rgba(124,92,252,0.4)',
+          }}
+        >
+          SQL Query
+        </span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-900 px-3 py-1.5">
+            <label htmlFor="qt-database" className="text-sm text-slate-400">
+              Database:
+            </label>
+            <select
+              id="qt-database"
+              value={dbType}
+              onChange={(e) => setDbType(e.target.value)}
+              className="bg-transparent text-white text-sm font-semibold focus:outline-none [&>option]:bg-slate-900 [&>option]:text-white"
+              style={{ colorScheme: 'dark' }}
+            >
+              <option value="postgresql">PostgreSQL</option>
+              <option value="mysql">MySQL</option>
+              <option value="sqlite">SQLite</option>
+              <option value="sqlserver">SQL Server</option>
+              <option value="oracle">Oracle</option>
+            </select>
+          </div>
+          <button
+            onClick={onAnalyze}
+            disabled={loading || !query.trim()}
+            className="disabled:bg-slate-600 text-white px-4 py-1.5 rounded-md text-sm font-semibold transition-all"
+            style={loading || !query.trim() ? undefined : { background: '#7c5cfc' }}
           >
-            <option value="postgresql">PostgreSQL</option>
-            <option value="mysql">MySQL</option>
-            <option value="sqlite">SQLite</option>
-            <option value="sqlserver">SQL Server</option>
-            <option value="oracle">Oracle</option>
-          </select>
+            {loading ? 'Running diagnostics…' : '▶ Run Diagnostics'}
+          </button>
         </div>
+      </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">AI Provider</label>
-          <select
-            value={llmProvider}
-            onChange={(e) => onChangeProvider(e.target.value)}
-            disabled={!anyAiEnabled}
-            className="w-full bg-slate-900 text-white rounded border border-slate-600 p-2 disabled:opacity-50"
-          >
-            <option value="huggingface" disabled={!hfEnabled}>
-              Hugging Face
-            </option>
-            <option value="openai" disabled={!openaiEnabled}>
-              OpenAI (recommended){' '}
-              {openaiEnabled ? '' : !openaiConfigured ? '(not enabled on server)' : '(Pro only)'}
-            </option>
-          </select>
-          {!anyAiEnabled && (
-            <p className="text-xs text-slate-400 mt-1">AI providers not enabled on server.</p>
-          )}
-        </div>
+      <div className="p-6">
+        <label htmlFor="qt-sql" className="sr-only">
+          SQL Query
+        </label>
+        <textarea
+          id="qt-sql"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className={`w-full h-48 bg-slate-900 text-white rounded border p-3 font-mono text-sm ${
+            substitutionMap ? 'border-emerald-500' : 'border-slate-700'
+          }`}
+          placeholder="SELECT * FROM orders WHERE status = 'pending'"
+        />
 
-        {/* Same label-above-control shape as the Database/AI Provider columns
+        <SanitizerPanel
+          query={query}
+          setQuery={setQuery}
+          explainPlan={explainPlan}
+          setExplainPlan={setExplainPlan}
+          substitutionMap={substitutionMap}
+          setSubstitutionMap={setSubstitutionMap}
+        />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">AI Provider</label>
+            <select
+              value={llmProvider}
+              onChange={(e) => onChangeProvider(e.target.value)}
+              disabled={!anyAiEnabled}
+              className="w-full bg-slate-900 text-white rounded border border-slate-600 p-2 disabled:opacity-50"
+            >
+              <option value="huggingface" disabled={!hfEnabled}>
+                Hugging Face
+              </option>
+              <option value="openai" disabled={!openaiEnabled}>
+                OpenAI (recommended){' '}
+                {openaiEnabled ? '' : !openaiConfigured ? '(not enabled on server)' : '(Pro only)'}
+              </option>
+            </select>
+            {!anyAiEnabled && (
+              <p className="text-xs text-slate-400 mt-1">AI providers not enabled on server.</p>
+            )}
+          </div>
+
+          {/* Same label-above-control shape as the Database/AI Provider columns
             beside it (rather than the old bottom-anchored `items-end` row),
             so the checkbox sits at the same vertical position as the two
             selects instead of floating at the bottom of a taller row. */}
-        <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">AI Insights</label>
-          {isSignedIn ? (
-            <label className="w-full bg-slate-900 text-slate-300 rounded border border-slate-600 p-2 flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={useLlm}
-                disabled={!anyAiEnabled}
-                onChange={(e) => setUseLlm(e.target.checked)}
-                className="w-4 h-4 accent-qt-accent disabled:opacity-50"
-              />
-              Use AI insights
-            </label>
-          ) : (
-            // Anonymous callers can't reach the AI path server-side (the
-            // OpenAI-backed call requires sign-in — see backend/app/main.py's
-            // /analyze anonymous gate). Telling them that only after they've
-            // checked the box and clicked Analyze is a dead end, so the
-            // checkbox is disabled up front and this row doubles as the
-            // sign-in trigger — same SignInButton pattern Header.jsx uses for
-            // the header's "Sign in" button, just wrapping this row instead
-            // of a <button>. Deliberately a <span>, not a <label>: a <label>
-            // whose associated control is disabled is treated as
-            // non-interactive for clicks by Chromium (verified — clicking it
-            // silently did nothing, no modal), which would've made this
-            // whole "click to sign in" affordance dead on arrival. A plain
-            // span has no such control-forwarding relationship, so the row
-            // stays genuinely clickable. The inline notice in App.jsx stays
-            // as a fallback for any state where this client-side gate is
-            // bypassed or out of sync — the backend check is the one that's
-            // authoritative.
-            <SignInButton mode="modal">
-              <span
-                className="w-full bg-slate-900 text-slate-400 rounded border border-slate-700 p-2 flex items-center gap-2 text-sm cursor-pointer hover:text-slate-300 hover:border-slate-600"
-                title="Sign in to use AI insights"
-              >
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">AI Insights</label>
+            {isSignedIn ? (
+              <label className="w-full bg-slate-900 text-slate-300 rounded border border-slate-600 p-2 flex items-center gap-2 text-sm cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={false}
-                  disabled
-                  readOnly
-                  className="w-4 h-4 accent-qt-accent opacity-50"
+                  checked={useLlm}
+                  disabled={!anyAiEnabled}
+                  onChange={(e) => setUseLlm(e.target.checked)}
+                  className="w-4 h-4 accent-qt-accent disabled:opacity-50"
                 />
-                Use AI insights <span className="text-slate-500">(sign in required)</span>
+                Use AI insights
+              </label>
+            ) : (
+              // Anonymous callers can't reach the AI path server-side (the
+              // OpenAI-backed call requires sign-in — see backend/app/main.py's
+              // /analyze anonymous gate). Telling them that only after they've
+              // checked the box and clicked Analyze is a dead end, so the
+              // checkbox is disabled up front and this row doubles as the
+              // sign-in trigger — same SignInButton pattern Header.jsx uses for
+              // the header's "Sign in" button, just wrapping this row instead
+              // of a <button>. Deliberately a <span>, not a <label>: a <label>
+              // whose associated control is disabled is treated as
+              // non-interactive for clicks by Chromium (verified — clicking it
+              // silently did nothing, no modal), which would've made this
+              // whole "click to sign in" affordance dead on arrival. A plain
+              // span has no such control-forwarding relationship, so the row
+              // stays genuinely clickable. The inline notice in App.jsx stays
+              // as a fallback for any state where this client-side gate is
+              // bypassed or out of sync — the backend check is the one that's
+              // authoritative.
+              <SignInButton mode="modal">
+                <span
+                  className="w-full bg-slate-900 text-slate-400 rounded border border-slate-700 p-2 flex items-center gap-2 text-sm cursor-pointer hover:text-slate-300 hover:border-slate-600"
+                  title="Sign in to use AI insights"
+                >
+                  <input
+                    type="checkbox"
+                    checked={false}
+                    disabled
+                    readOnly
+                    className="w-4 h-4 accent-qt-accent opacity-50"
+                  />
+                  Use AI insights <span className="text-slate-500">(sign in required)</span>
+                </span>
+              </SignInButton>
+            )}
+          </div>
+        </div>
+
+        {/* Issue #60: Collapsible EXPLAIN plan section */}
+        <div className="mt-4 border-t border-slate-700 pt-4">
+          <button
+            type="button"
+            onClick={() => setExplainOpen((v) => !v)}
+            className="flex items-center justify-between w-full text-left group"
+          >
+            <span className="flex items-center gap-2 text-sm font-medium text-slate-300">
+              <ChevronIcon open={explainOpen} />
+              EXPLAIN plan
+              <span className="text-xs font-normal text-slate-500">
+                (optional — paste {explainHint[dbType] || 'EXPLAIN'} output for schema-verified
+                analysis)
               </span>
-            </SignInButton>
+            </span>
+            {explainPlan?.trim() && !explainOpen && (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full"
+                style={{
+                  background: 'rgba(52,211,153,0.1)',
+                  color: '#34d399',
+                  border: '1px solid rgba(52,211,153,0.3)',
+                }}
+              >
+                ✓ plan attached
+              </span>
+            )}
+          </button>
+
+          {explainOpen && (
+            <div className="mt-3">
+              <textarea
+                value={explainPlan || ''}
+                onChange={(e) => setExplainPlan(e.target.value)}
+                className="w-full h-32 bg-slate-900 text-white rounded border border-slate-600 p-3 font-mono text-xs leading-relaxed"
+                placeholder={explainPlaceholders[dbType] || explainPlaceholders.postgresql}
+              />
+              <p className="text-xs text-slate-500 mt-2">
+                Pasting a real EXPLAIN plan upgrades heuristic findings from{' '}
+                <span className="text-amber-400 font-medium">estimated</span> to{' '}
+                <span className="text-emerald-400 font-medium">schema-verified</span> — QueryTuner
+                cross-references your actual execution plan against the parsed query instead of
+                guessing from syntax alone.
+              </p>
+              {explainPlan?.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setExplainPlan('')}
+                  className="text-xs text-slate-400 hover:text-red-400 mt-2 underline"
+                >
+                  Clear plan
+                </button>
+              )}
+            </div>
           )}
         </div>
-      </div>
 
-      {/* Issue #60: Collapsible EXPLAIN plan section */}
-      <div className="mt-4 border-t border-slate-700 pt-4">
-        <button
-          type="button"
-          onClick={() => setExplainOpen((v) => !v)}
-          className="flex items-center justify-between w-full text-left group"
-        >
-          <span className="flex items-center gap-2 text-sm font-medium text-slate-300">
-            <ChevronIcon open={explainOpen} />
-            EXPLAIN plan
-            <span className="text-xs font-normal text-slate-500">
-              (optional — paste {explainHint[dbType] || 'EXPLAIN'} output for schema-verified
-              analysis)
-            </span>
-          </span>
-          {explainPlan?.trim() && !explainOpen && (
-            <span
-              className="text-xs px-2 py-0.5 rounded-full"
-              style={{
-                background: 'rgba(52,211,153,0.1)',
-                color: '#34d399',
-                border: '1px solid rgba(52,211,153,0.3)',
-              }}
-            >
-              ✓ plan attached
-            </span>
-          )}
-        </button>
-
-        {explainOpen && (
-          <div className="mt-3">
-            <textarea
-              value={explainPlan || ''}
-              onChange={(e) => setExplainPlan(e.target.value)}
-              className="w-full h-32 bg-slate-900 text-white rounded border border-slate-600 p-3 font-mono text-xs leading-relaxed"
-              placeholder={explainPlaceholders[dbType] || explainPlaceholders.postgresql}
-            />
-            <p className="text-xs text-slate-500 mt-2">
-              Pasting a real EXPLAIN plan upgrades heuristic findings from{' '}
-              <span className="text-amber-400 font-medium">estimated</span> to{' '}
-              <span className="text-emerald-400 font-medium">schema-verified</span> — QueryTuner
-              cross-references your actual execution plan against the parsed query instead of
-              guessing from syntax alone.
-            </p>
-            {explainPlan?.trim() && (
-              <button
-                type="button"
-                onClick={() => setExplainPlan('')}
-                className="text-xs text-slate-400 hover:text-red-400 mt-2 underline"
-              >
-                Clear plan
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Issue #8: Collapsible Schema DDL section */}
-      <div className="mt-4 border-t border-slate-700 pt-4">
-        <button
-          type="button"
-          onClick={() => setSchemaOpen((v) => !v)}
-          className="flex items-center justify-between w-full text-left group"
-        >
-          <span className="flex items-center gap-2 text-sm font-medium text-slate-300">
-            <ChevronIcon open={schemaOpen} />
-            Schema DDL
-            <span className="text-xs font-normal text-slate-500">
-              (optional — paste CREATE TABLE statements for schema-verified index recommendations)
-            </span>
-          </span>
-          {schemaDdl?.trim() && !schemaOpen && (
-            <span
-              className="text-xs px-2 py-0.5 rounded-full"
-              style={{
-                background: 'rgba(56,189,248,0.1)',
-                color: '#38bdf8',
-                border: '1px solid rgba(56,189,248,0.3)',
-              }}
-            >
-              ✓ schema attached
-            </span>
-          )}
-        </button>
-
-        {schemaOpen && (
-          <div className="mt-3">
-            <textarea
-              value={schemaDdl || ''}
-              onChange={(e) => setSchemaDdl(e.target.value)}
-              className="w-full h-40 bg-slate-900 text-white rounded border border-slate-600 p-3 font-mono text-xs leading-relaxed"
-              placeholder={schemaPlaceholders[dbType] || schemaPlaceholders.postgresql}
-            />
-            <p className="text-xs text-slate-500 mt-2">
-              Providing your schema upgrades index recommendations from{' '}
-              <span className="text-amber-400 font-medium">estimated</span> to{' '}
-              <span className="font-medium" style={{ color: '#38bdf8' }}>
-                schema-verified
+        {/* Issue #8: Collapsible Schema DDL section */}
+        <div className="mt-4 border-t border-slate-700 pt-4">
+          <button
+            type="button"
+            onClick={() => setSchemaOpen((v) => !v)}
+            className="flex items-center justify-between w-full text-left group"
+          >
+            <span className="flex items-center gap-2 text-sm font-medium text-slate-300">
+              <ChevronIcon open={schemaOpen} />
+              Schema DDL
+              <span className="text-xs font-normal text-slate-500">
+                (optional — paste CREATE TABLE statements for schema-verified index recommendations)
               </span>
-              .
-            </p>
-            {schemaDdl?.trim() && (
-              <button
-                type="button"
-                onClick={() => setSchemaDdl('')}
-                className="text-xs text-slate-400 hover:text-red-400 mt-2 underline"
+            </span>
+            {schemaDdl?.trim() && !schemaOpen && (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full"
+                style={{
+                  background: 'rgba(56,189,248,0.1)',
+                  color: '#38bdf8',
+                  border: '1px solid rgba(56,189,248,0.3)',
+                }}
               >
-                Clear schema
-              </button>
+                ✓ schema attached
+              </span>
             )}
-          </div>
-        )}
-      </div>
+          </button>
 
-      <button
-        ref={ref}
-        onClick={onAnalyze}
-        disabled={loading || !query.trim()}
-        className={`mt-4 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white px-6 py-2 rounded font-medium transition-all ${
-          highlightAnalyze ? 'ring-4 ring-blue-400 animate-pulse' : ''
-        }`}
-      >
-        {loading ? 'Analyzing...' : 'Analyze'}
-      </button>
+          {schemaOpen && (
+            <div className="mt-3">
+              <textarea
+                value={schemaDdl || ''}
+                onChange={(e) => setSchemaDdl(e.target.value)}
+                className="w-full h-40 bg-slate-900 text-white rounded border border-slate-600 p-3 font-mono text-xs leading-relaxed"
+                placeholder={schemaPlaceholders[dbType] || schemaPlaceholders.postgresql}
+              />
+              <p className="text-xs text-slate-500 mt-2">
+                Providing your schema upgrades index recommendations from{' '}
+                <span className="text-amber-400 font-medium">estimated</span> to{' '}
+                <span className="font-medium" style={{ color: '#38bdf8' }}>
+                  schema-verified
+                </span>
+                .
+              </p>
+              {schemaDdl?.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setSchemaDdl('')}
+                  className="text-xs text-slate-400 hover:text-red-400 mt-2 underline"
+                >
+                  Clear schema
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Primary action sits after the options (AI provider/insights, EXPLAIN,
+            schema) so picking a sample scrolls here with everything in view. */}
+        <button
+          ref={ref}
+          onClick={onAnalyze}
+          disabled={loading || !query.trim()}
+          className={`mt-4 w-full disabled:bg-slate-600 text-white px-6 py-2.5 rounded-md font-semibold transition-all ${
+            highlightAnalyze ? 'ring-4 ring-violet-400 animate-pulse' : ''
+          }`}
+          style={loading || !query.trim() ? undefined : { background: '#7c5cfc' }}
+        >
+          {loading ? 'Running diagnostics…' : '▶ Run Diagnostics'}
+        </button>
+      </div>
     </div>
   );
 });
