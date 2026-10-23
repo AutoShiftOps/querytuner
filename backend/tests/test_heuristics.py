@@ -479,3 +479,11 @@ def test_llm_rewrite_guardrails_cover_fanout_and_filters():
     text = REWRITE_GUARDRAILS.lower()
     assert "fan-out" in text and "pre-aggregate" in text
     assert "same rows" in text and "half-open" in text
+
+
+def test_llm_rewrite_guardrails_cover_null_semantics_and_formatting():
+    from app.llm.prompts import REWRITE_GUARDRAILS
+
+    text = REWRITE_GUARDRAILS.lower()
+    assert "coalesce" in text and "null" in text
+    assert "multi-line" in text
