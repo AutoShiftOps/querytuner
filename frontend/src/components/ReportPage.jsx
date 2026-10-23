@@ -792,13 +792,16 @@ export default function ReportPage() {
           </div>
         )}
 
-        {/* ── Optimized query ── */}
+        {/* ── Annotated query (deterministic, comment-only hints — Issue:
+             was labeled "Optimized Query" next to AI Insights' genuinely
+             rewritten "Rewritten Query", which read as contradictory since
+             this one never actually restructures the query) ── */}
         {report.optimized_query && (
           <div className="qt-section">
-            <div className="qt-section-label">Optimized Query</div>
+            <div className="qt-section-label">Annotated Query</div>
             <div className="qt-card">
               <div className="qt-code-header">
-                <span className="qt-code-lang">sql · rewritten</span>
+                <span className="qt-code-lang">sql · annotated</span>
                 <span
                   style={{
                     fontSize: 10,
@@ -807,9 +810,20 @@ export default function ReportPage() {
                     fontWeight: 500,
                   }}
                 >
-                  ✓ optimized
+                  inline hints only
                 </span>
               </div>
+              <p
+                style={{
+                  fontSize: 11,
+                  color: '#7fa3c4',
+                  margin: '0 0 8px',
+                }}
+              >
+                Deterministic, safe edits only — flags issues inline as comments rather than
+                restructuring the query. For an actual AI-suggested rewrite, see Rewritten Query in
+                AI Insights above.
+              </p>
               <pre className="qt-code qt-code-optimized">{report.optimized_query}</pre>
             </div>
           </div>

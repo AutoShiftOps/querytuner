@@ -221,10 +221,12 @@ def _detect_composite_opportunity(
     order_by_cols: list[tuple[str | None, str]],
     db_type: str = "postgresql",  # Issue #72: added db_type param
     schema: dict[str, dict[str, str]] | None = None,  # Issue #8: schema-aware table resolution
+    table_aliases: dict[str, str] | None = None,  # Issue: <alias_table> placeholder fallback
 ) -> list[dict[str, Any]]:
     from collections import defaultdict
 
     schema = schema or {}
+    table_aliases = table_aliases or {}
 
     # Issue #117: bucket columns by role (not just by alias) so the
     # composite's column list can be built in standard composite-index
@@ -280,7 +282,10 @@ def _detect_composite_opportunity(
 
         # Issue #72: use dialect-correct DDL for composite index
         # Issue #8: prefer the real table name over the alias placeholder when known
-        real_table = _resolve_real_table(alias, schema)
+        # Issue: fall back to the query's own FROM/JOIN alias map when no
+        # schema_info was pasted (the common case), instead of defaulting
+        # straight to a non-executable <alias_table> placeholder.
+        real_table = _resolve_real_table(alias, schema) or table_aliases.get(alias or "")
         idx_name = f"idx_{real_table or alias}_{'_'.join(cols)}"
         table_ph = real_table if real_table else f"<{alias}_table>"
         col_list = ", ".join(cols)
@@ -402,6 +407,13 @@ class IndexRecommender:
         schema = parse_schema_ddl(schema_info) if schema_info else {}
         already_indexed = get_indexed_columns(schema_info) if schema_info else {}
 
+        # Fallback source for table-name resolution when no schema_info was
+        # pasted — derived directly from the query's own FROM/JOIN clauses
+        # (query_parser.py's _extract_table_aliases). Fixes DDL hints
+        # falling back to a literal <alias_table> placeholder on the common
+        # case where a user doesn't paste a schema.
+        table_aliases = (parsed or {}).get("table_aliases") or {}
+
         where_clause = parsed.get("where_clause") or ""
         joins = parsed.get("joins") or []
         order_by = parsed.get("order_by") or []
@@ -420,11 +432,11 @@ class IndexRecommender:
             if key in seen_join_cols:
                 continue
             seen_join_cols.add(key)
-            real = self._real_table(alias, schema)
+            real = self._real_table(alias, schema, table_aliases)
             if real and col in already_indexed.get(real, set()):
                 continue
             label = f"`{alias}.{col}`" if alias else f"`{col}`"
-            ddl, schema_verified, table_ph = self._ddl_hint(alias, col, db_type, schema)
+            ddl, schema_verified, table_ph = self._ddl_hint(alias, col, db_type, schema, table_aliases)
             suggestions.append(
                 self._make(
                     index_type="join_key",
@@ -452,12 +464,12 @@ class IndexRecommender:
             if key in seen_join_cols or key in seen_where_cols:
                 continue
             seen_where_cols.add(key)
-            real = self._real_table(alias, schema)
+            real = self._real_table(alias, schema, table_aliases)
             if real and col in already_indexed.get(real, set()):
                 continue
             label = f"`{alias}.{col}`" if alias else f"`{col}`"
             if _is_low_cardinality(col):
-                ddl, schema_verified, table_ph = self._ddl_partial_hint(alias, col, db_type, schema)
+                ddl, schema_verified, table_ph = self._ddl_partial_hint(alias, col, db_type, schema, table_aliases)
                 suggestions.append(
                     self._make(
                         index_type="partial_index_candidate",
@@ -477,7 +489,7 @@ class IndexRecommender:
                     )
                 )
             else:
-                ddl, schema_verified, table_ph = self._ddl_hint(alias, col, db_type, schema)
+                ddl, schema_verified, table_ph = self._ddl_hint(alias, col, db_type, schema, table_aliases)
                 suggestions.append(
                     self._make(
                         index_type="where_filter",
@@ -505,11 +517,11 @@ class IndexRecommender:
             if key in seen_join_cols or key in seen_where_cols or key in seen_order_cols:
                 continue
             seen_order_cols.add(key)
-            real = self._real_table(alias, schema)
+            real = self._real_table(alias, schema, table_aliases)
             if real and col in already_indexed.get(real, set()):
                 continue
             label = f"`{alias}.{col}`" if alias else f"`{col}`"
-            ddl, schema_verified, table_ph = self._ddl_hint(alias, col, db_type, schema)
+            ddl, schema_verified, table_ph = self._ddl_hint(alias, col, db_type, schema, table_aliases)
             suggestions.append(
                 self._make(
                     index_type="order_by_index",
@@ -535,11 +547,11 @@ class IndexRecommender:
             key = f"{alias}.{col}" if alias else col
             if key in seen_join_cols or key in seen_where_cols or key in seen_order_cols:
                 continue
-            real = self._real_table(alias, schema)
+            real = self._real_table(alias, schema, table_aliases)
             if real and col in already_indexed.get(real, set()):
                 continue
             label = f"`{alias}.{col}`" if alias else f"`{col}`"
-            ddl, schema_verified, table_ph = self._ddl_hint(alias, col, db_type, schema)
+            ddl, schema_verified, table_ph = self._ddl_hint(alias, col, db_type, schema, table_aliases)
             suggestions.append(
                 self._make(
                     index_type="group_by_index",
@@ -560,11 +572,11 @@ class IndexRecommender:
             )
 
         # Issue #72: pass db_type to composite detector; Issue #8: pass schema too
-        composites = _detect_composite_opportunity(where_cols, join_cols, order_cols, db_type, schema)
+        composites = _detect_composite_opportunity(where_cols, join_cols, order_cols, db_type, schema, table_aliases)
         for comp in composites:
             alias = comp["table_alias"]
             cols = comp["columns"]
-            real_table = self._real_table(alias, schema)
+            real_table = self._real_table(alias, schema, table_aliases)
             table_ph = real_table if real_table else f"<{alias}_table>"
             suggestions.append(
                 self._make(
@@ -585,24 +597,59 @@ class IndexRecommender:
         return self._dedupe(suggestions)
 
     # Issue #8: alias -> real table name resolution against a parsed schema
-    def _real_table(self, alias: str | None, schema: dict[str, dict[str, str]]) -> str | None:
-        return _resolve_real_table(alias, schema)
+    # Issue: fall back to the query's own FROM/JOIN alias map
+    # (query_parser.py's _extract_table_aliases) when schema_info wasn't
+    # pasted — previously every DDL hint fell back to a literal
+    # <alias_table> placeholder on the common case where no schema was
+    # supplied. A table_aliases-only match is NOT schema-verified (see
+    # _ddl_hint/_ddl_partial_hint below) — it's derived from the query
+    # text, not confirmed against a real column list.
+    def _real_table(
+        self,
+        alias: str | None,
+        schema: dict[str, dict[str, str]],
+        table_aliases: dict[str, str] | None = None,
+    ) -> str | None:
+        resolved = _resolve_real_table(alias, schema)
+        if resolved:
+            return resolved
+        if alias and table_aliases:
+            return table_aliases.get(alias)
+        return None
 
     # Issue #72: replaced hardcoded DDL with dialect_config lookup
     # Issue #8: schema-aware — returns (ddl, schema_verified, table_ph) instead of just ddl
-    def _ddl_hint(self, alias: str | None, col: str, db_type: str, schema=None) -> tuple[str, bool, str]:
+    def _ddl_hint(
+        self,
+        alias: str | None,
+        col: str,
+        db_type: str,
+        schema=None,
+        table_aliases: dict[str, str] | None = None,
+    ) -> tuple[str, bool, str]:
         schema = schema or {}
-        real_table = self._real_table(alias, schema)
+        real_table = self._real_table(alias, schema, table_aliases)
+        # schema_verified stays tied to the schema_info-DDL path only — a
+        # table name resolved via table_aliases is query-derived, not
+        # confirmed against an actual column list, so it must never be
+        # mislabeled "schema-verified" in the UI.
         schema_verified = real_table is not None and col in schema.get(real_table, {})
         table_ph = real_table if real_table else (f"<{alias}_table>" if alias else "<table_name>")
         idx_name = f"idx_{real_table or alias or 'tbl'}_{col}"
         ddl = get_index_ddl(db_type, table_ph, col, idx_name)
         return ddl, schema_verified, table_ph
 
-    def _ddl_partial_hint(self, alias: str | None, col: str, db_type: str, schema=None) -> tuple[str, bool, str]:
+    def _ddl_partial_hint(
+        self,
+        alias: str | None,
+        col: str,
+        db_type: str,
+        schema=None,
+        table_aliases: dict[str, str] | None = None,
+    ) -> tuple[str, bool, str]:
         """Dialect-correct partial/filtered index DDL. Returns (ddl, schema_verified, table_ph)."""
         schema = schema or {}
-        real_table = self._real_table(alias, schema)
+        real_table = self._real_table(alias, schema, table_aliases)
         schema_verified = real_table is not None and col in schema.get(real_table, {})
         table_ph = real_table if real_table else (f"<{alias}_table>" if alias else "<table_name>")
         idx = f"idx_{real_table or alias or 'tbl'}_{col}_partial"

@@ -93,6 +93,19 @@ def _parse_alias(expr: str) -> tuple[str, str | None]:
     return e, None
 
 
+# A table/column reference's qualified-name portion: one or more
+# dot-separated segments, each either a bracket-quoted identifier
+# ([Metropolitan$Sales Header] — SQL Server lets these contain spaces),
+# a double-quoted identifier, or a plain identifier. Used to find where a
+# qualified name ends and a trailing alias begins without breaking on
+# whitespace *inside* a bracketed segment (Issue: "Tables accessed"
+# truncating mid-identifier, e.g. "[dbo].[Metropolitan$Sales" — plain
+# str.split() cut the bracketed name itself, not just the alias).
+_QUALIFIED_NAME_RE = re.compile(
+    r"^((?:\[[^\]]+\]|\"[^\"]+\"|[A-Za-z0-9_]+)" r"(?:\.(?:\[[^\]]+\]|\"[^\"]+\"|[A-Za-z0-9_]+))*)"
+)
+
+
 def _find_top_level_keyword_pos(sql: str, keyword: str, start_idx: int = 0) -> int:
     """
     Find the first top-level occurrence of `keyword` (case-insensitive),
@@ -135,6 +148,14 @@ def _extract_clause(sql: str, start_kw: str, end_kws: list[str]) -> str:
     """
     Extract clause body appearing after start_kw up to the earliest of end_kws, all at top-level.
     Example: start_kw=" where ", end_kws=[" group by ", " order by ", " limit ", " fetch "]
+
+    Issue: on a multi-statement batch (DECLARE/INSERT/SELECT script), a
+    clause near the end of one statement could previously run past that
+    statement's own semicolon and swallow everything up to the next
+    matching end keyword found anywhere later in the WHOLE script — or, if
+    none exists at top level later on, to the literal end of the text. A
+    top-level `;` is now always an implicit stop boundary, same as any of
+    end_kws, since no clause can legitimately span past its own statement.
     """
     sql = re.sub(r"\s+", " ", sql).strip()
     start = _find_top_level_keyword_pos(sql, start_kw, 0)
@@ -147,6 +168,9 @@ def _extract_clause(sql: str, start_kw: str, end_kws: list[str]) -> str:
         p = _find_top_level_keyword_pos(sql, ek, body_start)
         if p != -1:
             end_positions.append(p)
+    semi_pos = _find_top_level_keyword_pos(sql, ";", body_start)
+    if semi_pos != -1:
+        end_positions.append(semi_pos)
 
     body_end = min(end_positions) if end_positions else len(sql)
     return _strip_trailing_semicolon(sql[body_start:body_end].strip())
@@ -182,6 +206,7 @@ class QueryParser:
         parsed = {
             "query_type": self._get_query_type(stmt),
             "tables": self._extract_tables(q),
+            "table_aliases": self._extract_table_aliases(q),
             "columns": self._dedupe_keep_order(columns),
             "select_items": select_items,
             "joins": self._extract_joins(q),
@@ -198,6 +223,7 @@ class QueryParser:
         return {
             "query_type": "UNKNOWN",
             "tables": [],
+            "table_aliases": {},
             "columns": [],
             "select_items": [],
             "joins": [],
@@ -326,8 +352,18 @@ class QueryParser:
         """
         Turn 'orders o' or 'schema.orders AS o' into 'orders' or 'schema.orders'
         without being too smart.
+
+        Bracket-aware (Issue: see _QUALIFIED_NAME_RE above) — a plain
+        whitespace split breaks on SQL Server identifiers like
+        [Metropolitan$Sales Header] that contain a space inside the
+        brackets. Try the qualified-name match first; fall back to the
+        original whitespace-split behavior for anything it doesn't
+        recognize (double safety net, doesn't regress non-bracketed input).
         """
         tt = t.strip()
+        m = _QUALIFIED_NAME_RE.match(tt)
+        if m:
+            return m.group(1)
         # remove trailing alias
         # split on whitespace at top-level (no parens expected here usually)
         parts = tt.split()
@@ -335,6 +371,71 @@ class QueryParser:
             return tt
         # handle "schema.table"
         return parts[0].strip().strip('"')
+
+    def _extract_table_aliases(self, query: str) -> dict[str, str]:
+        """
+        Best-effort alias -> real table name map, built directly from this
+        query's own FROM/JOIN clauses — not from pasted schema_info DDL.
+
+        Used as a fallback in index_recommender.py's DDL-hint templating:
+        when no schema_info is supplied (the common case for real users),
+        there was previously no way to resolve e.g. `SH` ->
+        `[dbo].[Metropolitan$Sales Header]`, so generated DDL fell back to
+        a literal `<SH_table>` placeholder (Issue: non-executable DDL in
+        finding cards).
+
+        Scope: covers the query's base FROM table(s) and every JOIN target,
+        using the same bracket-aware qualified-name matching as
+        _clean_table_ref (see _QUALIFIED_NAME_RE). Like the rest of this
+        parser, this is single-statement-scoped — on a multi-statement
+        batch it reflects the first statement's FROM/JOIN only, which is
+        the statement index_recommender's findings are generated against
+        anyway.
+        """
+        q = _strip_trailing_semicolon(query)
+        aliases: dict[str, str] = {}
+
+        from_body = _extract_clause(q, " from ", [" where ", " group by ", " order by ", " limit ", " fetch "])
+        if from_body:
+            cut = len(from_body)
+            for kw in [" join ", " left join ", " right join ", " inner join ", " full join ", " cross join "]:
+                p = from_body.lower().find(kw)
+                if p != -1:
+                    cut = min(cut, p)
+            base = from_body[:cut].strip()
+            for ref in _split_top_level_commas(base):
+                self._collect_alias(ref, aliases)
+
+        join_pattern = re.compile(
+            r"\b(?:left|right|inner|full|cross)?\s*join\s+"
+            r"((?:\[[^\]]+\]|\"[^\"]+\"|[A-Za-z0-9_]+)(?:\.(?:\[[^\]]+\]|\"[^\"]+\"|[A-Za-z0-9_]+))*)"
+            r"(\s+(?:as\s+)?[A-Za-z_][A-Za-z0-9_]*)?",
+            re.IGNORECASE,
+        )
+        for m in join_pattern.finditer(q):
+            table = m.group(1).strip()
+            alias_part = (m.group(2) or "").strip()
+            alias = re.sub(r"(?i)^as\s+", "", alias_part).strip()
+            if alias and alias.lower() not in {"with", "on"}:
+                aliases[alias] = table
+
+        return aliases
+
+    def _collect_alias(self, ref: str, aliases: dict[str, str]) -> None:
+        """Helper for _extract_table_aliases: split one FROM-clause table
+        reference (e.g. '[dbo].[Metropolitan$Sales Header] SH with(nolock)')
+        into (table, alias) using the same bracket-aware qualified-name
+        match _clean_table_ref uses, and record it if an alias is present."""
+        tt = ref.strip()
+        m = _QUALIFIED_NAME_RE.match(tt)
+        if not m:
+            return
+        table = m.group(1)
+        rest = tt[m.end() :].strip()
+        rest = re.sub(r"(?i)\s*with\s*\([^)]*\)\s*$", "", rest).strip()
+        rest = re.sub(r"(?i)^as\s+", "", rest).strip()
+        if rest and re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", rest):
+            aliases[rest] = table
 
     def _extract_joins(self, query: str) -> list[dict[str, str]]:
         q = query
