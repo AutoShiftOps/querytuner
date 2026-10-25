@@ -75,7 +75,12 @@ const T = {
 const FEATURE_ROWS = [
   // Signed out: ANONYMOUS_DAILY_LIMIT per IP per day (main.py). Signed in:
   // no cap on heuristic analyses.
-  { label: 'Analyses', free: 'Unlimited (5 / day signed out)', pro: 'Unlimited' },
+  {
+    label: 'Analyses',
+    free: 'Unlimited with a free account',
+    freeSub: '5 / day without signing in',
+    pro: 'Unlimited',
+  },
   { label: 'Max query length', free: '8,000 characters', pro: '32,000 characters' },
   { label: 'Heuristic engine (24 checks, evidence-tiered)', free: true, pro: true },
   { label: 'Schema-aware index recommendations', free: true, pro: true },
@@ -225,10 +230,15 @@ function Nav() {
   );
 }
 
-function FeatureCell({ value }) {
+function FeatureCell({ value, sub }) {
   if (value === true) return <Check size={16} style={{ color: T.green }} />;
   if (value === false) return <Minus size={16} style={{ color: T.textDim }} />;
-  return <span style={{ color: T.text }}>{value}</span>;
+  return (
+    <>
+      <span style={{ color: T.text }}>{value}</span>
+      {sub && <div style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>{sub}</div>}
+    </>
+  );
 }
 
 export default function PricingPage() {
@@ -424,7 +434,7 @@ export default function PricingPage() {
                     )}
                   </td>
                   <td>
-                    <FeatureCell value={row.free} />
+                    <FeatureCell value={row.free} sub={row.freeSub} />
                   </td>
                   <td>
                     <FeatureCell value={row.pro} />
