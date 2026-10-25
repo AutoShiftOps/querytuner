@@ -11,6 +11,7 @@ import { generateQuiz, isAiInsightsRevealed } from './utils/quiz';
 import ExecutionPlan from './components/ExecutionPlan';
 import OptimizationComplete from './components/OptimizationComplete';
 import SampleQueries from './components/SampleQueries';
+import ResultFollowUp from './components/ResultFollowUp';
 import Header from './components/Header';
 import Hero from './components/Hero';
 import Footer from './components/Footer';
@@ -28,6 +29,7 @@ import {
   trackAnalysisSuccess,
   trackAnalysisError,
   trackSampleQuerySelected,
+  trackSampleAutoRun,
   trackDbTypeChanged,
   trackAiToggle,
   trackShareClicked,
@@ -87,7 +89,12 @@ function App() {
   const [substitutionMap, setSubstitutionMap] = useState(null);
   const { toasts, showToast, dismissToast } = useToast();
   const analyzeBtnRef = useRef(null);
-  const [highlightAnalyze, setHighlightAnalyze] = useState(false);
+  const [highlightAnalyze] = useState(false);
+  // Funnel experiment: clicking a sample now runs it straight away.
+  // pendingAutoRun waits one render so handleAnalyze sees the new query;
+  // resultFromSample drives the "try your own query" follow-up card.
+  const [pendingAutoRun, setPendingAutoRun] = useState(false);
+  const [resultFromSample, setResultFromSample] = useState(false);
 
   // ── Quiz Mode (docs/querytuner-quiz-mode-issue.md) ───────────────────────
   // Gates OptimizationSuggestions behind a few test-yourself questions
@@ -369,6 +376,14 @@ function App() {
     getToken,
   ]);
 
+  // One-click sample: run once the sample text has landed in state.
+  useEffect(() => {
+    if (!pendingAutoRun) return;
+    setPendingAutoRun(false);
+    setResultFromSample(true);
+    handleAnalyze();
+  }, [pendingAutoRun, handleAnalyze]);
+
   // ── Cmd/Ctrl + Enter shortcut ───────────────────────────────────────────
   useEffect(() => {
     const handleKeydown = (e) => {
@@ -477,19 +492,17 @@ function App() {
                 setQuery(sql);
                 setDbType(db);
                 trackSampleQuerySelected(sql.slice(0, 40), db);
-
-                // Scroll Analyze button into view + pulse highlight
-                setTimeout(() => {
-                  analyzeBtnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                  setHighlightAnalyze(true);
-                  setTimeout(() => setHighlightAnalyze(false), 1600);
-                }, 100);
+                trackSampleAutoRun(db);
+                setPendingAutoRun(true);
               }}
             />
             <QueryInput
               ref={analyzeBtnRef}
               query={query}
-              setQuery={setQuery}
+              setQuery={(v) => {
+                setQuery(v);
+                setResultFromSample(false);
+              }}
               dbType={dbType}
               setDbType={(newDb) => {
                 setDbType(newDb);
@@ -583,6 +596,19 @@ function App() {
 
             {result && (
               <div className="space-y-4 min-w-0">
+                {resultFromSample && (
+                  <ResultFollowUp
+                    onTryOwn={() => {
+                      setQuery('');
+                      setResult(null);
+                      setResultFromSample(false);
+                      setTimeout(
+                        () => analyzeBtnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+                        50
+                      );
+                    }}
+                  />
+                )}
                 {/* Stat strip */}
                 <div
                   className="grid grid-cols-4 rounded-xl overflow-hidden"

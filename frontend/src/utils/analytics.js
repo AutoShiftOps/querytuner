@@ -227,6 +227,26 @@ export function trackAiInsightsCopied() {
   });
 }
 
+// ── Funnel-recovery experiment events (Oct 2026) ─────────────────────────────
+
+/** Sample query was auto-run on click (one-click sample experiment). */
+export function trackSampleAutoRun(db_type) {
+  gtag('event', 'sample_autorun', { event_category: 'funnel', db_type });
+}
+
+/** User clicked the "try your own slowest query" prompt shown after a sample run. */
+export function trackOwnQueryNudgeClicked() {
+  gtag('event', 'own_query_nudge_clicked', { event_category: 'funnel' });
+}
+
+/**
+ * One-question in-product survey. Only a fixed option id is sent to GA4 —
+ * never free text — so no query content or PII leaves the page.
+ */
+export function trackFollowUpSurveyAnswer(answer_id) {
+  gtag('event', 'followup_survey_answer', { event_category: 'funnel', answer_id });
+}
+
 // ── Bucketing helpers (keeps GA4 reports readable) ───────────────────────────
 
 function _lengthBucket(chars) {
