@@ -227,6 +227,7 @@ export function RewriteView({
   aiCutOff,
   aiRejected,
   aiFixes,
+  aiFixCutOff,
   aiEnabled,
   onCopyRewrite,
   onCopyOriginal,
@@ -250,6 +251,11 @@ export function RewriteView({
             </p>
           </div>
           <TargetedFixList fixes={fixes} />
+          {aiFixCutOff && (
+            <p className="text-xs" style={{ color: '#fbbf24' }}>
+              The AI reply hit its length limit, so an unfinished last fix was left out.
+            </p>
+          )}
         </div>
       )}
 

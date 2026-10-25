@@ -19,6 +19,7 @@ import UpgradeModal from './components/UpgradeModal';
 import { ToastContainer, useToast } from './components/Toast';
 import {
   getAiConfirmedTypes,
+  getAiFixCutOff,
   getAiRewriteRejected,
   getAiRewrittenQuery,
   getAiTargetedFixes,
@@ -467,6 +468,7 @@ function App() {
     : 'The AI request failed. Heuristic analysis is complete; try again in a moment.';
   const restore = (t) => (substitutionMap ? desanitize(t, substitutionMap) : t);
   const aiRewriteRejected = aiOk ? getAiRewriteRejected(result.ai_insights) : '';
+  const aiFixCutOff = aiOk && getAiFixCutOff(result.ai_insights);
   const aiFixes = aiOk
     ? getAiTargetedFixes(result.ai_insights).map((f) => ({
         title: restore(f.title),
@@ -791,6 +793,7 @@ function App() {
                           aiCutOff={aiRewriteCutOff}
                           aiRejected={aiRewriteRejected}
                           aiFixes={aiFixes}
+                          aiFixCutOff={aiFixCutOff}
                           aiEnabled={aiAttempted}
                           onCopyRewrite={() => {
                             navigator.clipboard.writeText(rewriteSql);

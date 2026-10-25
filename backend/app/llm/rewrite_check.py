@@ -19,7 +19,7 @@ import json
 import re
 from typing import Any
 
-from app.llm.json_utils import safe_parse_json
+from app.llm.json_utils import parse_json_lenient
 from app.tools.query_parser import strip_sql_comments
 
 # Above this size, or for a multi-statement batch, ask for targeted fixes
@@ -179,14 +179,26 @@ def check_targeted_fixes(original: str, fixes: Any) -> tuple[list[dict[str, str]
 def review_ai_output(original: str, ai_text: str | None) -> str | None:
     """
     Apply both checks to the model's JSON reply and return it re-serialized.
-    Text that is not parseable JSON (e.g. cut off mid-reply) is returned
-    unchanged; the frontend handles that case.
+    A reply cut off by the token limit is repaired first; whatever was being
+    written when it stopped is dropped (an incomplete rewrite or the last,
+    possibly half-written targeted fix), and output_truncated is set.
+    Text that is not JSON at all is returned unchanged.
     """
     if not ai_text:
         return ai_text
-    data = safe_parse_json(ai_text)
+    data, truncated, last_complete = parse_json_lenient(ai_text)
     if not isinstance(data, dict):
         return ai_text
+
+    if truncated:
+        last = list(data)[-1] if data and not last_complete else None
+        data["output_truncated"] = True
+        if last == "rewritten_query" and isinstance(data.get("rewritten_query"), str) and data["rewritten_query"]:
+            data["rewritten_query"] = ""
+            data["rewrite_cut_off"] = True
+        elif last == "targeted_fixes" and isinstance(data.get("targeted_fixes"), list) and data["targeted_fixes"]:
+            data["targeted_fixes"] = data["targeted_fixes"][:-1]
+            data["targeted_fixes_dropped"] = 1
 
     rewrite = data.get("rewritten_query")
     if isinstance(rewrite, str) and rewrite.strip():
@@ -196,9 +208,10 @@ def review_ai_output(original: str, ai_text: str | None) -> str | None:
             data["rewrite_rejected"] = reason
 
     if "targeted_fixes" in data:
+        already = int(data.get("targeted_fixes_dropped") or 0)
         kept, dropped = check_targeted_fixes(original, data.get("targeted_fixes"))
         data["targeted_fixes"] = kept
-        if dropped:
-            data["targeted_fixes_dropped"] = dropped
+        if dropped + already:
+            data["targeted_fixes_dropped"] = dropped + already
 
     return json.dumps(data, ensure_ascii=False)

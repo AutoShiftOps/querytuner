@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  getAiFixCutOff,
   getAiRewriteRejected,
   getAiRewrittenQuery,
   getAiTargetedFixes,
@@ -61,5 +62,25 @@ describe('targeted fixes and rejected rewrites', () => {
     const c = JSON.stringify({ rewritten_query: '', rewrite_rejected: 'it drops table x' });
     expect(getAiRewriteRejected(c)).toBe('it drops table x');
     expect(getAiRewriteRejected(JSON.stringify({ rewritten_query: 'SELECT 1' }))).toBe('');
+  });
+});
+
+describe('backend-repaired cut-off replies', () => {
+  it('treats a backend-flagged cut-off rewrite as truncated', () => {
+    const c = JSON.stringify({
+      rewritten_query: '',
+      rewrite_cut_off: true,
+      output_truncated: true,
+    });
+    expect(isAiRewriteTruncated(c)).toBe(true);
+    expect(getAiFixCutOff(c)).toBe(false);
+  });
+  it('reports a dropped unfinished fix', () => {
+    const c = JSON.stringify({
+      targeted_fixes: [{ before: 'a', after: 'b' }],
+      output_truncated: true,
+    });
+    expect(getAiFixCutOff(c)).toBe(true);
+    expect(isAiRewriteTruncated(c)).toBe(false);
   });
 });

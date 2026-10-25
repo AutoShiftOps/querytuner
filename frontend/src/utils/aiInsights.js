@@ -115,6 +115,8 @@ export function getAiRewrittenQuery(content) {
 // this check a half-written rewrite would be shown as if it were complete.
 export function isAiRewriteTruncated(content) {
   if (!content || typeof content !== 'string') return false;
+  // The backend repairs cut-off replies itself and flags a cut-off rewrite.
+  if (safeParseAiJson(content)?.rewrite_cut_off === true) return true;
   const clean = content.replace(/```(?:json)?/gi, '').trim();
   try {
     JSON.parse(clean);
@@ -151,6 +153,13 @@ export function getAiTargetedFixes(content) {
       after: f.after.trim(),
       why: String(f.why || '').trim(),
     }));
+}
+
+// True when the backend had to repair a reply that hit the token limit and
+// dropped its unfinished last targeted fix.
+export function getAiFixCutOff(content) {
+  const parsed = content && typeof content === 'object' ? content : safeParseAiJson(content);
+  return Boolean(parsed?.output_truncated && !parsed?.rewrite_cut_off && parsed?.targeted_fixes);
 }
 
 // Why the backend refused to pass on the AI's full rewrite ('' if it didn't).
