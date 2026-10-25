@@ -335,3 +335,37 @@ def test_lateral_join_does_not_crash(analyzer):
     """
     suggestions = run(analyzer, query)
     assert isinstance(suggestions, list)
+
+
+# ── Clause boundaries in semicolon-less T-SQL batches ───────────────────────
+
+TSQL_BATCH = """DECLARE @tmp TABLE (id INT)
+INSERT INTO #ScanSummary
+SELECT sll.[Sales Order No], COUNT(*) AS TotalItems
+FROM [dbo].[Metropolitan$Sales Line Link] sll WITH (NOLOCK)
+WHERE sll.[Qty] > 0
+GROUP BY sll.[Sales Order No]
+select * from (
+  select [Type] = (case when ilv.[A] = '' then 'x' else '' end) from t ilv
+) ilv2
+where ((ilv2.[Days] > 10 and ilv2.[Type] = 'In Transit') or ilv2.[Type] <> 'In Transit')"""
+
+
+def test_group_by_stops_at_next_statement_in_semicolonless_batch():
+    from app.tools.query_parser import QueryParser
+
+    parsed = QueryParser().parse(TSQL_BATCH)
+    assert parsed["group_by"] == ["sll.[Sales Order No]"]
+    assert "select" not in " ".join(parsed["group_by"]).lower()
+
+
+def test_where_stops_at_group_by_and_union():
+    from app.tools.query_parser import QueryParser
+
+    p = QueryParser()
+    assert p.parse("SELECT a FROM t WHERE a = 1 UNION SELECT b FROM u WHERE b = 2")["where_clause"] == "a = 1"
+    # CASE ... END inside a clause must not be mistaken for a boundary
+    q = "SELECT a FROM t WHERE CASE WHEN a = 1 THEN 1 ELSE 0 END = 1 GROUP BY a"
+    parsed = p.parse(q)
+    assert parsed["where_clause"].lower().endswith("end = 1")
+    assert parsed["group_by"] == ["a"]
