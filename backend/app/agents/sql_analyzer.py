@@ -76,7 +76,7 @@ class SQLAnalyzerAgent:
 
     - Always runs heuristics (fast, free, reliable).
     - Optionally runs LLM insights via provider routing:
-        - huggingface (default) using HF_API_KEY
+        - anthropic (default) using ANTHROPIC_API_KEY
         - openai using OPENAI_API_KEY
     """
 
@@ -93,9 +93,10 @@ class SQLAnalyzerAgent:
         db_type: str,
         schema_info: str | None = None,
         use_llm: bool = False,
-        llm_provider: str = "huggingface",
+        llm_provider: str = "anthropic",
         focus: str = "performance",
         explain_plan: str | None = None,  # Issue #60: EXPLAIN plan paste-in
+        llm_model: str | None = None,  # Anthropic model override (free tier)
     ) -> dict[str, Any]:
         query = (query or "").strip()
         if not query:
@@ -107,7 +108,9 @@ class SQLAnalyzerAgent:
         schema_info = (schema_info or "").strip()
         explain_plan = (explain_plan or "").strip()
         focus = (focus or "performance").strip().lower()
-        llm_provider = (llm_provider or "huggingface").strip().lower()
+        llm_provider = (llm_provider or "anthropic").strip().lower()
+        if llm_provider == "huggingface":  # removed provider, old clients
+            llm_provider = "anthropic"
 
         # Findings are computed on the code only: commented-out SQL
         # (--and SL.[CSR Assign To] in (...)) used to produce index advice.
@@ -211,6 +214,7 @@ class SQLAnalyzerAgent:
                 prompt=prompt,
                 db_type=db_type,
                 max_tokens=TARGETED_OUTPUT_TOKENS if targeted else None,
+                model=llm_model,
             )
             # Never pass on a rewrite that drops tables/columns or a fix
             # whose "before" text is not in the query.
@@ -771,6 +775,7 @@ Keep it concise and actionable.
         prompt: str,
         db_type: str = "postgresql",  # Issue #74 fix: pass to router
         max_tokens: int | None = None,
+        model: str | None = None,
     ) -> tuple[str | None, str | None, str | None]:
         """
         Bug fix: call_llm now returns a dict, not a tuple.
@@ -788,6 +793,7 @@ Keep it concise and actionable.
                 # get cut off mid-generation, producing invalid JSON that
                 # the frontend then has no choice but to render as raw text.
                 max_tokens=max_tokens or _ai_output_budget(prompt),
+                model=model,
             )
             text = result.get("text")
             model = result.get("model")

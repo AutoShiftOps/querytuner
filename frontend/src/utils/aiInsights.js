@@ -2,7 +2,7 @@
 // and sometimes ignore the JSON instruction entirely and reply in prose —
 // both are valid responses callers need to handle, not treat as errors.
 //
-// Mirrors backend/app/llm/hf_client.py's safe_parse_json: an anchored
+// Mirrors backend/app/llm/json_utils.py's safe_parse_json: an anchored
 // ^```...```$ match misses the common case of the model adding a stray
 // sentence before/after the fenced block (or the fence not being at the
 // very start/end after trimming), which used to fall through to the plain

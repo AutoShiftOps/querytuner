@@ -19,7 +19,7 @@ import json
 import re
 from typing import Any
 
-from app.llm.hf_client import safe_parse_json
+from app.llm.json_utils import safe_parse_json
 from app.tools.query_parser import strip_sql_comments
 
 # Above this size, or for a multi-statement batch, ask for targeted fixes

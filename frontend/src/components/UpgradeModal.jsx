@@ -18,7 +18,7 @@ const PAYMENT_LINK = import.meta.env.VITE_STRIPE_PAYMENT_LINK || '';
 const FEATURES = [
   { icon: Zap, text: 'Unlimited analyses' },
   { icon: History, text: 'Query history' },
-  { icon: Sparkles, text: 'Priority AI (OpenAI)' },
+  { icon: Sparkles, text: 'More AI analyses (Claude or OpenAI)' },
 ];
 
 export default function UpgradeModal({ isOpen, onClose, usageCount, title, subtitle }) {
@@ -118,8 +118,12 @@ export default function UpgradeModal({ isOpen, onClose, usageCount, title, subti
             margin: '24px 0 16px',
           }}
         >
-          <span style={{ fontSize: 28, fontWeight: 700, color: '#e2e8f0' }}>$19</span>
-          <span style={{ fontSize: 13, color: '#7fa3c4' }}>/month</span>
+          <span style={{ fontSize: 28, fontWeight: 700, color: '#e2e8f0' }}>
+            {CHECKOUT_ENABLED ? '$19' : '$0'}
+          </span>
+          <span style={{ fontSize: 13, color: '#7fa3c4' }}>
+            {CHECKOUT_ENABLED ? '/month' : 'early access, by request'}
+          </span>
         </div>
 
         {CHECKOUT_ENABLED && PAYMENT_LINK ? (
@@ -163,7 +167,8 @@ export default function UpgradeModal({ isOpen, onClose, usageCount, title, subti
               Pro is coming soon — request free early access →
             </a>
             <p style={{ fontSize: 11, color: '#7fa3c4', margin: '8px 0 0', textAlign: 'center' }}>
-              We&rsquo;re not charging for Pro yet. Click above and we&rsquo;ll turn it on for your account, free.
+              We&rsquo;re not charging for Pro yet. Click above and we&rsquo;ll turn it on for your
+              account, free.
             </p>
           </div>
         )}

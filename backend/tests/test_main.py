@@ -23,6 +23,7 @@ from app.main import (
     ANONYMOUS_DAILY_LIMIT,
     anonymous_daily_store,
     app,
+    free_ai_daily_store,
     get_current_user,
     pro_openai_daily_store,
     rate_limit_store,
@@ -41,8 +42,12 @@ async def _fake_increment_user_usage(user_id, month):
     return None
 
 
-async def _fake_call_llm(prompt, provider=None, max_tokens=600, db_type="postgresql"):
-    return {"text": '{"most_impactful_improvements": []}', "model": "fake-model", "error": None}
+LLM_CALLS: list[dict] = []
+
+
+async def _fake_call_llm(prompt, provider=None, max_tokens=600, db_type="postgresql", model=None):
+    LLM_CALLS.append({"provider": provider, "model": model})
+    return {"text": '{"most_impactful_improvements": []}', "model": model or "fake-model", "error": None}
 
 
 def _fake_get_user_usage(*, is_pro, count=0):
@@ -79,10 +84,13 @@ def _reset_rate_limit_state():
     anonymous_daily_store.clear()
     rate_limit_store.clear()
     pro_openai_daily_store.clear()
+    free_ai_daily_store.clear()
+    LLM_CALLS.clear()
     yield
     anonymous_daily_store.clear()
     rate_limit_store.clear()
     pro_openai_daily_store.clear()
+    free_ai_daily_store.clear()
 
 
 @pytest.fixture
@@ -146,16 +154,11 @@ def test_signed_in_free_tier_unaffected_by_anonymous_gates(client, monkeypatch):
     app.dependency_overrides[get_current_user] = lambda: "user_free_test"
     try:
         # More requests than ANONYMOUS_DAILY_LIMIT — the anonymous daily cap
-        # must not apply once user_id is set, and AI must be reachable.
+        # must not apply once user_id is set (AI has its own cap, tested below).
         for _ in range(ANONYMOUS_DAILY_LIMIT + 2):
             resp = client.post(
                 "/analyze",
-                json={
-                    "query": SIMPLE_QUERY,
-                    "db_type": "postgresql",
-                    "use_llm": True,
-                    "llm_provider": "huggingface",
-                },
+                json={"query": SIMPLE_QUERY, "db_type": "postgresql", "use_llm": False},
             )
             assert resp.status_code == 200, resp.text
         assert anonymous_daily_store == {}
@@ -206,36 +209,33 @@ class TestOpenAiProGate:
         finally:
             app.dependency_overrides.clear()
 
-    def test_signed_in_free_tier_selecting_anthropic_gets_structured_403(self, client, monkeypatch):
+    def test_free_tier_gets_claude_on_the_free_model(self, client, monkeypatch):
         _patch_persistence(monkeypatch, is_pro=False)
         app.dependency_overrides[get_current_user] = lambda: "user_free_test"
         try:
-            resp = client.post(
-                "/analyze",
-                json={"query": SIMPLE_QUERY, "db_type": "postgresql", "use_llm": True, "llm_provider": "anthropic"},
-            )
-            assert resp.status_code == 403
-            assert resp.json()["error"] == "pro_required"
-            assert "Anthropic" in resp.json()["message"]
+            for provider in ("anthropic", "huggingface"):  # removed provider is an alias
+                resp = client.post(
+                    "/analyze",
+                    json={"query": SIMPLE_QUERY, "db_type": "postgresql", "use_llm": True, "llm_provider": provider},
+                )
+                assert resp.status_code == 200, resp.text
+            assert LLM_CALLS == [{"provider": "anthropic", "model": settings.free_ai_model}] * 2
         finally:
             app.dependency_overrides.clear()
 
-    def test_signed_in_free_tier_selecting_huggingface_unaffected(self, client, monkeypatch):
-        """The gate is OpenAI-specific — free tier must still be able to
-        run heuristic-only or Hugging-Face-backed AI insights."""
+    def test_free_tier_ai_capped_per_day_heuristics_still_open(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "free_ai_daily_limit", 3)
         _patch_persistence(monkeypatch, is_pro=False)
-        app.dependency_overrides[get_current_user] = lambda: "user_free_test"
+        app.dependency_overrides[get_current_user] = lambda: "user_free_cap_test"
+        body = {"query": SIMPLE_QUERY, "db_type": "postgresql", "use_llm": True, "llm_provider": "anthropic"}
         try:
-            resp = client.post(
-                "/analyze",
-                json={
-                    "query": SIMPLE_QUERY,
-                    "db_type": "postgresql",
-                    "use_llm": True,
-                    "llm_provider": "huggingface",
-                },
-            )
-            assert resp.status_code == 200, resp.text
+            for i in range(3):
+                assert client.post("/analyze", json=body).status_code == 200, f"AI call {i + 1}"
+            resp = client.post("/analyze", json=body)
+            assert resp.status_code == 429
+            assert resp.json()["error"] == "free_ai_daily_limit_reached"
+            assert resp.json()["upgrade_available"] is True
+            assert client.post("/analyze", json={**body, "use_llm": False}).status_code == 200
         finally:
             app.dependency_overrides.clear()
 
@@ -355,25 +355,17 @@ class TestProOpenAiDailyCeiling:
         finally:
             app.dependency_overrides.clear()
 
-    def test_ceiling_does_not_affect_huggingface(self, client, monkeypatch):
-        """The ceiling only counts/gates the OpenAI provider — Hugging Face
-        stays uncapped for Pro, same as before this change."""
-        monkeypatch.setattr(settings, "pro_openai_daily_limit", 1)
+    def test_pro_uses_the_configured_model_not_the_free_one(self, client, monkeypatch):
         _patch_persistence(monkeypatch, is_pro=True)
-        app.dependency_overrides[get_current_user] = lambda: "user_pro_hf_test"
+        app.dependency_overrides[get_current_user] = lambda: "user_pro_model_test"
         try:
-            for i in range(3):
-                resp = client.post(
-                    "/analyze",
-                    json={
-                        "query": SIMPLE_QUERY,
-                        "db_type": "postgresql",
-                        "use_llm": True,
-                        "llm_provider": "huggingface",
-                    },
-                )
-                assert resp.status_code == 200, f"request {i + 1}/3 failed: {resp.text}"
-            assert pro_openai_daily_store == {}
+            resp = client.post(
+                "/analyze",
+                json={"query": SIMPLE_QUERY, "db_type": "postgresql", "use_llm": True, "llm_provider": "anthropic"},
+            )
+            assert resp.status_code == 200, resp.text
+            assert LLM_CALLS == [{"provider": "anthropic", "model": None}]
+            assert free_ai_daily_store == {}
         finally:
             app.dependency_overrides.clear()
 

@@ -71,7 +71,7 @@ logger = logging.getLogger(__name__)
 # call used elsewhere in this file (set_tag, capture_exception via the
 # logging integration) is a documented no-op without an active client. Same
 # degrades-gracefully pattern as every other optional integration in this
-# codebase (HF_API_KEY, OPENAI_API_KEY, the Stripe keys) — local dev and any
+# codebase (ANTHROPIC_API_KEY, OPENAI_API_KEY, the Stripe keys) — local dev and any
 # deploy that hasn't set the env var yet keep working exactly as before.
 if settings.sentry_dsn:
     sentry_sdk.init(
@@ -193,11 +193,27 @@ _ONE_DAY_SECONDS = 24 * 60 * 60
 # value prop), so without this, a compromised or scripted Pro session token
 # could generate unbounded real OpenAI spend — bounded only by the per-IP
 # burst limiter below (10/min, shared across every caller behind that IP).
-# Hugging Face stays uncapped for Pro, same as today; this only counts
-# request.llm_provider == "openai" calls. Same in-memory sliding-window
+# This counts Pro calls to OpenAI and Anthropic combined (free-tier AI has
+# its own, much smaller cap below). Same in-memory sliding-window
 # idiom as anonymous_daily_store above — a cost-abuse tripwire, not a
 # security boundary, so it doesn't need a new pattern or persistence.
 pro_openai_daily_store: dict[str, list[float]] = defaultdict(list)
+
+
+free_ai_daily_store: dict[str, list[float]] = defaultdict(list)
+
+
+def _check_free_ai_daily_limit(user_id: str) -> bool:
+    """Records one free-tier AI call against user_id's rolling 24h window
+    and returns whether it's allowed under settings.free_ai_daily_limit.
+    In-memory like the other limiters here: it resets on restart and is
+    per instance, which is fine for a cost tripwire on a single instance."""
+    now = time.time()
+    calls = free_ai_daily_store[user_id] = [t for t in free_ai_daily_store[user_id] if now - t < _ONE_DAY_SECONDS]
+    if len(calls) >= settings.free_ai_daily_limit:
+        return False
+    calls.append(now)
+    return True
 
 
 def _check_pro_openai_daily_limit(user_id: str) -> bool:
@@ -378,11 +394,16 @@ async def health_check():
 @app.get("/capabilities")
 async def capabilities():
     return {
-        "default_provider": os.getenv("DEFAULT_LLM_PROVIDER", "huggingface"),
+        "default_provider": os.getenv("DEFAULT_LLM_PROVIDER", "anthropic"),
         "providers": {
-            "huggingface": bool(os.getenv("HF_API_KEY", "").strip()),
             "openai": bool(os.getenv("OPENAI_API_KEY", "").strip()),
             "anthropic": bool(os.getenv("ANTHROPIC_API_KEY", "").strip()),
+        },
+        # Signed-in free users: Claude, capped per rolling 24h.
+        "free_ai": {
+            "provider": "anthropic",
+            "daily_limit": settings.free_ai_daily_limit,
+            "enabled": bool(settings.anthropic_api_key),
         },
     }
 
@@ -500,7 +521,7 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
             )
 
         # Phase 4 audit (#53) fix: OpenAI (GPT-4o-mini) is a Pro-tier
-        # feature by design — free tier stays on Hugging Face. Before this
+        # feature by design — free tier uses Claude (capped). Before this
         # check existed, request.llm_provider was read straight off the
         # client request body and passed to analyzer.analyze() with
         # nothing checking it against is_pro anywhere in the call path:
@@ -511,30 +532,48 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
         # this server-side check is the one that's authoritative, same
         # relationship the sign-in-required gate above already has with
         # its own frontend-side checkbox-disabling.
-        # Anthropic (Claude) is a paid provider too: same Pro gate and
-        # daily ceiling as OpenAI.
-        paid_provider = request.llm_provider in (LLMProvider.OPENAI, LLMProvider.ANTHROPIC)
-        provider_label = (
-            "Anthropic (Claude)" if request.llm_provider == LLMProvider.ANTHROPIC else "OpenAI (GPT-4o-mini)"
-        )
-        if request.use_llm and paid_provider and not is_pro:
+        # Providers: Anthropic (Claude) for everyone signed in, OpenAI for Pro.
+        # "huggingface" (removed) from older clients is treated as Anthropic.
+        llm_model = None
+        if request.llm_provider == LLMProvider.HUGGINGFACE:
+            request.llm_provider = LLMProvider.ANTHROPIC
+        if request.use_llm and request.llm_provider == LLMProvider.OPENAI and not is_pro:
             return JSONResponse(
                 status_code=403,
                 content={
                     "error": "pro_required",
                     "message": (
-                        f"{provider_label} AI insights are a Pro feature. "
-                        "Upgrade to QueryTuner Pro, or switch to Hugging Face for free AI insights."
+                        "OpenAI (GPT-4o-mini) AI insights are a Pro feature. Switch to Claude for "
+                        f"{settings.free_ai_daily_limit} free AI analyses a day, or request Pro by email."
                     ),
                     "upgrade_available": True,
                 },
             )
 
+        # Free tier: Claude on the cheaper free_ai_model, capped per user per
+        # rolling 24h. Counted only when an AI call is actually requested.
+        if request.use_llm and not is_pro:
+            if not _check_free_ai_daily_limit(user_id):
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "error": "free_ai_daily_limit_reached",
+                        "message": (
+                            f"You've used your {settings.free_ai_daily_limit} free AI analyses for today. "
+                            "Heuristic analysis is still available, or request Pro by email for more."
+                        ),
+                        "daily_limit": settings.free_ai_daily_limit,
+                        "upgrade_available": True,
+                    },
+                )
+            llm_model = settings.free_ai_model
+
+        paid_provider = request.llm_provider in (LLMProvider.OPENAI, LLMProvider.ANTHROPIC)
+
         # Security-audit follow-up (2026-09-28): even Pro accounts get a
-        # daily ceiling on OpenAI-provider calls specifically — see
-        # settings.pro_openai_daily_limit's own docstring for why. Only
-        # checked (and counted) for the actual OpenAI path; Hugging Face
-        # and heuristic-only analysis stay uncapped for Pro, same as today.
+        # daily ceiling on AI-provider calls — see
+        # settings.pro_openai_daily_limit's own docstring for why. Heuristic-
+        # only analysis stays uncapped for Pro.
         if request.use_llm and paid_provider and is_pro:
             if not _check_pro_openai_daily_limit(user_id):
                 return JSONResponse(
@@ -543,8 +582,8 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
                         "error": "pro_openai_daily_limit_reached",
                         "message": (
                             f"Daily paid-AI analysis limit reached ({settings.pro_openai_daily_limit}/day, "
-                            "OpenAI and Anthropic combined). "
-                            "Switch to Hugging Face for unlimited free AI insights, or try again tomorrow."
+                            "OpenAI and Anthropic combined). Heuristic analysis is still available; "
+                            "AI insights reset within 24 hours."
                         ),
                     },
                 )
@@ -570,6 +609,7 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
             use_llm=request.use_llm,
             llm_provider=llm_provider_str,
             focus=request.focus,
+            llm_model=llm_model,
         )
 
         analysis_time = (time.time() - start_time) * 1000

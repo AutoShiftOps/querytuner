@@ -62,7 +62,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [caps, setCaps] = useState(null);
-  const [llmProvider, setLlmProvider] = useState('huggingface');
+  const [llmProvider, setLlmProvider] = useState('anthropic');
   const [useLlm, setUseLlm] = useState(false);
   // Query sanitizer — null when not sanitized, substitution map when active.
   // Session-only: never persisted to localStorage/sessionStorage/cookies.
@@ -308,7 +308,14 @@ function App() {
       const isQueryTooLarge = errorCode === 'query_too_large';
       const isSignInRequired = errorCode === 'sign_in_required';
       const isAnonymousLimitReached = errorCode === 'anonymous_limit_reached';
-      const hasStructuredError = isQueryTooLarge || isSignInRequired || isAnonymousLimitReached;
+      const isFreeAiLimitReached = errorCode === 'free_ai_daily_limit_reached';
+      const isProRequired = errorCode === 'pro_required';
+      const hasStructuredError =
+        isQueryTooLarge ||
+        isSignInRequired ||
+        isAnonymousLimitReached ||
+        isFreeAiLimitReached ||
+        isProRequired;
       // upgrade_available is only true for free/anonymous users who hit the
       // smaller per-query character limit — that's Pro's actual pitch, so
       // show the upgrade modal instead of a toast the user just dismisses.
@@ -322,6 +329,20 @@ function App() {
           title: 'Your query is too large for the free tier',
           subtitle:
             'QueryTuner Pro supports queries up to 32,000 characters — covering real production SQL.',
+        });
+        setShowUpgradeModal(true);
+      } else if (isFreeAiLimitReached) {
+        const n = err.response?.data?.daily_limit || 3;
+        setUpgradeModalCopy({
+          title: `You've used your ${n} free AI analyses today`,
+          subtitle:
+            'Heuristic analysis is still unlimited. Pro (more AI analyses, OpenAI and Claude) is available on request by email.',
+        });
+        setShowUpgradeModal(true);
+      } else if (isProRequired) {
+        setUpgradeModalCopy({
+          title: 'That AI provider is part of Pro',
+          subtitle: detail,
         });
         setShowUpgradeModal(true);
       } else if (isAnonymousLimitReached) {
@@ -390,7 +411,7 @@ function App() {
       try {
         const r = await axios.get(`${API_BASE_URL}/capabilities`);
         setCaps(r.data);
-        setLlmProvider(r.data?.default_provider || 'huggingface');
+        setLlmProvider(r.data?.default_provider || 'anthropic');
       } catch {
         setCaps(null);
       }
@@ -442,13 +463,10 @@ function App() {
   const aiOk = Boolean(result?.used_ai && !result?.ai_error);
   // ai_error also implies an attempt (older API responses lack ai_attempted).
   const aiAttempted = Boolean(result?.ai_attempted || result?.ai_error);
-  // Hugging Face's free tier really does cold-start; for paid providers the
-  // backend's own message says what went wrong (bad model ID, key, credits).
-  // Show the backend's own reason (out of credits, bad model ID, timeout);
-  // the cold-start text is only a fallback when no reason came back.
+  // Show the backend's own reason (bad model ID, key, credits, timeout).
   const aiErrorText = result?.ai_error
     ? `${result.ai_error} Heuristic analysis is complete.`
-    : 'The AI model is warming up (free tier cold start). Heuristic analysis is complete. Toggle AI off and re-analyze, or try again in 30 seconds.';
+    : 'The AI request failed. Heuristic analysis is complete; try again in a moment.';
   const restore = (t) => (substitutionMap ? desanitize(t, substitutionMap) : t);
   const aiRewriteRejected = aiOk ? getAiRewriteRejected(result.ai_insights) : '';
   const aiFixes = aiOk

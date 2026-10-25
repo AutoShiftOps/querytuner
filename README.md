@@ -7,7 +7,7 @@
 [![Version](https://img.shields.io/badge/version-0.3.0-blue)](CHANGELOG.md)
 [![Backend](https://img.shields.io/badge/backend-FastAPI-009688?logo=fastapi)](https://api.querytuner.com/docs)
 [![Frontend](https://img.shields.io/badge/frontend-React-61DAFB?logo=react)](https://querytuner.com)
-[![AI](https://img.shields.io/badge/AI-HuggingFace%20%7C%20OpenAI-FFD21F?logo=huggingface)](https://huggingface.co)
+[![AI](https://img.shields.io/badge/AI-Claude%20%7C%20OpenAI-D97757)](https://docs.claude.com)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Status](https://img.shields.io/badge/status-live-brightgreen)](https://querytuner.com)
 
@@ -32,7 +32,7 @@ QueryTuner analyzes SQL queries in two layers:
    anti-patterns: missing indexes, leading wildcards, functions in WHERE clauses, SELECT *,
    unbounded ORDER BY, and more.
 
-2. **AI Layer** (optional) — powered by HuggingFace (`Qwen/Qwen2.5-Coder`) or OpenAI
+2. **AI Layer** (optional) — powered by Anthropic Claude (default) or OpenAI
    (`gpt-4o-mini`). Generates CTE rewrites, CREATE INDEX statements with justification,
    and plain-English diagnosis.
 
@@ -46,7 +46,7 @@ QueryTuner analyzes SQL queries in two layers:
   estimated to **confirmed**, resolved against your real table and column names
 - 🔧 **Dialect-Correct Index DDL** — `CREATE INDEX CONCURRENTLY` (PostgreSQL),
   `ALTER TABLE ... ADD INDEX` (MySQL), `NOLOGGING` (Oracle), `WITH (ONLINE=ON)` (SQL Server)
-- 🤖 **Dual AI Provider** — HuggingFace (default, free) or OpenAI, with structured JSON output
+- 🤖 **Dual AI Provider** — Anthropic Claude (default; 3 free AI analyses/day when signed in) or OpenAI (Pro), with structured JSON output
   (falls back to readable plain text if the model doesn't return JSON)
 - 🔍 **Severity-Ranked Findings** — Critical → High → Medium → Low
 - 📋 **Optimized Query Output** — rewritten SQL you can copy and run
@@ -76,19 +76,19 @@ curl -X POST https://api.querytuner.com/analyze \
     "use_llm": false
   }'
 
-# With AI insights (requires HF_API_KEY on server)
+# With AI insights (requires ANTHROPIC_API_KEY on server)
 curl -X POST https://api.querytuner.com/analyze \
   -H "Content-Type: application/json" \
   -d '{
     "query": "SELECT u.id, COUNT(o.id) FROM users u LEFT JOIN orders o ON o.user_id = u.id WHERE YEAR(o.created_at) = 2025 GROUP BY u.id",
     "db_type": "mysql",
     "use_llm": true,
-    "llm_provider": "huggingface"
+    "llm_provider": "anthropic"
   }'
 ```
 
 **Supported `db_type` values:** `postgresql` · `mysql` · `oracle` · `sqlserver` · `sqlite`
-**Supported `llm_provider` values:** `huggingface` · `openai`
+**Supported `llm_provider` values:** `anthropic` · `openai` (`huggingface` is accepted for old clients and treated as `anthropic`)
 
 ### Example Response
 
@@ -108,7 +108,7 @@ curl -X POST https://api.querytuner.com/analyze \
   "readability_score": 83.5,
   "analysis_time_ms": 5.4,
   "used_ai": true,
-  "ai_model": "Qwen/Qwen2.5-Coder-3B-Instruct"
+  "ai_model": "claude-haiku-5-5"
 }
 ```
 
@@ -133,7 +133,7 @@ querytuner.com (Vercel)          api.querytuner.com (Render)
                                     │            │             │
                                     │   ┌────────▼───────────┐ │
                                     │   │    LLM Router      │ │  ← optional
-                                    │   │  HuggingFace│OpenAI│ │
+                                    │   │  Claude │ OpenAI   │ │
                                     │   └────────────────────┘ │
                                     └──────────────────────────┘
 ```
@@ -141,7 +141,7 @@ querytuner.com (Vercel)          api.querytuner.com (Render)
 **Stack:**
 - Backend: Python · FastAPI · Pydantic · sqlparse · LangChain
 - Frontend: React · Tailwind CSS · Axios · Lucide Icons
-- AI: HuggingFace Inference API (`Qwen/Qwen2.5-Coder-3B-Instruct`) · OpenAI-compatible
+- AI: Anthropic Messages API (Claude) · OpenAI
 - Deploy: Render (backend) · Vercel (frontend)
 
 ---
@@ -159,7 +159,7 @@ cd querytuner
 cd backend
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env          # add your HF_API_KEY
+cp .env.example .env          # add your ANTHROPIC_API_KEY
 uvicorn app.main:app --reload --port 8000
 
 # Frontend (new terminal)
@@ -178,13 +178,13 @@ it does not use Vite's default 5173)
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `HF_API_KEY` | Yes (for AI) | — | HuggingFace API key |
-| `HF_MODEL` | No | `Qwen/Qwen2.5-Coder-3B-Instruct` | HuggingFace model ID |
 | `OPENAI_API_KEY` | No | — | Enables OpenAI provider |
-| `ANTHROPIC_API_KEY` | No | — | Enables Anthropic (Claude) provider (Pro) |
-| `ANTHROPIC_MODEL` | No | `claude-haiku-5-5` | Claude model ID used for AI insights |
+| `ANTHROPIC_API_KEY` | Yes (for AI) | — | Enables Anthropic (Claude), the default provider |
+| `ANTHROPIC_MODEL` | No | `claude-haiku-5-5` | Claude model ID for Pro users |
+| `FREE_AI_MODEL` | No | `claude-haiku-5-5` | Claude model ID for signed-in free users |
+| `FREE_AI_DAILY_LIMIT` | No | `3` | AI analyses per free user per rolling 24h |
 | `OPENAI_MODEL` | No | `gpt-4o-mini` | OpenAI model to use |
-| `DEFAULT_LLM_PROVIDER` | No | `huggingface` | Default AI provider |
+| `DEFAULT_LLM_PROVIDER` | No | `anthropic` | Default AI provider |
 | `AI_MAX_TOKENS` | No | `1500` | Max tokens per LLM response |
 | `MAX_QUERY_CHARS` | No | `32000` | Max query input size (Pro tier / absolute ceiling) |
 | `SUPABASE_URL`      | No  | —  | Supabase project URL — enables shareable report URLs and persistence |
@@ -206,7 +206,6 @@ sql-query-analyzer/
 │   │   │   ├── optimizer.py       # Query rewrite engine
 │   │   │   └── explainer.py       # Plain-English explanation layer
 │   │   ├── llm/
-│   │   │   ├── hf_client.py       # HuggingFace async client
 │   │   │   └── router.py          # Dual-provider LLM router (HF + OpenAI)
 │   │   ├── schemas/
 │   │   │   └── models.py          # Pydantic request/response models
@@ -275,8 +274,8 @@ sql-query-analyzer/
 ## Known Limitations
 
 See [LIMITATIONS.md](backend/LIMITATIONS.md) for the full list. Key limitations: no live DB
-connection, stateless analysis (no query history across runs), LLM availability depends on the
-HuggingFace free tier, and LATERAL join correlated-column detection is not yet supported.
+connection, stateless analysis (no query history across runs), AI insights depend on the
+Anthropic/OpenAI APIs being reachable, and LATERAL join correlated-column detection is not yet supported.
 
 ---
 

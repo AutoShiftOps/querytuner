@@ -5,9 +5,11 @@ from pydantic import BaseModel, Field
 
 
 class LLMProvider(StrEnum):
-    HUGGINGFACE = "huggingface"
-    OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    OPENAI = "openai"
+    # Removed provider, still accepted so older API clients don't get a 422;
+    # treated as "anthropic".
+    HUGGINGFACE = "huggingface"
 
 
 class DatabaseType(StrEnum):
@@ -26,7 +28,7 @@ class QueryRequest(BaseModel):
     explain_plan: str | None = Field(
         None, description="Raw EXPLAIN plan output pasted by user (dialect-specific format)"
     )
-    llm_provider: LLMProvider = Field(default=LLMProvider.HUGGINGFACE)
+    llm_provider: LLMProvider = Field(default=LLMProvider.ANTHROPIC)
     use_llm: bool = Field(default=False)
     focus: str = Field(default="performance")
     # Issue #124: the frontend's client-side sanitizer (table/column names

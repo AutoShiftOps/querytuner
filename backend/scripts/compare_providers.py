@@ -9,7 +9,7 @@ many targeted fixes were kept/dropped, and whether the reply looks cut off.
 Usage (from backend/, with the provider keys in the environment or .env):
 
     python -m scripts.compare_providers path/to/queries/*.sql \
-        --db sqlserver --providers openai anthropic huggingface
+        --db sqlserver --providers openai anthropic
 
 Each call is a real, billed API request. Cost is not estimated here; read the
 token usage in each provider's console against its current price list.
@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 
 from app.agents.sql_analyzer import SQLAnalyzerAgent
-from app.llm.hf_client import safe_parse_json
+from app.llm.json_utils import safe_parse_json
 
 
 def _summarize(result: dict, seconds: float) -> dict:

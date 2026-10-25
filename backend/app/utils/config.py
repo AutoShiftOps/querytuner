@@ -16,18 +16,18 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     # AI providers — existing, unchanged
     # -------------------------------------------------------------------------
-    hf_api_key: str = ""
-    hf_model: str = "Qwen/Qwen2.5-Coder-3B-Instruct"
-    hf_router_base_url: str = "https://router.huggingface.co"
-
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
 
-    # Anthropic (Claude) — Pro-tier provider, same gating as OpenAI.
+    # Anthropic (Claude): the default provider. Pro users get anthropic_model;
+    # signed-in free users get free_ai_model, capped at free_ai_daily_limit
+    # AI analyses per rolling 24h (main.py's _check_free_ai_daily_limit).
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-haiku-5-5"
+    free_ai_model: str = "claude-haiku-5-5"
+    free_ai_daily_limit: int = 3
 
-    default_llm_provider: str = "huggingface"
+    default_llm_provider: str = "anthropic"
     # 800 was too tight for structured JSON responses on verbose queries
     # (long rewritten_query + multiple findings) — the model would get cut
     # off mid-generation, producing invalid JSON that the frontend could
@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     # Observability — Phase 5 (#135)
     # sentry_dsn blank = Sentry is a complete no-op (see main.py's init) —
     # same degrades-gracefully pattern this file already uses for every
-    # other optional integration (hf_api_key, openai_api_key, the Stripe
+    # other optional integration (anthropic_api_key, openai_api_key, the Stripe
     # keys above): a missing key disables the feature, it never crashes
     # the app. environment tags every event so errors from a local dev
     # instance pointed at the same DSN by mistake are separable from real
@@ -111,8 +111,8 @@ class Settings(BaseSettings):
     # compromised or scripted Pro session token could generate unbounded
     # real OpenAI spend — bounded only by /analyze's per-IP burst rate
     # limiter (10/min). This is a per-user, per-day ceiling on OpenAI-
-    # provider calls specifically (see main.py's _check_pro_openai_daily_limit) —
-    # Hugging Face stays uncapped for Pro, same as today. Configurable so it
+    # provider calls specifically (see main.py's _check_pro_openai_daily_limit),
+    # OpenAI and Anthropic combined. Configurable so it
     # can be raised without a deploy if it's ever too tight for a legitimate
     # heavy user.
     # -------------------------------------------------------------------------

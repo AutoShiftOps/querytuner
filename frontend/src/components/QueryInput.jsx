@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useRef, forwardRef } from 'react';
+import React, { useState, useEffect, forwardRef } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
 import SanitizerPanel from './SanitizerPanel';
 import {
   shouldResetStaleAnthropicSelection,
   shouldResetStaleOpenAiSelection,
-  shouldAutoSelectOpenAiForPro,
 } from '../utils/providerSelection';
 
 const QueryInput = forwardRef(function QueryInput(
@@ -42,10 +41,12 @@ const QueryInput = forwardRef(function QueryInput(
   // sign-in gate below.
   const openaiConfigured = !!caps?.providers?.openai;
   const openaiEnabled = openaiConfigured && !!isPro;
+  // Claude is open to every signed-in user: free accounts get a few AI
+  // analyses a day (caps.free_ai.daily_limit, enforced server-side).
   const anthropicConfigured = !!caps?.providers?.anthropic;
-  const anthropicEnabled = anthropicConfigured && !!isPro;
-  const hfEnabled = caps?.providers?.huggingface ?? true;
-  const anyAiEnabled = hfEnabled || openaiEnabled || anthropicEnabled;
+  const anthropicEnabled = anthropicConfigured;
+  const freeAiLimit = caps?.free_ai?.daily_limit ?? 3;
+  const anyAiEnabled = openaiEnabled || anthropicEnabled;
 
   // Bug fix (docs/querytuner-quiz-provider-fixes.md, Bug 2): nothing
   // reconciled llmProvider against openaiEnabled — a stale "openai"
@@ -56,29 +57,12 @@ const QueryInput = forwardRef(function QueryInput(
   useEffect(() => {
     if (
       shouldResetStaleOpenAiSelection(llmProvider, openaiEnabled) ||
-      shouldResetStaleAnthropicSelection(llmProvider, anthropicEnabled)
+      shouldResetStaleAnthropicSelection(llmProvider, anthropicEnabled) ||
+      llmProvider === 'huggingface' // removed provider
     ) {
-      setLlmProvider('huggingface');
+      setLlmProvider('anthropic');
     }
   }, [openaiEnabled, anthropicEnabled, llmProvider, setLlmProvider]);
-
-  // Default confirmed Pro users to the recommended provider once, without
-  // fighting a deliberate manual choice made afterward (didAutoSelectOpenAi
-  // latches after the first auto-select so a Pro user who switches back to
-  // Hugging Face stays there on later re-renders). Deliberately keyed only
-  // on openaiEnabled — including llmProvider/setLlmProvider would re-run
-  // this on every manual dropdown change, which the ref guard alone
-  // already prevents from re-firing, but keeping the dep list narrow
-  // makes the "runs once when Pro turns on" intent explicit rather than
-  // relying on the guard to paper over a broader trigger.
-  const didAutoSelectOpenAi = useRef(false);
-  useEffect(() => {
-    if (shouldAutoSelectOpenAiForPro(llmProvider, openaiEnabled, didAutoSelectOpenAi.current)) {
-      didAutoSelectOpenAi.current = true;
-      setLlmProvider('openai');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openaiEnabled]);
 
   // Issue #60: collapsed by default — keeps the form uncluttered
   const [explainOpen, setExplainOpen] = useState(false);
@@ -195,20 +179,16 @@ const QueryInput = forwardRef(function QueryInput(
               disabled={!anyAiEnabled}
               className="w-full bg-slate-900 text-white rounded border border-slate-600 p-2 disabled:opacity-50"
             >
-              <option value="huggingface" disabled={!hfEnabled}>
-                Hugging Face
+              <option value="anthropic" disabled={!anthropicEnabled}>
+                {!anthropicConfigured
+                  ? 'Claude (not enabled on server)'
+                  : isPro
+                    ? 'Claude (Anthropic)'
+                    : `Claude Haiku — ${freeAiLimit} free/day`}
               </option>
               <option value="openai" disabled={!openaiEnabled}>
-                OpenAI (recommended){' '}
+                OpenAI GPT-4o-mini{' '}
                 {openaiEnabled ? '' : !openaiConfigured ? '(not enabled on server)' : '(Pro only)'}
-              </option>
-              <option value="anthropic" disabled={!anthropicEnabled}>
-                Anthropic Claude{' '}
-                {anthropicEnabled
-                  ? ''
-                  : !anthropicConfigured
-                    ? '(not enabled on server)'
-                    : '(Pro only)'}
               </option>
             </select>
             {!anyAiEnabled && (

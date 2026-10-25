@@ -45,8 +45,8 @@ jobs:
       - name: Run pytest
         env:
           # Heuristic tests don't need real API keys — use empty strings
-          HF_API_KEY: ''
           OPENAI_API_KEY: ''
+          ANTHROPIC_API_KEY: ''
           SUPABASE_URL: ''
           SUPABASE_ANON_KEY: ''
         run: |
