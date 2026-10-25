@@ -484,3 +484,13 @@ class TestWasSanitizedPersistence:
         )
         assert resp.status_code == 200, resp.text
         assert captured["was_sanitized"] is False
+
+
+def test_signed_in_free_user_has_no_monthly_analysis_cap(client, monkeypatch):
+    _patch_persistence(monkeypatch, is_pro=False, count=500)
+    app.dependency_overrides[get_current_user] = lambda: "user_free_heavy"
+    try:
+        resp = client.post("/analyze", json={"query": SIMPLE_QUERY, "db_type": "postgresql", "use_llm": False})
+        assert resp.status_code == 200, resp.text
+    finally:
+        app.dependency_overrides.clear()

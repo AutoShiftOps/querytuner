@@ -73,7 +73,9 @@ const T = {
 // file's own module docstring for the specific things that turned out
 // NOT to be gated (schema-aware analysis, EXPLAIN cross-referencing).
 const FEATURE_ROWS = [
-  { label: 'Analyses', free: '10 / month', pro: 'Unlimited' },
+  // Signed out: ANONYMOUS_DAILY_LIMIT per IP per day (main.py). Signed in:
+  // no cap on heuristic analyses.
+  { label: 'Analyses', free: 'Unlimited (5 / day signed out)', pro: 'Unlimited' },
   { label: 'Max query length', free: '8,000 characters', pro: '32,000 characters' },
   { label: 'Heuristic engine (24 checks, evidence-tiered)', free: true, pro: true },
   { label: 'Schema-aware index recommendations', free: true, pro: true },
@@ -87,7 +89,7 @@ const FEATURE_ROWS = [
   {
     label: 'AI Insights (findings, index advice, rewrite / targeted fixes)',
     free: 'Claude Haiku, 3 / day',
-    pro: 'Claude or OpenAI GPT-4o-mini',
+    pro: 'Claude or OpenAI GPT-4o-mini, up to 200 / day',
   },
   { label: 'Query history', free: false, pro: true },
   // BatchAnalysisPage.jsx (/batch, linked from the header nav) closed the
@@ -301,8 +303,8 @@ export default function PricingPage() {
         <div className="qt-pricing-hero">
           <h1 className="qt-pricing-title">Simple, transparent pricing</h1>
           <p className="qt-pricing-subtitle">
-            Start free, including 3 Claude AI analyses a day. Pro adds unlimited analyses, query
-            history, batch analysis and a choice of Claude or OpenAI.
+            Start free: unlimited analyses and 3 Claude AI analyses a day. Pro adds more AI, longer
+            queries, query history, batch analysis and a choice of Claude or OpenAI.
           </p>
         </div>
 

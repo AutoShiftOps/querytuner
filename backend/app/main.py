@@ -48,7 +48,6 @@ from .utils.database import (  # noqa: E402
     update_user_pro_status,
 )
 
-FREE_TIER_MONTHLY_LIMIT = 10
 # Phase 5 (backlog #54): GET /history pagination bounds.
 HISTORY_PAGE_SIZE_DEFAULT = 20
 HISTORY_PAGE_SIZE_MAX = 100
@@ -176,9 +175,9 @@ rate_limit_store = defaultdict(list)
 # Anonymous-usage daily cap — separate from rate_limit_store above, which is
 # a per-minute anti-burst-abuse throttle applied to every caller regardless
 # of auth. Before this, unauthenticated callers had genuinely no usage limit
-# at all: the per-minute guard doesn't cap total usage, and only signed-in
-# free users were capped (FREE_TIER_MONTHLY_LIMIT/month, enforced further
-# down). Same in-memory sliding-window approach as rate_limit_store — this
+# at all: the per-minute guard doesn't cap total usage. Signed-in free users
+# have no analysis cap (AI is capped separately, see free_ai_daily_store).
+# Same in-memory sliding-window approach as rate_limit_store — this
 # app has no rate-limiting library dependency (no slowapi, fastapi-limiter,
 # redis-backed limiter, ...), so extending the existing idiom keeps one
 # pattern in the codebase instead of introducing a second one for what's
@@ -466,7 +465,7 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
                         "error": "anonymous_limit_reached",
                         "message": (
                             f"Free anonymous limit reached ({ANONYMOUS_DAILY_LIMIT}/day). "
-                            "Sign in for 10 free analyses/month, or upgrade to Pro for unlimited."
+                            f"Sign in for unlimited analyses and {settings.free_ai_daily_limit} free AI analyses a day."
                         ),
                         "sign_in_available": True,
                     },
@@ -511,14 +510,9 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
                 },
             )
 
-        # Phase 4: server-side monthly free-tier enforcement — separate from
-        # the per-query size limit above (that caps how big one query can
-        # be; this caps how many analyses per month).
-        if user_id and not is_pro and usage["count"] >= FREE_TIER_MONTHLY_LIMIT:
-            raise HTTPException(
-                status_code=402,
-                detail="Free tier limit reached — upgrade to Pro for unlimited analyses",
-            )
+        # Signed-in free users have no monthly analysis cap: heuristic
+        # analysis costs nothing to run, and AI is capped per day below.
+        # (usage is still counted for the Pro-status lookup and analytics.)
 
         # Phase 4 audit (#53) fix: OpenAI (GPT-4o-mini) is a Pro-tier
         # feature by design — free tier uses Claude (capped). Before this

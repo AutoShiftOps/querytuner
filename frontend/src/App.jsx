@@ -96,7 +96,6 @@ function App() {
   // {title, subtitle} = custom copy for the query-too-large / anonymous-
   // limit / sign-in-required triggers.
   const [upgradeModalCopy, setUpgradeModalCopy] = useState(null);
-  const FREE_LIMIT = 10;
   // Anonymous usage — session-only, resets on refresh, purely for immediate
   // UI feedback. Mirrors backend/app/main.py's ANONYMOUS_DAILY_LIMIT, but
   // isn't the source of truth: unlike usageCount (rehydrated from GET
@@ -126,10 +125,9 @@ function App() {
       if (useLlm) return false;
       return anonymousCount < ANONYMOUS_DAILY_LIMIT;
     }
-    if (isPro) return true;
-    if (usageCount >= FREE_LIMIT) return false;
+    // Signed in: no analysis cap (free AI is capped per day server-side).
     return true;
-  }, [isSignedIn, isPro, usageCount, useLlm, anonymousCount]);
+  }, [isSignedIn, useLlm, anonymousCount]);
 
   // Hydrate usageCount/isPro from the backend's authoritative monthly count
   // on sign-in — without this, refreshing the page would silently reset the
@@ -235,7 +233,7 @@ function App() {
       if (!isSignedIn) {
         setUpgradeModalCopy({
           title: "You've used today's free limit",
-          subtitle: `Sign in for ${FREE_LIMIT} free analyses every month, or upgrade to Pro for unlimited.`,
+          subtitle: 'Sign in for unlimited analyses and 3 free AI analyses a day.',
         });
         setShowUpgradeModal(true);
         return;
@@ -348,7 +346,7 @@ function App() {
       } else if (isAnonymousLimitReached) {
         setUpgradeModalCopy({
           title: "You've used today's free limit",
-          subtitle: `Sign in for ${FREE_LIMIT} free analyses every month, or upgrade to Pro for unlimited.`,
+          subtitle: 'Sign in for unlimited analyses and 3 free AI analyses a day.',
         });
         setShowUpgradeModal(true);
       } else if (isSignInRequired) {

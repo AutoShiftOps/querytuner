@@ -2,7 +2,8 @@ import { useUser } from '@clerk/clerk-react';
 import { X, Zap, History, Sparkles } from 'lucide-react';
 import { buildProRequestMailto } from '../utils/proWaitlist';
 
-// Phase 4: shown when a signed-in free-tier user hits FREE_LIMIT in App.jsx.
+// Shown when a free user hits a limit (daily AI cap, query size, signed-out
+// daily cap) or picks a Pro-only provider; callers pass title/subtitle.
 //
 // CHECKOUT_ENABLED is a deliberate, explicit switch — separate from
 // whether a Stripe Payment Link happens to be configured. Real checkout
@@ -16,7 +17,7 @@ const CHECKOUT_ENABLED = (import.meta.env.VITE_PRO_CHECKOUT_ENABLED || '').toLow
 const PAYMENT_LINK = import.meta.env.VITE_STRIPE_PAYMENT_LINK || '';
 
 const FEATURES = [
-  { icon: Zap, text: 'Unlimited analyses' },
+  { icon: Zap, text: 'Queries up to 32,000 characters' },
   { icon: History, text: 'Query history' },
   { icon: Sparkles, text: 'More AI analyses (Claude or OpenAI)' },
 ];
