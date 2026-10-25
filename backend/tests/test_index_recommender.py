@@ -24,6 +24,7 @@ just plausible-looking.
 """
 
 import asyncio
+import re
 
 import pytest
 
@@ -402,3 +403,26 @@ def test_group_by_composite_has_rollback(analyzer):
 def test_oracle_partial_candidate_indexes_the_column_not_the_pk(analyzer):
     sugg = [s for s in run(analyzer, INDENTED_MULTI_JOIN, db_type="oracle") if "partial" in s["type"]]
     assert sugg and "(status)" in sugg[0]["ddl_hint"] and "(id)" not in sugg[0]["ddl_hint"]
+
+
+def test_index_name_is_a_plain_identifier_for_quoted_schema_qualified_tables():
+    from app.tools.index_recommender import _index_name
+
+    assert _index_name("[dbo].[Metropolitan$Sales Header]", "No_") == "idx_Metropolitan_Sales_Header_No"
+    assert _index_name('"public"."Order Items"', ["[Order No]"], "partial") == "idx_Order_Items_Order_No_partial"
+    assert len(_index_name("orders", "x" * 100)) <= 63
+
+
+@pytest.mark.parametrize("db_type", ["postgresql", "mysql", "sqlserver", "oracle", "sqlite"])
+def test_bracketed_table_gives_valid_index_name_and_matching_rollback(analyzer, db_type):
+    q = (
+        "SELECT SH.No_ FROM [dbo].[Metropolitan$Sales Header] SH with(nolock) "
+        "inner join @tmp t on t.id = SH.No_ where SH.[Order Status]=10000"
+    )
+    ddl = [s for s in run(analyzer, q, db_type=db_type) if s.get("ddl_hint")]
+    assert ddl
+    for s in ddl:
+        name = re.search(r"INDEX(?:\s+CONCURRENTLY)?\s+(\S+)", s["ddl_hint"]).group(1)
+        assert re.fullmatch(r"[A-Za-z_]\w*", name), s["ddl_hint"]
+        if s.get("rollback_ddl"):
+            assert name in s["rollback_ddl"]

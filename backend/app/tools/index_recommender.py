@@ -166,6 +166,28 @@ def _index_name_from_ddl(ddl: str) -> str | None:
     return m.group(1) if m else None
 
 
+_NAME_UNSAFE_RE = re.compile(r"[^A-Za-z0-9_]+")
+_INDEX_NAME_MAX = 63  # PostgreSQL's limit; also fits MySQL (64) and SQL Server (128)
+
+
+def _index_name(table: str | None, cols: list[str] | str, suffix: str = "") -> str:
+    """
+    A plain identifier for a new index: idx_<table>_<cols>[_suffix].
+
+    Table and column names can be schema-qualified or quoted
+    ([dbo].[Sales Header], "public"."orders", `db`.`t`), which must not leak
+    into the index name: only the last part of the table name is used and
+    anything other than letters, digits and _ becomes _.
+    """
+    base = (table or "tbl").replace("`", "").replace('"', "")
+    base = re.split(r"\]?\.\[?|\.", base)[-1]
+    col_list = [cols] if isinstance(cols, str) else list(cols)
+    parts = ["idx", base, *col_list] + ([suffix] if suffix else [])
+    name = _NAME_UNSAFE_RE.sub("_", "_".join(parts))
+    name = re.sub(r"_+", "_", name).strip("_")
+    return name[:_INDEX_NAME_MAX].rstrip("_")
+
+
 def _matching_paren_end(text: str, open_idx: int) -> int:
     """Index of the ')' matching the '(' at open_idx, or -1."""
     depth = 0
@@ -360,7 +382,7 @@ def _detect_composite_opportunity(
         # schema_info was pasted (the common case), instead of defaulting
         # straight to a non-executable <alias_table> placeholder.
         real_table = _resolve_real_table(alias, schema) or table_aliases.get(alias or "")
-        idx_name = f"idx_{real_table or alias}_{'_'.join(cols)}"
+        idx_name = _index_name(real_table or alias, cols)
         table_ph = real_table if real_table else f"<{alias}_table>"
         col_list = ", ".join(cols)
         ddl = get_index_ddl(db_type, table_ph, col_list, idx_name)
@@ -674,7 +696,7 @@ class IndexRecommender:
                 continue
             real_table = self._real_table(alias, schema, table_aliases)
             table_ph = real_table or (f"<{alias}_table>" if alias else "<table_name>")
-            idx_name = f"idx_{real_table or alias or 'tbl'}_{'_'.join(cols)}"
+            idx_name = _index_name(real_table or alias, cols)
             suggestions.append(
                 self._make(
                     index_type="group_by_index",
@@ -758,7 +780,7 @@ class IndexRecommender:
         # mislabeled "schema-verified" in the UI.
         schema_verified = real_table is not None and col in schema.get(real_table, {})
         table_ph = real_table if real_table else (f"<{alias}_table>" if alias else "<table_name>")
-        idx_name = f"idx_{real_table or alias or 'tbl'}_{col}"
+        idx_name = _index_name(real_table or alias, col)
         ddl = get_index_ddl(db_type, table_ph, col, idx_name)
         return ddl, schema_verified, table_ph
 
@@ -775,7 +797,7 @@ class IndexRecommender:
         real_table = self._real_table(alias, schema, table_aliases)
         schema_verified = real_table is not None and col in schema.get(real_table, {})
         table_ph = real_table if real_table else (f"<{alias}_table>" if alias else "<table_name>")
-        idx = f"idx_{real_table or alias or 'tbl'}_{col}_partial"
+        idx = _index_name(real_table or alias, col, "partial")
         cfg = get_dialect(db_type)
 
         if db_type == "postgresql":
@@ -846,7 +868,7 @@ class IndexRecommender:
         # name used to be rebuilt here from the table *alias* (idx_o_user_id)
         # while the DDL used the real table (idx_orders_user_id), so the
         # rollback dropped an index that never existed.
-        index_name = _index_name_from_ddl(ddl_hint) or (f"idx_{alias or 'tbl'}_{col}" if col else None)
+        index_name = _index_name_from_ddl(ddl_hint) or (_index_name(alias, col) if col else None)
         if index_name and table_ph:
             cfg = get_dialect(db_type)
             result["rollback_ddl"] = cfg.rollback_index.format(index=index_name, table=table_ph)
