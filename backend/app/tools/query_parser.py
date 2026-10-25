@@ -144,6 +144,36 @@ def _find_top_level_keyword_pos(sql: str, keyword: str, start_idx: int = 0) -> i
     return -1
 
 
+# Keywords that end WHERE/GROUP BY/HAVING/ORDER BY bodies besides the usual
+# next clause: set operators, T-SQL query hints, and the start of the next
+# statement. T-SQL batches routinely omit semicolons, so without these a
+# clause in one statement ran on to the end of the whole script (a GROUP BY
+# "swallowing" every statement after it). Only matched at paren depth 0, so
+# subqueries are unaffected; " end "/" with "/" if " are deliberately absent
+# (CASE ... END and table hints legitimately appear inside these clauses).
+_CLAUSE_STOPS = [
+    " union ",
+    " except ",
+    " intersect ",
+    " option ",
+    " for ",
+    " select ",
+    " insert ",
+    " update ",
+    " delete ",
+    " declare ",
+    " set ",
+    " exec ",
+    " execute ",
+    " create ",
+    " drop ",
+    " alter ",
+    " truncate ",
+    " merge ",
+    " print ",
+]
+
+
 def _extract_clause(sql: str, start_kw: str, end_kws: list[str]) -> str:
     """
     Extract clause body appearing after start_kw up to the earliest of end_kws, all at top-level.
@@ -463,22 +493,22 @@ class QueryParser:
 
     def _extract_where(self, query: str) -> str:
         q = _strip_trailing_semicolon(query)
-        return _extract_clause(q, " where ", [" group by ", " order by ", " limit ", " fetch "])
+        return _extract_clause(q, " where ", [" group by ", " order by ", " limit ", " fetch ", *_CLAUSE_STOPS])
 
     def _extract_group_by(self, query: str) -> list[str]:
         q = _strip_trailing_semicolon(query)
-        body = _extract_clause(q, " group by ", [" having ", " order by ", " limit ", " fetch "])
+        body = _extract_clause(q, " group by ", [" having ", " order by ", " limit ", " fetch ", *_CLAUSE_STOPS])
         if not body:
             return []
         return [c.strip() for c in _split_top_level_commas(body) if c.strip()]
 
     def _extract_having(self, query: str) -> str:
         q = _strip_trailing_semicolon(query)
-        return _extract_clause(q, " having ", [" order by ", " limit ", " fetch "])
+        return _extract_clause(q, " having ", [" order by ", " limit ", " fetch ", *_CLAUSE_STOPS])
 
     def _extract_order_by(self, query: str) -> list[str]:
         q = _strip_trailing_semicolon(query)
-        body = _extract_clause(q, " order by ", [" limit ", " fetch "])
+        body = _extract_clause(q, " order by ", [" limit ", " fetch ", *_CLAUSE_STOPS])
         if not body:
             return []
         return [c.strip() for c in _split_top_level_commas(body) if c.strip()]
