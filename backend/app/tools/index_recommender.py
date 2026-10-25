@@ -31,9 +31,13 @@ def _extract_col_name(expr: str) -> str | None:
     # suggestions for every MySQL batch entry. Found via
     # test_batch_parsers.py's normalized-text-caveat tests, which the
     # design doc explicitly asked to verify rather than assume.
-    quoted_m = re.match(r'^(?:[A-Za-z_][A-Za-z0-9_]*\.)?(?:"([^"]+)"|`([^`]+)`)', e)
+    # The alias (plain or itself quoted: "o"."user_id", `o`.`user_id`) is
+    # kept so the column resolves to its table instead of a placeholder.
+    quoted_m = re.match(r'^(?:([A-Za-z_][A-Za-z0-9_]*|"[^"]+"|`[^`]+`)\.)?(?:"([^"]+)"|`([^`]+)`)', e)
     if quoted_m:
-        return quoted_m.group(1) or quoted_m.group(2)
+        alias = (quoted_m.group(1) or "").strip('"`')
+        col = quoted_m.group(2) or quoted_m.group(3)
+        return f"{alias}.{col}" if alias else col
 
     # SQL Server bracketed identifier, optionally alias-qualified:
     # [Document No] or SL.[Document No]. The brackets are kept so the column
@@ -74,6 +78,12 @@ def _qualified_col(expr: str) -> tuple[str | None, str] | None:
 _EQUALITY_OPERATORS = {"=", "IN"}
 
 
+# A join-key column: plain (o.user_id) or SQL Server bracketed (SL.[Document No]).
+_COL_REF = (
+    r"(?:(?:[A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\"|`[^`]+`)\.)?(?:\[[^\]]+\]|\"[^\"]+\"|`[^`]+`)" r"|[A-Za-z_][A-Za-z0-9_.]+"
+)
+
+
 def _extract_where_columns(where_clause: str) -> list[tuple[str | None, str, str]]:
     """
     Returns (alias, column, predicate_type) triples — predicate_type is
@@ -98,7 +108,7 @@ def _extract_where_columns(where_clause: str) -> list[tuple[str | None, str, str
         # suggestions before this. Same fix as _extract_col_name's own
         # backtick handling above; found by the same test.
         is_null_m = re.match(
-            r"^((?:[A-Za-z_][A-Za-z0-9_]*\.)?\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_.]+|`[^`]+`)\s+IS\s+(NOT\s+)?NULL$",
+            r"^(" + _COL_REF + r")\s+IS\s+(NOT\s+)?NULL$",
             cond,
             re.IGNORECASE,
         )
@@ -108,8 +118,7 @@ def _extract_where_columns(where_clause: str) -> list[tuple[str | None, str, str
                 cols.append((*qc, "equality"))
             continue
         m = re.match(
-            r'^((?:[A-Za-z_][A-Za-z0-9_]*\.)?\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_.]+|"[^"]+"|`[^`]+`)\s*'
-            r"(=|!=|<>|<=|>=|<|>|\bI?LIKE\b|\bNOT\s+IN\b|\bIN\b|\bBETWEEN\b)",
+            r"^(" + _COL_REF + r")\s*" r"(=|!=|<>|<=|>=|<|>|\bI?LIKE\b|\bNOT\s+IN\b|\bIN\b|\bBETWEEN\b)",
             cond,
             re.IGNORECASE,
         )
@@ -121,9 +130,6 @@ def _extract_where_columns(where_clause: str) -> list[tuple[str | None, str, str
                 cols.append((*qc, predicate_type))
     return cols
 
-
-# A join-key column: plain (o.user_id) or SQL Server bracketed (SL.[Document No]).
-_COL_REF = r"(?:[A-Za-z_][A-Za-z0-9_]*\.)?\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_.]+"
 
 _ON_CLAUSE_END = r"(?:\bJOIN\b|\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|\bHAVING\b|;|$)"
 
@@ -553,6 +559,11 @@ class IndexRecommender:
         # falling back to a literal <alias_table> placeholder on the common
         # case where a user doesn't paste a schema.
         table_aliases = (parsed or {}).get("table_aliases") or {}
+        # Single-table query: unqualified columns (WHERE status = 1) belong to
+        # that table, so DDL can name it instead of <table_name>.
+        only_tables = (parsed or {}).get("tables") or []
+        if len(only_tables) == 1:
+            table_aliases = {**table_aliases, "": only_tables[0]}
 
         where_clause = parsed.get("where_clause") or ""
         joins = parsed.get("joins") or []
@@ -804,8 +815,9 @@ class IndexRecommender:
         resolved = _resolve_real_table(alias, schema)
         if resolved:
             return resolved
-        if alias and table_aliases:
-            return table_aliases.get(alias)
+        if table_aliases:
+            # "" is the query's only table, for unqualified columns.
+            return table_aliases.get(alias or "")
         return None
 
     # Issue #72: replaced hardcoded DDL with dialect_config lookup

@@ -19,7 +19,9 @@ import UpgradeModal from './components/UpgradeModal';
 import { ToastContainer, useToast } from './components/Toast';
 import {
   getAiConfirmedTypes,
+  getAiRewriteRejected,
   getAiRewrittenQuery,
+  getAiTargetedFixes,
   isAiRewriteTruncated,
   normalizeSql,
 } from './utils/aiInsights';
@@ -437,6 +439,17 @@ function App() {
   const rewriteRaw = aiRewrite || result?.optimized_query || '';
   const rewriteSql = substitutionMap ? desanitize(rewriteRaw, substitutionMap) : rewriteRaw;
   const rewriteIsAi = Boolean(aiRewrite);
+  const aiOk = Boolean(result?.used_ai && !result?.ai_error);
+  const restore = (t) => (substitutionMap ? desanitize(t, substitutionMap) : t);
+  const aiRewriteRejected = aiOk ? getAiRewriteRejected(result.ai_insights) : '';
+  const aiFixes = aiOk
+    ? getAiTargetedFixes(result.ai_insights).map((f) => ({
+        title: restore(f.title),
+        before: restore(f.before),
+        after: restore(f.after),
+        why: restore(f.why),
+      }))
+    : [];
   const rewriteChanged = rewriteIsAi && normalizeSql(rewriteSql) !== normalizeSql(query);
 
   // Result tabs: Findings / Indexes / Rewrite / Details. Falls back to the
@@ -712,7 +725,7 @@ function App() {
                           count: ddlItems.length,
                           hidden: ddlItems.length === 0,
                         },
-                        { id: 'rewrite', label: 'Rewrite' },
+                        { id: 'rewrite', label: 'Rewrite', count: aiFixes.length || null },
                         { id: 'ai', label: 'AI Insights' },
                         {
                           id: 'details',
@@ -752,6 +765,8 @@ function App() {
                           isAi={rewriteIsAi}
                           changed={rewriteChanged}
                           aiCutOff={aiRewriteCutOff}
+                          aiRejected={aiRewriteRejected}
+                          aiFixes={aiFixes}
                           aiEnabled={Boolean(result.ai_attempted)}
                           onCopyRewrite={() => {
                             navigator.clipboard.writeText(rewriteSql);

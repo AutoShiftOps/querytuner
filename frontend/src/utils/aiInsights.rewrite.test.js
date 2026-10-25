@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { getAiRewrittenQuery, isAiRewriteTruncated, normalizeSql } from './aiInsights';
+import {
+  getAiRewriteRejected,
+  getAiRewrittenQuery,
+  getAiTargetedFixes,
+  isAiRewriteTruncated,
+  normalizeSql,
+} from './aiInsights';
 
 describe('getAiRewrittenQuery', () => {
   it('reads rewritten_query from a JSON string', () => {
@@ -28,7 +34,8 @@ describe('isAiRewriteTruncated', () => {
     expect(isAiRewriteTruncated(c)).toBe(false);
   });
   it('is true when the reply stops inside the rewritten query', () => {
-    const c = '{"most_impactful_improvements": [{"type": "x"}], "rewritten_query": "SELECT ISNULL(CASE WHEN (';
+    const c =
+      '{"most_impactful_improvements": [{"type": "x"}], "rewritten_query": "SELECT ISNULL(CASE WHEN (';
     expect(isAiRewriteTruncated(c)).toBe(true);
   });
   it('is false when only a later field was cut off', () => {
@@ -38,5 +45,21 @@ describe('isAiRewriteTruncated', () => {
   it('is false for empty or non-JSON content', () => {
     expect(isAiRewriteTruncated('')).toBe(false);
     expect(isAiRewriteTruncated('plain prose')).toBe(false);
+  });
+});
+
+describe('targeted fixes and rejected rewrites', () => {
+  it('reads targeted fixes and skips malformed entries', () => {
+    const c = JSON.stringify({
+      rewritten_query: '',
+      targeted_fixes: [{ title: 't', before: 'a', after: 'b', why: 'w' }, { title: 'bad' }],
+    });
+    expect(getAiTargetedFixes(c)).toEqual([{ title: 't', before: 'a', after: 'b', why: 'w' }]);
+    expect(getAiTargetedFixes('nope')).toEqual([]);
+  });
+  it('reads the rejection reason', () => {
+    const c = JSON.stringify({ rewritten_query: '', rewrite_rejected: 'it drops table x' });
+    expect(getAiRewriteRejected(c)).toBe('it drops table x');
+    expect(getAiRewriteRejected(JSON.stringify({ rewritten_query: 'SELECT 1' }))).toBe('');
   });
 });

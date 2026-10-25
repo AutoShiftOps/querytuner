@@ -101,9 +101,11 @@ def _parse_alias(expr: str) -> tuple[str, str | None]:
 # whitespace *inside* a bracketed segment (Issue: "Tables accessed"
 # truncating mid-identifier, e.g. "[dbo].[Metropolitan$Sales" — plain
 # str.split() cut the bracketed name itself, not just the alias).
-_QUALIFIED_NAME_RE = re.compile(
-    r"^((?:\[[^\]]+\]|\"[^\"]+\"|[A-Za-z0-9_]+)" r"(?:\.(?:\[[^\]]+\]|\"[^\"]+\"|[A-Za-z0-9_]+))*)"
-)
+# One part of a table name: [bracketed], "quoted", `backticked`, or plain
+# (with SQL Server's #temp / @table-variable prefixes).
+_NAME_PART = r"(?:\[[^\]]+\]|\"[^\"]+\"|`[^`]+`|[@#]{0,2}[A-Za-z0-9_$]+)"
+_QUALIFIED_NAME = _NAME_PART + r"(?:\s*\.\s*" + _NAME_PART + r")*"
+_QUALIFIED_NAME_RE = re.compile(r"^(" + _QUALIFIED_NAME + r")")
 
 
 _JOIN_NAME_PART = r"(?:\[[^\]]+\]|\"[^\"]+\"|`[^`]+`|[@#]{0,2}[A-Za-z0-9_$]+)"
@@ -169,11 +171,13 @@ def _mask_quoted(sql: str) -> str:
     return re.sub(r"\[[^\]]*\]|'[^']*'|\"[^\"]*\"|`[^`]*`", _blank, sql)
 
 
-def strip_sql_comments(sql: str) -> str:
+def strip_sql_comments(sql: str, hash_comments: bool = False) -> str:
     """
     Remove -- line comments and /* */ block comments, leaving string literals
     ('it''s -- not a comment'), quoted identifiers ("a--b", [a--b], `a--b`)
     and line breaks intact. Commented-out code must not produce findings.
+    hash_comments: also treat # as a line comment (MySQL); off by default
+    because # starts SQL Server temp table names.
     """
     out: list[str] = []
     i, n = 0, len(sql or "")
@@ -193,7 +197,7 @@ def strip_sql_comments(sql: str) -> str:
                 j += 1
             out.append(sql[i : j + 1])
             i = j + 1
-        elif sql.startswith("--", i):
+        elif sql.startswith("--", i) or (hash_comments and ch == "#"):
             j = sql.find("\n", i)
             i = n if j == -1 else j
             out.append(" ")
@@ -543,8 +547,7 @@ class QueryParser:
                 self._collect_alias(ref, aliases)
 
         join_pattern = re.compile(
-            r"\b(?:left|right|inner|full|cross)?\s*join\s+"
-            r"((?:\[[^\]]+\]|\"[^\"]+\"|[A-Za-z0-9_]+)(?:\.(?:\[[^\]]+\]|\"[^\"]+\"|[A-Za-z0-9_]+))*)"
+            r"\b(?:left|right|inner|full|cross)?\s*join\s+(" + _QUALIFIED_NAME + r")"
             r"(\s+(?:as\s+)?[A-Za-z_][A-Za-z0-9_]*)?",
             re.IGNORECASE,
         )
@@ -559,9 +562,7 @@ class QueryParser:
         # inside subqueries): `FROM [Sales Line Link] sll` in a third
         # statement used to stay unresolved, giving <sll_table> DDL.
         from_pattern = re.compile(
-            r"\bfrom\s+([@#]{0,2}(?:\[[^\]]+\]|\"[^\"]+\"|[A-Za-z0-9_$]+)"
-            r"(?:\.(?:\[[^\]]+\]|\"[^\"]+\"|[A-Za-z0-9_$]+))*)"
-            r"(\s+(?:as\s+)?[A-Za-z_][A-Za-z0-9_]*)?",
+            r"\bfrom\s+(" + _QUALIFIED_NAME + r")" r"(\s+(?:as\s+)?[A-Za-z_][A-Za-z0-9_]*)?",
             re.IGNORECASE,
         )
         # Match on a copy with bracket/string contents blanked so text such

@@ -1,6 +1,11 @@
 import { useState } from 'react';
-import { isAiRewriteTruncated, safeParseAiJson } from '../utils/aiInsights';
-import { AiCutOffNote } from './ResultViews';
+import {
+  getAiRewriteRejected,
+  getAiTargetedFixes,
+  isAiRewriteTruncated,
+  safeParseAiJson,
+} from '../utils/aiInsights';
+import { AiCutOffNote, AiRejectedNote, TargetedFixList } from './ResultViews';
 import { desanitize } from '../utils/sanitizer';
 import OptimizationComplete from './OptimizationComplete';
 
@@ -346,6 +351,7 @@ function StructuredInsights({ data, aiConfirmedTypes, showCompletion, rewriteCut
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {rewriteCutOff && <AiCutOffNote />}
+      {getAiRewriteRejected(data) && <AiRejectedNote reason={getAiRewriteRejected(data)} />}
       {improvements.length > 0 ? (
         <div>
           <SectionTitle>
@@ -379,6 +385,13 @@ function StructuredInsights({ data, aiConfirmedTypes, showCompletion, rewriteCut
           {indexes.map((item, idx) => (
             <SuggestionCard key={idx} item={item} />
           ))}
+        </div>
+      )}
+
+      {getAiTargetedFixes(data).length > 0 && (
+        <div>
+          <SectionTitle>Targeted Fixes</SectionTitle>
+          <TargetedFixList fixes={getAiTargetedFixes(data)} />
         </div>
       )}
 
@@ -489,7 +502,8 @@ function ResultsPanel({
     parsed &&
     (findKey(parsed, IMPROVEMENTS_KEYS) !== null ||
       findKey(parsed, INDEXES_KEYS) !== null ||
-      findKey(parsed, REWRITTEN_QUERY_KEYS) !== null);
+      findKey(parsed, REWRITTEN_QUERY_KEYS) !== null ||
+      Array.isArray(parsed.targeted_fixes));
 
   const parts = title.split('(');
   const mainTitle = parts[0].trim();

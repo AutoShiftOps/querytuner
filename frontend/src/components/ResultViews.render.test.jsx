@@ -46,3 +46,29 @@ describe('RewriteView', () => {
     expect(screen.getByText(/Enable "Use AI insights"/)).toBeInTheDocument();
   });
 });
+
+describe('RewriteView with AI fixes', () => {
+  it('shows targeted fixes and the rejection note', () => {
+    render(
+      <RewriteView
+        original="SELECT 1"
+        rewrite=""
+        aiRejected="it drops table #ScanSummary"
+        aiFixes={[
+          {
+            title: 'Use a #temp table',
+            before: 'DECLARE @t TABLE',
+            after: 'CREATE TABLE #t',
+            why: 'stats',
+          },
+        ]}
+        aiEnabled
+      />
+    );
+    expect(screen.getByText(/AI rewrite not shown/)).toBeInTheDocument();
+    expect(screen.getByText(/drops table #ScanSummary/)).toBeInTheDocument();
+    expect(screen.getByText(/1\. Use a #temp table/)).toBeInTheDocument();
+    expect(screen.getByText('CREATE TABLE #t')).toBeInTheDocument();
+    expect(screen.queryByText(/No safe automatic rewrite/)).toBeNull();
+  });
+});
