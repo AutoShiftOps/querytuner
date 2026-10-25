@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { safeParseAiJson } from '../utils/aiInsights';
+import { isAiRewriteTruncated, safeParseAiJson } from '../utils/aiInsights';
+import { AiCutOffNote } from './ResultViews';
 import { desanitize } from '../utils/sanitizer';
 import OptimizationComplete from './OptimizationComplete';
 
@@ -317,7 +318,7 @@ function RiskyAssumptionCard({ item }) {
   );
 }
 
-function StructuredInsights({ data, aiConfirmedTypes, showCompletion }) {
+function StructuredInsights({ data, aiConfirmedTypes, showCompletion, rewriteCutOff }) {
   const improvementsRaw = findKey(data, IMPROVEMENTS_KEYS);
   const allImprovements = Array.isArray(improvementsRaw) ? improvementsRaw : [];
   // Types already confirmed on a heuristic card (badged in OptimizationSuggestions)
@@ -329,7 +330,8 @@ function StructuredInsights({ data, aiConfirmedTypes, showCompletion }) {
   const indexesRaw = findKey(data, INDEXES_KEYS);
   const indexes = Array.isArray(indexesRaw) ? indexesRaw : [];
   const rewrittenRaw = findKey(data, REWRITTEN_QUERY_KEYS);
-  const rewritten = typeof rewrittenRaw === 'string' ? rewrittenRaw.trim() : '';
+  // A rewrite the model was cut off while writing is never shown as finished.
+  const rewritten = !rewriteCutOff && typeof rewrittenRaw === 'string' ? rewrittenRaw.trim() : '';
   const riskyRaw = findKey(data, RISKY_ASSUMPTIONS_KEYS);
   const risky = Array.isArray(riskyRaw) ? riskyRaw : [];
 
@@ -343,6 +345,7 @@ function StructuredInsights({ data, aiConfirmedTypes, showCompletion }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {rewriteCutOff && <AiCutOffNote />}
       {improvements.length > 0 ? (
         <div>
           <SectionTitle>
@@ -365,8 +368,7 @@ function StructuredInsights({ data, aiConfirmedTypes, showCompletion }) {
       ) : (
         dedupedAllAway && (
           <p style={{ fontSize: 13, color: '#7fa3c4', margin: 0 }}>
-            AI analysis confirmed the heuristic findings above — no additional improvements
-            identified.
+            AI analysis agrees with the Findings tab — no additional improvements identified.
           </p>
         )
       )}
@@ -582,6 +584,7 @@ function ResultsPanel({
           data={parsed}
           aiConfirmedTypes={aiConfirmedTypes}
           showCompletion={showCompletion}
+          rewriteCutOff={isAiRewriteTruncated(effectiveContent)}
         />
       ) : (
         <PlainTextInsights content={effectiveContent} />

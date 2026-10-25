@@ -330,10 +330,22 @@ function DdlBlock({ s, substitutionMap }) {
   );
 }
 
+// Distinct index/DDL suggestions (the same hint can come from several findings).
+export function getDdlItems(suggestions) {
+  const seen = new Set();
+  return (Array.isArray(suggestions) ? suggestions : []).filter((s) => {
+    if (!s.ddl_hint || seen.has(s.ddl_hint)) return false;
+    seen.add(s.ddl_hint);
+    return true;
+  });
+}
+
+// `view` splits the two cards across tabs: 'findings', 'indexes', or 'all'.
 export default function OptimizationSuggestions({
   suggestions,
   aiConfirmedTypes,
   substitutionMap,
+  view = 'all',
 }) {
   const items = Array.isArray(suggestions) ? suggestions : [];
   const bolt = <Zap className="w-4 h-4" style={{ color: '#f97316' }} />;
@@ -347,31 +359,28 @@ export default function OptimizationSuggestions({
   }
 
   const groups = groupFindings(items);
-  const seen = new Set();
-  const ddlItems = items.filter((s) => {
-    if (!s.ddl_hint || seen.has(s.ddl_hint)) return false;
-    seen.add(s.ddl_hint);
-    return true;
-  });
+  const ddlItems = getDdlItems(items);
 
   return (
     <div className="space-y-4">
-      <CardShell
-        icon={bolt}
-        title="Findings"
-        subtitle="Deterministic rules — sub-second, always available"
-      >
-        {groups.map((g) => (
-          <FindingRow
-            key={g.type}
-            group={g}
-            aiConfirmedTypes={aiConfirmedTypes}
-            substitutionMap={substitutionMap}
-          />
-        ))}
-      </CardShell>
+      {view !== 'indexes' && (
+        <CardShell
+          icon={bolt}
+          title="Findings"
+          subtitle="Deterministic rules — sub-second, always available"
+        >
+          {groups.map((g) => (
+            <FindingRow
+              key={g.type}
+              group={g}
+              aiConfirmedTypes={aiConfirmedTypes}
+              substitutionMap={substitutionMap}
+            />
+          ))}
+        </CardShell>
+      )}
 
-      {ddlItems.length > 0 && (
+      {view !== 'findings' && ddlItems.length > 0 && (
         <CardShell
           icon={<span aria-hidden="true">📈</span>}
           title="Optimization Suggestions"

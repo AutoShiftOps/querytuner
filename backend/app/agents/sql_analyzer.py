@@ -56,6 +56,16 @@ class AnalyzerConfig:
 # tokens.
 AI_QUERY_TRUNCATE_CHARS = 8000
 
+# The model's JSON reply has to carry a full copy of the query (rewritten_query)
+# plus findings and index DDL, so a fixed 1500-token budget cuts long queries
+# off mid-rewrite. Scale the output budget with the prompt, within a ceiling.
+AI_MAX_OUTPUT_TOKENS = 6000
+
+
+def _ai_output_budget(prompt: str) -> int:
+    """Output-token budget for the LLM call: the configured floor, raised for long prompts."""
+    return max(settings.ai_max_tokens, min(AI_MAX_OUTPUT_TOKENS, len(prompt) // 3 + 1000))
+
 
 class SQLAnalyzerAgent:
     """
@@ -748,7 +758,7 @@ Keep it concise and actionable.
                 # response (long rewritten_query + multiple findings) can
                 # get cut off mid-generation, producing invalid JSON that
                 # the frontend then has no choice but to render as raw text.
-                max_tokens=settings.ai_max_tokens,
+                max_tokens=_ai_output_budget(prompt),
             )
             text = result.get("text")
             model = result.get("model")

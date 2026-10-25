@@ -35,6 +35,14 @@ def _extract_col_name(expr: str) -> str | None:
     if quoted_m:
         return quoted_m.group(1) or quoted_m.group(2)
 
+    # SQL Server bracketed identifier, optionally alias-qualified:
+    # [Document No] or SL.[Document No]. The brackets are kept so the column
+    # can go straight into CREATE INDEX ... ([Document No]).
+    bracket_m = re.match(r"^(?:([A-Za-z_][A-Za-z0-9_]*|\[[^\]]+\])\.)?(\[[^\]]+\])", e)
+    if bracket_m:
+        alias = (bracket_m.group(1) or "").strip("[]")
+        return f"{alias}.{bracket_m.group(2)}" if alias else bracket_m.group(2)
+
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*\s*\(", e):
         return None
     e = re.split(r"[=<>!]", e)[0].strip()
@@ -47,6 +55,9 @@ def _qualified_col(expr: str) -> tuple[str | None, str] | None:
     col = _extract_col_name(expr)
     if not col:
         return None
+    if col.endswith("]"):
+        alias, sep, rest = col.partition(".[")
+        return (alias, "[" + rest) if sep else (None, col)
     parts = col.split(".")
     if len(parts) == 2:
         return parts[0], parts[1]
@@ -86,14 +97,18 @@ def _extract_where_columns(where_clause: str) -> list[tuple[str | None, str, str
         # pasted performance_schema export silently produced zero WHERE
         # suggestions before this. Same fix as _extract_col_name's own
         # backtick handling above; found by the same test.
-        is_null_m = re.match(r"^([A-Za-z_][A-Za-z0-9_.]+|`[^`]+`)\s+IS\s+(NOT\s+)?NULL$", cond, re.IGNORECASE)
+        is_null_m = re.match(
+            r"^((?:[A-Za-z_][A-Za-z0-9_]*\.)?\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_.]+|`[^`]+`)\s+IS\s+(NOT\s+)?NULL$",
+            cond,
+            re.IGNORECASE,
+        )
         if is_null_m:
             qc = _qualified_col(is_null_m.group(1))
             if qc:
                 cols.append((*qc, "equality"))
             continue
         m = re.match(
-            r'^([A-Za-z_][A-Za-z0-9_.]+|"[^"]+"|`[^`]+`)\s*'
+            r'^((?:[A-Za-z_][A-Za-z0-9_]*\.)?\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_.]+|"[^"]+"|`[^`]+`)\s*'
             r"(=|!=|<>|<=|>=|<|>|\bI?LIKE\b|\bNOT\s+IN\b|\bIN\b|\bBETWEEN\b)",
             cond,
             re.IGNORECASE,
@@ -107,6 +122,9 @@ def _extract_where_columns(where_clause: str) -> list[tuple[str | None, str, str
     return cols
 
 
+# A join-key column: plain (o.user_id) or SQL Server bracketed (SL.[Document No]).
+_COL_REF = r"(?:[A-Za-z_][A-Za-z0-9_]*\.)?\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_.]+"
+
 _ON_CLAUSE_END = r"(?:\bJOIN\b|\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|\bHAVING\b|;|$)"
 
 
@@ -117,7 +135,7 @@ def _extract_join_columns(joins_raw: list[dict[str, Any]], query: str) -> list[t
     for on_m in re.finditer(r"\bON\s+(.*?)(?=" + _ON_CLAUSE_END + r")", query, re.IGNORECASE | re.DOTALL):
         for cond in re.split(r"\bAND\b", on_m.group(1), flags=re.IGNORECASE):
             cond_m = re.match(
-                r"^\s*([A-Za-z_][A-Za-z0-9_.]+)\s*=\s*([A-Za-z_][A-Za-z0-9_.]+)\s*$",
+                r"^\s*(" + _COL_REF + r")\s*=\s*(" + _COL_REF + r")\s*$",
                 cond.strip(),
             )
             if cond_m:
@@ -164,6 +182,28 @@ _INDEX_NAME_RE = re.compile(
 def _index_name_from_ddl(ddl: str) -> str | None:
     m = _INDEX_NAME_RE.search(ddl or "")
     return m.group(1) if m else None
+
+
+_NAME_UNSAFE_RE = re.compile(r"[^A-Za-z0-9_]+")
+_INDEX_NAME_MAX = 63  # PostgreSQL's limit; also fits MySQL (64) and SQL Server (128)
+
+
+def _index_name(table: str | None, cols: list[str] | str, suffix: str = "") -> str:
+    """
+    A plain identifier for a new index: idx_<table>_<cols>[_suffix].
+
+    Table and column names can be schema-qualified or quoted
+    ([dbo].[Sales Header], "public"."orders", `db`.`t`), which must not leak
+    into the index name: only the last part of the table name is used and
+    anything other than letters, digits and _ becomes _.
+    """
+    base = (table or "tbl").replace("`", "").replace('"', "")
+    base = re.split(r"\]?\.\[?|\.", base)[-1]
+    col_list = [cols] if isinstance(cols, str) else list(cols)
+    parts = ["idx", base, *col_list] + ([suffix] if suffix else [])
+    name = _NAME_UNSAFE_RE.sub("_", "_".join(parts))
+    name = re.sub(r"_+", "_", name).strip("_")
+    return name[:_INDEX_NAME_MAX].rstrip("_")
 
 
 def _matching_paren_end(text: str, open_idx: int) -> int:
@@ -360,7 +400,7 @@ def _detect_composite_opportunity(
         # schema_info was pasted (the common case), instead of defaulting
         # straight to a non-executable <alias_table> placeholder.
         real_table = _resolve_real_table(alias, schema) or table_aliases.get(alias or "")
-        idx_name = f"idx_{real_table or alias}_{'_'.join(cols)}"
+        idx_name = _index_name(real_table or alias, cols)
         table_ph = real_table if real_table else f"<{alias}_table>"
         col_list = ", ".join(cols)
         ddl = get_index_ddl(db_type, table_ph, col_list, idx_name)
@@ -674,7 +714,7 @@ class IndexRecommender:
                 continue
             real_table = self._real_table(alias, schema, table_aliases)
             table_ph = real_table or (f"<{alias}_table>" if alias else "<table_name>")
-            idx_name = f"idx_{real_table or alias or 'tbl'}_{'_'.join(cols)}"
+            idx_name = _index_name(real_table or alias, cols)
             suggestions.append(
                 self._make(
                     index_type="group_by_index",
@@ -688,6 +728,7 @@ class IndexRecommender:
                     estimated="15-50% faster GROUP BY on large tables",
                     ddl_hint=get_index_ddl(db_type, table_ph, ", ".join(cols), idx_name),
                     ddl_note=get_dialect(db_type).index_ddl_note(),
+                    db_type=db_type,
                     table_ph=table_ph,
                     schema=schema,
                     composite_bare_columns=cols,
@@ -711,6 +752,7 @@ class IndexRecommender:
                     estimated="Often the highest-ROI index change for multi-column queries",
                     ddl_hint=comp["ddl_hint"],
                     ddl_note=comp.get("ddl_note", ""),
+                    db_type=db_type,
                     table_ph=table_ph,
                     schema=schema,
                     composite_bare_columns=cols,
@@ -758,7 +800,7 @@ class IndexRecommender:
         # mislabeled "schema-verified" in the UI.
         schema_verified = real_table is not None and col in schema.get(real_table, {})
         table_ph = real_table if real_table else (f"<{alias}_table>" if alias else "<table_name>")
-        idx_name = f"idx_{real_table or alias or 'tbl'}_{col}"
+        idx_name = _index_name(real_table or alias, col)
         ddl = get_index_ddl(db_type, table_ph, col, idx_name)
         return ddl, schema_verified, table_ph
 
@@ -775,22 +817,24 @@ class IndexRecommender:
         real_table = self._real_table(alias, schema, table_aliases)
         schema_verified = real_table is not None and col in schema.get(real_table, {})
         table_ph = real_table if real_table else (f"<{alias}_table>" if alias else "<table_name>")
-        idx = f"idx_{real_table or alias or 'tbl'}_{col}_partial"
+        idx = _index_name(real_table or alias, col, "partial")
         cfg = get_dialect(db_type)
 
         if db_type == "postgresql":
             ddl = (
-                f"CREATE INDEX CONCURRENTLY {idx} ON {table_ph}(id) "
+                f"CREATE INDEX CONCURRENTLY {idx} ON {table_ph}({col}) "
                 f"WHERE {col} = '<active_value>';  -- {cfg.index_ddl_note()}"
             )
         elif db_type == "mysql":
             ddl = (
                 f"-- MySQL has no native partial indexes.\n"
-                f"-- Option A: ALTER TABLE {table_ph} ADD INDEX {idx} ({col}, id);\n"
+                f"-- Option A: ALTER TABLE {table_ph} ADD INDEX {idx} ({col});\n"
                 f"-- Option B: partition the table by {col} value."
             )
         elif db_type == "sqlserver":
-            ddl = f"CREATE NONCLUSTERED INDEX {idx} ON {table_ph}(id) WHERE {col} = '<active_value>' WITH (ONLINE=ON);"
+            ddl = (
+                f"CREATE NONCLUSTERED INDEX {idx} ON {table_ph}({col}) WHERE {col} = '<active_value>' WITH (ONLINE=ON);"
+            )
         elif db_type == "oracle":
             ddl = (
                 f"-- Oracle has no partial indexes: index the column itself, or use list partitioning on {col}.\n"
@@ -846,7 +890,7 @@ class IndexRecommender:
         # name used to be rebuilt here from the table *alias* (idx_o_user_id)
         # while the DDL used the real table (idx_orders_user_id), so the
         # rollback dropped an index that never existed.
-        index_name = _index_name_from_ddl(ddl_hint) or (f"idx_{alias or 'tbl'}_{col}" if col else None)
+        index_name = _index_name_from_ddl(ddl_hint) or (_index_name(alias, col) if col else None)
         if index_name and table_ph:
             cfg = get_dialect(db_type)
             result["rollback_ddl"] = cfg.rollback_index.format(index=index_name, table=table_ph)
