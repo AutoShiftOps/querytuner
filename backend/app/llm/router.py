@@ -153,6 +153,37 @@ ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
 
 
+# Anthropic error types -> what the site owner should check. The API's own
+# message is included because it names the problem precisely (e.g. the model
+# ID it could not find); it never contains the API key.
+_ANTHROPIC_HINTS = {
+    "authentication_error": "the ANTHROPIC_API_KEY is invalid",
+    "permission_error": "the API key has no access to this model",
+    "not_found_error": "ANTHROPIC_MODEL is not a valid model ID",
+    "rate_limit_error": "rate limit reached, try again shortly",
+    "overloaded_error": "Anthropic is overloaded, try again shortly",
+    "invalid_request_error": "the request was rejected (check credits and model settings)",
+}
+
+
+def _anthropic_error_message(resp: httpx.Response, model: str) -> str:
+    err_type, detail = "", ""
+    try:
+        body = resp.json()
+        err = body.get("error") if isinstance(body, dict) else None
+        if isinstance(err, dict):
+            err_type, detail = str(err.get("type", "")), str(err.get("message", ""))
+        elif isinstance(err, str):
+            detail = err
+    except ValueError:
+        pass
+    hint = _ANTHROPIC_HINTS.get(err_type, "check API key, model name and credits")
+    msg = f"Anthropic request failed (HTTP {resp.status_code}, model {model}): {hint}."
+    if detail:
+        msg += f" Anthropic said: {detail[:200]}"
+    return msg
+
+
 async def _call_anthropic(prompt: str, max_tokens: int, db_type: str) -> dict:
     """
     Messages API over plain httpx (no SDK dependency). No temperature/top_p:
@@ -186,7 +217,7 @@ async def _call_anthropic(prompt: str, max_tokens: int, db_type: str) -> dict:
             logger.error("Anthropic LLM error %s: %s", resp.status_code, resp.text[:500])
             return {
                 "text": None,
-                "error": "Anthropic request failed — check API key, model name and quota.",
+                "error": _anthropic_error_message(resp, model),
                 "provider": "anthropic",
                 "model": model,
             }

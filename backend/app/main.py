@@ -590,6 +590,9 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
             "analysis_time_ms": analysis_time,
             "facts": result.get("facts"),
             "used_ai": bool(result.get("used_ai", False)),
+            # Was never sent, so the UI always said "AI insights are turned
+            # off" even when an AI call was made and failed.
+            "ai_attempted": bool(result.get("ai_attempted", False)),
             "ai_provider": result.get("ai_provider"),
             "ai_model": result.get("ai_model"),
             "ai_insights": result.get("ai_insights"),

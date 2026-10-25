@@ -47,7 +47,15 @@ def test_anthropic_call_shape_and_text(monkeypatch):
 def test_anthropic_error_status_is_reported_not_raised(monkeypatch):
     _patch(monkeypatch, httpx.Response(401, content=b'{"error": "bad key"}'))
     out = asyncio.run(router.call_llm("P", provider="anthropic", max_tokens=10))
-    assert out["text"] is None and "Anthropic request failed" in out["error"]
+    assert out["text"] is None and "Anthropic request failed (HTTP 401" in out["error"]
+
+
+def test_anthropic_error_names_the_cause(monkeypatch):
+    body = {"type": "error", "error": {"type": "not_found_error", "message": "model: claude-nope"}}
+    _patch(monkeypatch, httpx.Response(404, content=json.dumps(body).encode()))
+    out = asyncio.run(router.call_llm("P", provider="anthropic", max_tokens=10))
+    assert "not a valid model ID" in out["error"] and "model: claude-nope" in out["error"]
+    assert "test-key" not in out["error"]
 
 
 def test_anthropic_without_key(monkeypatch):
