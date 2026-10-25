@@ -440,6 +440,15 @@ function App() {
   const rewriteSql = substitutionMap ? desanitize(rewriteRaw, substitutionMap) : rewriteRaw;
   const rewriteIsAi = Boolean(aiRewrite);
   const aiOk = Boolean(result?.used_ai && !result?.ai_error);
+  // ai_error also implies an attempt (older API responses lack ai_attempted).
+  const aiAttempted = Boolean(result?.ai_attempted || result?.ai_error);
+  // Hugging Face's free tier really does cold-start; for paid providers the
+  // backend's own message says what went wrong (bad model ID, key, credits).
+  // Show the backend's own reason (out of credits, bad model ID, timeout);
+  // the cold-start text is only a fallback when no reason came back.
+  const aiErrorText = result?.ai_error
+    ? `${result.ai_error} Heuristic analysis is complete.`
+    : 'The AI model is warming up (free tier cold start). Heuristic analysis is complete. Toggle AI off and re-analyze, or try again in 30 seconds.';
   const restore = (t) => (substitutionMap ? desanitize(t, substitutionMap) : t);
   const aiRewriteRejected = aiOk ? getAiRewriteRejected(result.ai_insights) : '';
   const aiFixes = aiOk
@@ -703,8 +712,7 @@ function App() {
                             AI insights unavailable
                           </p>
                           <p className="text-xs mt-1" style={{ color: '#7fa3c4' }}>
-                            The AI model is warming up (free tier cold start). Heuristic analysis is
-                            complete. Toggle AI off and re-analyze, or try again in 30 seconds.
+                            {aiErrorText}
                           </p>
                         </div>
                       </div>
@@ -767,7 +775,7 @@ function App() {
                           aiCutOff={aiRewriteCutOff}
                           aiRejected={aiRewriteRejected}
                           aiFixes={aiFixes}
-                          aiEnabled={Boolean(result.ai_attempted)}
+                          aiEnabled={aiAttempted}
                           onCopyRewrite={() => {
                             navigator.clipboard.writeText(rewriteSql);
                             showToast('Optimized query copied', 'success');
@@ -850,13 +858,13 @@ function App() {
                             />
                             <div>
                               <p className="text-sm font-semibold text-white">
-                                {result.ai_attempted
+                                {aiAttempted
                                   ? 'AI insights were unavailable for this run'
                                   : 'AI insights are turned off'}
                               </p>
                               <p className="text-sm mt-1" style={{ color: '#94a3b8' }}>
-                                {result.ai_attempted
-                                  ? 'Try again in a moment. The heuristic findings are complete.'
+                                {aiAttempted
+                                  ? aiErrorText
                                   : 'Enable "Use AI insights" and run the diagnosis again to get AI reasoning, a deeper rewrite and index recommendations.'}
                               </p>
                             </div>
