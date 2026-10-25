@@ -444,10 +444,11 @@ function App() {
   const aiAttempted = Boolean(result?.ai_attempted || result?.ai_error);
   // Hugging Face's free tier really does cold-start; for paid providers the
   // backend's own message says what went wrong (bad model ID, key, credits).
-  const aiErrorText =
-    !result?.ai_provider || result.ai_provider === 'huggingface'
-      ? 'The AI model is warming up (free tier cold start). Heuristic analysis is complete. Toggle AI off and re-analyze, or try again in 30 seconds.'
-      : `${result.ai_error || 'The AI request failed.'} Heuristic analysis is complete.`;
+  // Show the backend's own reason (out of credits, bad model ID, timeout);
+  // the cold-start text is only a fallback when no reason came back.
+  const aiErrorText = result?.ai_error
+    ? `${result.ai_error} Heuristic analysis is complete.`
+    : 'The AI model is warming up (free tier cold start). Heuristic analysis is complete. Toggle AI off and re-analyze, or try again in 30 seconds.';
   const restore = (t) => (substitutionMap ? desanitize(t, substitutionMap) : t);
   const aiRewriteRejected = aiOk ? getAiRewriteRejected(result.ai_insights) : '';
   const aiFixes = aiOk

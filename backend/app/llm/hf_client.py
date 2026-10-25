@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import time
 
 import httpx
 
@@ -21,6 +22,10 @@ ROUTER_MODELS = [
 
 ROUTER_URL = "https://router.huggingface.co/v1/chat/completions"
 LEGACY_URL = "https://api-inference.huggingface.co/models/{model}"
+ROUTER_TIMEOUT_S = 60.0
+# Stop trying further fallback models once this much time has gone by.
+HF_TOTAL_BUDGET_S = 90.0
+HF_MAX_TOKENS = 2000
 
 
 # ── Public entry point ───────────────────────────────────────────────────────
@@ -39,21 +44,44 @@ async def call_hf(
     if not token:
         raise RuntimeError("HF_API_KEY is not configured on the server.")
 
+    # Small hosted models are slow on long outputs; asking for thousands of
+    # tokens mostly just runs into the timeout.
+    max_tokens = min(max_tokens, HF_MAX_TOKENS)
+    failures: list[str] = []
+    started = time.monotonic()
     for model in ROUTER_MODELS:
+        if time.monotonic() - started > HF_TOTAL_BUDGET_S:
+            failures.append(f"stopped after {HF_TOTAL_BUDGET_S:.0f}s total")
+            break
         try:
             text = await _call_router(prompt, model, token, max_tokens, db_type)
             logger.info("HF router success: model=%s dialect=%s", model, db_type)
             return text
         except _RouterError as e:
             logger.warning("HF router failed for %s: %s — trying next", model, e)
+            failures.append(f"{model.split('/')[-1]}: {e}")
             continue
+        except httpx.TimeoutException:
+            logger.warning("HF router timed out for %s after %ss — trying next", model, ROUTER_TIMEOUT_S)
+            failures.append(f"{model.split('/')[-1]}: timed out after {ROUTER_TIMEOUT_S:.0f}s")
+            continue
+        except RuntimeError:
+            # Account-level problems (bad key, credits, rate limit) fail
+            # every model the same way: report them instead of retrying.
+            raise
         except Exception as e:
             logger.warning("HF router unexpected error for %s: %s", model, e)
+            failures.append(f"{model.split('/')[-1]}: {type(e).__name__}")
             continue
 
     logger.info("All router models failed, falling back to legacy inference API")
     primary_model = settings.hf_model or ROUTER_MODELS[1]
-    return await _call_legacy(prompt, primary_model, token, max_tokens, db_type)
+    try:
+        return await _call_legacy(prompt, primary_model, token, max_tokens, db_type)
+    except Exception as e:
+        failures.append(f"legacy API: {e}")
+        logger.warning("HF all attempts failed: %s", "; ".join(failures))
+        raise RuntimeError("Hugging Face could not answer — " + "; ".join(failures)[:400]) from e
 
 
 # ── Router implementation ────────────────────────────────────────────────────
@@ -99,7 +127,7 @@ async def _call_router(
         "stream": False,
     }
 
-    async with httpx.AsyncClient(timeout=25.0) as client:
+    async with httpx.AsyncClient(timeout=ROUTER_TIMEOUT_S) as client:
         resp = await client.post(ROUTER_URL, headers=headers, json=payload)
 
     if resp.status_code in (400, 404, 422):
@@ -108,11 +136,17 @@ async def _call_router(
     if resp.status_code == 401:
         raise RuntimeError("HuggingFace API key is invalid or expired.")
 
+    if resp.status_code == 402:
+        raise RuntimeError(
+            "Hugging Face monthly inference credits are used up (HTTP 402). Free accounts get $0.10/month; "
+            "add credits or upgrade the account that owns HF_API_KEY, or use another AI provider."
+        )
+
     if resp.status_code == 429:
         raise RuntimeError("HuggingFace rate limit hit. Try again in a moment.")
 
     if not resp.is_success:
-        raise _RouterError(f"HTTP {resp.status_code}")
+        raise _RouterError(f"HTTP {resp.status_code}: {resp.text[:120]}")
 
     data = resp.json()
 
