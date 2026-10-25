@@ -31,7 +31,7 @@ describe('ResultsPanel — AI Insights empty-state copy', () => {
     );
 
     expect(
-      screen.getByText(/AI analysis confirmed the heuristic findings above/i)
+      screen.getByText(/AI analysis agrees with the Findings tab/i)
     ).toBeInTheDocument();
     expect(screen.queryByText(/Most Impactful Improvements/i)).not.toBeInTheDocument();
   });
@@ -57,7 +57,7 @@ describe('ResultsPanel — AI Insights empty-state copy', () => {
     // improvements), so the "confirmed the findings above" message would
     // be misleading here — it should not appear.
     expect(
-      screen.queryByText(/AI analysis confirmed the heuristic findings above/i)
+      screen.queryByText(/AI analysis agrees with the Findings tab/i)
     ).not.toBeInTheDocument();
     expect(screen.getByText(/Recommended Indexes/i)).toBeInTheDocument();
   });
@@ -78,7 +78,7 @@ describe('ResultsPanel — AI Insights empty-state copy', () => {
 
     expect(screen.getByText(/Most Impactful Improvements/i)).toBeInTheDocument();
     expect(
-      screen.queryByText(/AI analysis confirmed the heuristic findings above/i)
+      screen.queryByText(/AI analysis agrees with the Findings tab/i)
     ).not.toBeInTheDocument();
   });
 });

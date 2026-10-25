@@ -59,6 +59,31 @@ export function TabPanel({ id, children }) {
   );
 }
 
+// Shown when the AI reply hit its length limit while writing the rewrite.
+export function AiCutOffNote({ extra }) {
+  return (
+    <div
+      role="status"
+      className="rounded-lg p-3 flex gap-3 items-start"
+      style={{
+        background: 'rgba(251,191,36,0.08)',
+        border: '1px solid rgba(251,191,36,0.3)',
+      }}
+    >
+      <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#fbbf24' }} />
+      <div className="text-sm">
+        <p className="font-semibold" style={{ color: '#fbbf24' }}>
+          AI rewrite incomplete — the reply hit its length limit
+        </p>
+        <p className="mt-1" style={{ color: '#cbd5e1' }}>
+          {extra ? `${extra} ` : ''}For a full rewrite, analyze a smaller piece — for example the
+          main SELECT on its own, without any DECLARE or temp-table setup around it.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // A code pane with a fixed height that scrolls inside itself, so a long query
 // never stretches the page. "Expand" shows it in full.
 function CodePane({ title, badge, badgeColor, text, color, onCopy }) {
@@ -134,37 +159,27 @@ export function RewriteView({
         <p className="mt-1">
           QueryTuner only rewrites SQL when the result is guaranteed to stay the same. The Findings
           tab lists what to change by hand.
-          {aiCutOff
-            ? ' The AI rewrite was cut off because the query is long, so it is not shown.'
-            : !aiEnabled
-              ? ' Enable "Use AI insights" and run again for a restructured query.'
-              : ''}
+          {!aiCutOff && !aiEnabled
+            ? ' Enable "Use AI insights" and run again for a restructured query.'
+            : ''}
         </p>
+        {aiCutOff && (
+          <div className="mt-3">
+            <AiCutOffNote />
+          </div>
+        )}
       </div>
     );
   }
   return (
     <div className="space-y-4">
-      {aiCutOff && (
-        <div
-          className="rounded-xl p-3 flex gap-3 items-start text-xs"
-          style={{
-            background: 'rgba(251,191,36,0.06)',
-            border: '1px solid rgba(251,191,36,0.2)',
-            color: '#fbbf24',
-          }}
-        >
-          <Zap className="w-4 h-4 flex-shrink-0" />
-          <span>
-            The AI rewrite was cut off because the query is long, so it is not shown. The safe
-            rewrite is shown instead.
-          </span>
-        </div>
-      )}
+      {aiCutOff && <AiCutOffNote extra="The safe rewrite is shown instead." />}
       <CodePane
         title="Rewritten"
         badge={
-          isAi ? '✓ AI rewrite · review before applying' : 'Safe rewrite · same results · review before applying'
+          isAi
+            ? '✓ AI rewrite · review before applying'
+            : 'Safe rewrite · same results · review before applying'
         }
         badgeColor="#34d399"
         text={rewrite}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { isAiRewriteTruncated, safeParseAiJson } from '../utils/aiInsights';
+import { AiCutOffNote } from './ResultViews';
 import { desanitize } from '../utils/sanitizer';
 import OptimizationComplete from './OptimizationComplete';
 
@@ -344,6 +345,7 @@ function StructuredInsights({ data, aiConfirmedTypes, showCompletion, rewriteCut
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {rewriteCutOff && <AiCutOffNote />}
       {improvements.length > 0 ? (
         <div>
           <SectionTitle>
@@ -366,8 +368,7 @@ function StructuredInsights({ data, aiConfirmedTypes, showCompletion, rewriteCut
       ) : (
         dedupedAllAway && (
           <p style={{ fontSize: 13, color: '#7fa3c4', margin: 0 }}>
-            AI analysis confirmed the heuristic findings above — no additional improvements
-            identified.
+            AI analysis agrees with the Findings tab — no additional improvements identified.
           </p>
         )
       )}
@@ -379,12 +380,6 @@ function StructuredInsights({ data, aiConfirmedTypes, showCompletion, rewriteCut
             <SuggestionCard key={idx} item={item} />
           ))}
         </div>
-      )}
-
-      {rewriteCutOff && (
-        <p style={{ color: '#fbbf24', fontSize: 12, margin: 0 }}>
-          The AI rewrite was cut off because the query is long, so it is not shown.
-        </p>
       )}
 
       {rewritten && (

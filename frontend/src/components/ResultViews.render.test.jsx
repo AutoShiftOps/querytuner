@@ -37,7 +37,7 @@ describe('RewriteView', () => {
 
   it('explains when the AI rewrite was cut off', () => {
     render(<RewriteView {...base} isAi={false} changed={false} aiCutOff />);
-    expect(screen.getByText(/rewrite was cut off/)).toBeInTheDocument();
+    expect(screen.getByText(/AI rewrite incomplete/)).toBeInTheDocument();
   });
 
   it('handles a missing rewrite', () => {

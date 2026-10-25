@@ -445,10 +445,7 @@ function App() {
   useEffect(() => setActiveTab('findings'), [result]);
   const ddlItems = useMemo(() => getDdlItems(result?.optimization_suggestions), [result]);
   const securityIssues = Array.isArray(result?.security_issues) ? result.security_issues : [];
-  const shownTab =
-    activeTab === 'indexes' && ddlItems.length === 0
-      ? 'findings'
-      : activeTab;
+  const shownTab = activeTab === 'indexes' && ddlItems.length === 0 ? 'findings' : activeTab;
 
   // Quiz Mode questions for this result — [] when nothing in the
   // response is confident enough to quiz on (the evidence_level guard
@@ -598,7 +595,11 @@ function App() {
                       setResult(null);
                       setResultFromSample(false);
                       setTimeout(
-                        () => analyzeBtnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+                        () =>
+                          analyzeBtnRef.current?.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'center',
+                          }),
                         50
                       );
                     }}
@@ -680,14 +681,17 @@ function App() {
                           border: '1px solid rgba(251,191,36,0.2)',
                         }}
                       >
-                        <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#fbbf24' }} />
+                        <Zap
+                          className="w-4 h-4 mt-0.5 flex-shrink-0"
+                          style={{ color: '#fbbf24' }}
+                        />
                         <div>
                           <p className="text-sm font-medium" style={{ color: '#fbbf24' }}>
                             AI insights unavailable
                           </p>
                           <p className="text-xs mt-1" style={{ color: '#7fa3c4' }}>
-                            The AI model is warming up (free tier cold start). Heuristic analysis
-                            is complete. Toggle AI off and re-analyze, or try again in 30 seconds.
+                            The AI model is warming up (free tier cold start). Heuristic analysis is
+                            complete. Toggle AI off and re-analyze, or try again in 30 seconds.
                           </p>
                         </div>
                       </div>
@@ -775,7 +779,9 @@ function App() {
                             >
                               <div className="flex items-center gap-2 mb-3">
                                 <Shield className="w-4 h-4 text-red-400" />
-                                <h3 className="text-sm font-semibold text-white">Security Issues</h3>
+                                <h3 className="text-sm font-semibold text-white">
+                                  Security Issues
+                                </h3>
                               </div>
                               <ul className="space-y-2">
                                 {securityIssues.map((issue, idx) => (
@@ -823,7 +829,10 @@ function App() {
                             className="rounded-xl p-5 flex gap-3 items-start"
                             style={{ background: '#1e293b', border: '1px solid #2d3f55' }}
                           >
-                            <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#38bdf8' }} />
+                            <Zap
+                              className="w-4 h-4 mt-0.5 flex-shrink-0"
+                              style={{ color: '#38bdf8' }}
+                            />
                             <div>
                               <p className="text-sm font-semibold text-white">
                                 {result.ai_attempted
