@@ -33,8 +33,9 @@ export default function ResultFollowUp({ onTryOwn }) {
           Now try your own slowest query
         </p>
         <p className="text-xs mt-1" style={{ color: '#94a3b8' }}>
-          Paste the query that hurts most. Use the Sanitizer to mask table and column names first
-          if you prefer; analysis runs without connecting to your database.
+          Paste the query that hurts most. Once it is in the box, a &ldquo;Sanitize before analyzing&rdquo;
+          button appears underneath. It swaps your table and column names for generic ones first.
+          Analysis runs without connecting to your database.
         </p>
         <button
           type="button"
