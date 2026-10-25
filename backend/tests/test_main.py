@@ -206,6 +206,20 @@ class TestOpenAiProGate:
         finally:
             app.dependency_overrides.clear()
 
+    def test_signed_in_free_tier_selecting_anthropic_gets_structured_403(self, client, monkeypatch):
+        _patch_persistence(monkeypatch, is_pro=False)
+        app.dependency_overrides[get_current_user] = lambda: "user_free_test"
+        try:
+            resp = client.post(
+                "/analyze",
+                json={"query": SIMPLE_QUERY, "db_type": "postgresql", "use_llm": True, "llm_provider": "anthropic"},
+            )
+            assert resp.status_code == 403
+            assert resp.json()["error"] == "pro_required"
+            assert "Anthropic" in resp.json()["message"]
+        finally:
+            app.dependency_overrides.clear()
+
     def test_signed_in_free_tier_selecting_huggingface_unaffected(self, client, monkeypatch):
         """The gate is OpenAI-specific — free tier must still be able to
         run heuristic-only or Hugging-Face-backed AI insights."""

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class LLMProvider(StrEnum):
     HUGGINGFACE = "huggingface"
     OPENAI = "openai"
+    ANTHROPIC = "anthropic"
 
 
 class DatabaseType(StrEnum):

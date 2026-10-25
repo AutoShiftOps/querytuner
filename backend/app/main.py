@@ -382,6 +382,7 @@ async def capabilities():
         "providers": {
             "huggingface": bool(os.getenv("HF_API_KEY", "").strip()),
             "openai": bool(os.getenv("OPENAI_API_KEY", "").strip()),
+            "anthropic": bool(os.getenv("ANTHROPIC_API_KEY", "").strip()),
         },
     }
 
@@ -510,13 +511,19 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
         # this server-side check is the one that's authoritative, same
         # relationship the sign-in-required gate above already has with
         # its own frontend-side checkbox-disabling.
-        if request.use_llm and request.llm_provider == LLMProvider.OPENAI and not is_pro:
+        # Anthropic (Claude) is a paid provider too: same Pro gate and
+        # daily ceiling as OpenAI.
+        paid_provider = request.llm_provider in (LLMProvider.OPENAI, LLMProvider.ANTHROPIC)
+        provider_label = (
+            "Anthropic (Claude)" if request.llm_provider == LLMProvider.ANTHROPIC else "OpenAI (GPT-4o-mini)"
+        )
+        if request.use_llm and paid_provider and not is_pro:
             return JSONResponse(
                 status_code=403,
                 content={
                     "error": "pro_required",
                     "message": (
-                        "OpenAI (GPT-4o-mini) AI insights are a Pro feature. "
+                        f"{provider_label} AI insights are a Pro feature. "
                         "Upgrade to QueryTuner Pro, or switch to Hugging Face for free AI insights."
                     ),
                     "upgrade_available": True,
@@ -528,14 +535,15 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
         # settings.pro_openai_daily_limit's own docstring for why. Only
         # checked (and counted) for the actual OpenAI path; Hugging Face
         # and heuristic-only analysis stay uncapped for Pro, same as today.
-        if request.use_llm and request.llm_provider == LLMProvider.OPENAI and is_pro:
+        if request.use_llm and paid_provider and is_pro:
             if not _check_pro_openai_daily_limit(user_id):
                 return JSONResponse(
                     status_code=429,
                     content={
                         "error": "pro_openai_daily_limit_reached",
                         "message": (
-                            f"Daily OpenAI analysis limit reached ({settings.pro_openai_daily_limit}/day). "
+                            f"Daily paid-AI analysis limit reached ({settings.pro_openai_daily_limit}/day, "
+                            "OpenAI and Anthropic combined). "
                             "Switch to Hugging Face for unlimited free AI insights, or try again tomorrow."
                         ),
                     },

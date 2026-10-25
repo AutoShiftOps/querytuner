@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
 
+    # Anthropic (Claude) — Pro-tier provider, same gating as OpenAI.
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-haiku-5-5"
+
     default_llm_provider: str = "huggingface"
     # 800 was too tight for structured JSON responses on verbose queries
     # (long rewritten_query + multiple findings) — the model would get cut
