@@ -35,6 +35,14 @@ def _extract_col_name(expr: str) -> str | None:
     if quoted_m:
         return quoted_m.group(1) or quoted_m.group(2)
 
+    # SQL Server bracketed identifier, optionally alias-qualified:
+    # [Document No] or SL.[Document No]. The brackets are kept so the column
+    # can go straight into CREATE INDEX ... ([Document No]).
+    bracket_m = re.match(r"^(?:([A-Za-z_][A-Za-z0-9_]*|\[[^\]]+\])\.)?(\[[^\]]+\])", e)
+    if bracket_m:
+        alias = (bracket_m.group(1) or "").strip("[]")
+        return f"{alias}.{bracket_m.group(2)}" if alias else bracket_m.group(2)
+
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*\s*\(", e):
         return None
     e = re.split(r"[=<>!]", e)[0].strip()
@@ -47,6 +55,9 @@ def _qualified_col(expr: str) -> tuple[str | None, str] | None:
     col = _extract_col_name(expr)
     if not col:
         return None
+    if col.endswith("]"):
+        alias, sep, rest = col.partition(".[")
+        return (alias, "[" + rest) if sep else (None, col)
     parts = col.split(".")
     if len(parts) == 2:
         return parts[0], parts[1]
@@ -86,14 +97,18 @@ def _extract_where_columns(where_clause: str) -> list[tuple[str | None, str, str
         # pasted performance_schema export silently produced zero WHERE
         # suggestions before this. Same fix as _extract_col_name's own
         # backtick handling above; found by the same test.
-        is_null_m = re.match(r"^([A-Za-z_][A-Za-z0-9_.]+|`[^`]+`)\s+IS\s+(NOT\s+)?NULL$", cond, re.IGNORECASE)
+        is_null_m = re.match(
+            r"^((?:[A-Za-z_][A-Za-z0-9_]*\.)?\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_.]+|`[^`]+`)\s+IS\s+(NOT\s+)?NULL$",
+            cond,
+            re.IGNORECASE,
+        )
         if is_null_m:
             qc = _qualified_col(is_null_m.group(1))
             if qc:
                 cols.append((*qc, "equality"))
             continue
         m = re.match(
-            r'^([A-Za-z_][A-Za-z0-9_.]+|"[^"]+"|`[^`]+`)\s*'
+            r'^((?:[A-Za-z_][A-Za-z0-9_]*\.)?\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_.]+|"[^"]+"|`[^`]+`)\s*'
             r"(=|!=|<>|<=|>=|<|>|\bI?LIKE\b|\bNOT\s+IN\b|\bIN\b|\bBETWEEN\b)",
             cond,
             re.IGNORECASE,
@@ -107,6 +122,9 @@ def _extract_where_columns(where_clause: str) -> list[tuple[str | None, str, str
     return cols
 
 
+# A join-key column: plain (o.user_id) or SQL Server bracketed (SL.[Document No]).
+_COL_REF = r"(?:[A-Za-z_][A-Za-z0-9_]*\.)?\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_.]+"
+
 _ON_CLAUSE_END = r"(?:\bJOIN\b|\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|\bHAVING\b|;|$)"
 
 
@@ -117,7 +135,7 @@ def _extract_join_columns(joins_raw: list[dict[str, Any]], query: str) -> list[t
     for on_m in re.finditer(r"\bON\s+(.*?)(?=" + _ON_CLAUSE_END + r")", query, re.IGNORECASE | re.DOTALL):
         for cond in re.split(r"\bAND\b", on_m.group(1), flags=re.IGNORECASE):
             cond_m = re.match(
-                r"^\s*([A-Za-z_][A-Za-z0-9_.]+)\s*=\s*([A-Za-z_][A-Za-z0-9_.]+)\s*$",
+                r"^\s*(" + _COL_REF + r")\s*=\s*(" + _COL_REF + r")\s*$",
                 cond.strip(),
             )
             if cond_m:
@@ -710,6 +728,7 @@ class IndexRecommender:
                     estimated="15-50% faster GROUP BY on large tables",
                     ddl_hint=get_index_ddl(db_type, table_ph, ", ".join(cols), idx_name),
                     ddl_note=get_dialect(db_type).index_ddl_note(),
+                    db_type=db_type,
                     table_ph=table_ph,
                     schema=schema,
                     composite_bare_columns=cols,
@@ -733,6 +752,7 @@ class IndexRecommender:
                     estimated="Often the highest-ROI index change for multi-column queries",
                     ddl_hint=comp["ddl_hint"],
                     ddl_note=comp.get("ddl_note", ""),
+                    db_type=db_type,
                     table_ph=table_ph,
                     schema=schema,
                     composite_bare_columns=cols,
@@ -802,17 +822,19 @@ class IndexRecommender:
 
         if db_type == "postgresql":
             ddl = (
-                f"CREATE INDEX CONCURRENTLY {idx} ON {table_ph}(id) "
+                f"CREATE INDEX CONCURRENTLY {idx} ON {table_ph}({col}) "
                 f"WHERE {col} = '<active_value>';  -- {cfg.index_ddl_note()}"
             )
         elif db_type == "mysql":
             ddl = (
                 f"-- MySQL has no native partial indexes.\n"
-                f"-- Option A: ALTER TABLE {table_ph} ADD INDEX {idx} ({col}, id);\n"
+                f"-- Option A: ALTER TABLE {table_ph} ADD INDEX {idx} ({col});\n"
                 f"-- Option B: partition the table by {col} value."
             )
         elif db_type == "sqlserver":
-            ddl = f"CREATE NONCLUSTERED INDEX {idx} ON {table_ph}(id) WHERE {col} = '<active_value>' WITH (ONLINE=ON);"
+            ddl = (
+                f"CREATE NONCLUSTERED INDEX {idx} ON {table_ph}({col}) WHERE {col} = '<active_value>' WITH (ONLINE=ON);"
+            )
         elif db_type == "oracle":
             ddl = (
                 f"-- Oracle has no partial indexes: index the column itself, or use list partitioning on {col}.\n"

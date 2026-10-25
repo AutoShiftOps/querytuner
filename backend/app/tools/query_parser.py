@@ -106,6 +106,10 @@ _QUALIFIED_NAME_RE = re.compile(
 )
 
 
+_JOIN_NAME_PART = r"(?:\[[^\]]+\]|\"[^\"]+\"|`[^`]+`|[@#]{0,2}[A-Za-z0-9_$]+)"
+_JOIN_TABLE_RE = _JOIN_NAME_PART + r"(?:\s*\.\s*" + _JOIN_NAME_PART + r")*"
+
+
 def _find_top_level_keyword_pos(sql: str, keyword: str, start_idx: int = 0) -> int:
     """
     Find the first top-level occurrence of `keyword` (case-insensitive),
@@ -475,8 +479,11 @@ class QueryParser:
     def _extract_joins(self, query: str) -> list[dict[str, str]]:
         q = query
         joins = []
+        # Table names may be bracketed/quoted and schema-qualified
+        # ([dbo].[Sales Linkup], "public"."orders", `db`.`t`) or temp tables
+        # (#ScanSummary, @tmp) — the old [a-zA-Z0-9_."] class missed all of these.
         for m in re.finditer(
-            r"\b(left|right|inner|full|cross)?\s*join\s+([a-zA-Z0-9_.\"]+)",
+            r"\b(left|right|inner|full|cross)?\s*join\s+(" + _JOIN_TABLE_RE + r")",
             q,
             flags=re.I,
         ):
