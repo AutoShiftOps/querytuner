@@ -8,13 +8,14 @@ from typing import Any
 
 from app.agents.explainer import QueryExplainer
 from app.agents.optimizer import QueryOptimizer
+from app.llm.rewrite_check import review_ai_output, wants_targeted_fixes
 from app.llm.router import call_llm
 from app.schemas.models import DatabaseType
 from app.schemas.models import QueryRequest as QR
 from app.tools.execution_planner import collect_facts
 from app.tools.index_recommender import IndexRecommender
 from app.tools.plan_crossref import cross_reference_plan
-from app.tools.query_parser import QueryParser, parse_schema_ddl
+from app.tools.query_parser import QueryParser, parse_schema_ddl, strip_sql_comments
 from app.utils.config import settings
 from app.utils.dialect_config import get_llm_context
 
@@ -60,6 +61,8 @@ AI_QUERY_TRUNCATE_CHARS = 8000
 # plus findings and index DDL, so a fixed 1500-token budget cuts long queries
 # off mid-rewrite. Scale the output budget with the prompt, within a ceiling.
 AI_MAX_OUTPUT_TOKENS = 6000
+# Targeted fixes are short snippets, so they need far less room than a rewrite.
+TARGETED_OUTPUT_TOKENS = 2500
 
 
 def _ai_output_budget(prompt: str) -> int:
@@ -106,11 +109,16 @@ class SQLAnalyzerAgent:
         focus = (focus or "performance").strip().lower()
         llm_provider = (llm_provider or "huggingface").strip().lower()
 
-        parsed = self._safe_parse(query)
+        # Findings are computed on the code only: commented-out SQL
+        # (--and SL.[CSR Assign To] in (...)) used to produce index advice.
+        # Security checks and readability still look at the text as written.
+        is_mysql = str(getattr(db_type, "value", db_type)).lower() == "mysql"
+        code = strip_sql_comments(query, hash_comments=is_mysql)
+        parsed = self._safe_parse(code)
         security_issues = self._security_checks(query)
         readability_score = self._readability_score(query, parsed)
         suggestions = self._heuristic_suggestions(
-            query,
+            code,
             parsed,
             db_type=db_type,
             focus=focus,
@@ -184,6 +192,9 @@ class SQLAnalyzerAgent:
                     + "\n-- [Query truncated for AI analysis. Full query analyzed by heuristic engine.]"
                 )
                 ai_truncated = True
+            # Long queries and multi-statement batches: ask for targeted
+            # before -> after fixes, not a full copy of the whole batch.
+            targeted = wants_targeted_fixes(query)
             prompt = self._build_llm_prompt(
                 query=llm_query,
                 db_type=db_type,
@@ -192,13 +203,18 @@ class SQLAnalyzerAgent:
                 parsed=parsed,
                 suggestions=suggestions,
                 focus=focus,
+                targeted=targeted,
             )
             # Issue #74 fix: pass db_type so router injects dialect context
             ai_insights, ai_model, ai_error = await self._try_llm(
                 llm_provider=llm_provider,
                 prompt=prompt,
                 db_type=db_type,
+                max_tokens=TARGETED_OUTPUT_TOKENS if targeted else None,
             )
+            # Never pass on a rewrite that drops tables/columns or a fix
+            # whose "before" text is not in the query.
+            ai_insights = review_ai_output(query, ai_insights)
             used_ai = bool(ai_insights and str(ai_insights).strip())
 
         return {
@@ -695,6 +711,7 @@ class SQLAnalyzerAgent:
         suggestions: list[dict[str, Any]],
         focus: str,
         explain_plan: str = "",  # Issue #60
+        targeted: bool = False,
     ) -> str:
         schema_trim = (schema_info or "")[:4000]
         explain_trim = (explain_plan or "")[:3000]  # Issue #60: include EXPLAIN plan in prompt
@@ -712,6 +729,17 @@ class SQLAnalyzerAgent:
         dialect_context = get_llm_context(db_type)
 
         explain_section = f"\nEXPLAIN plan output (provided by user):\n{explain_trim}\n" if explain_trim else ""
+
+        rewrite_task = (
+            "3) Do NOT rewrite the whole query: set rewritten_query to an empty string. Instead return "
+            'targeted_fixes: up to 6 objects {"title", "before", "after", "why"}, most impactful first. '
+            '"before" must be copied exactly, character for character, from the SQL above (one contiguous '
+            'snippet, ideally under 400 characters); "after" is its replacement. Every fix must keep the same '
+            "rows and output columns. Prefer fixes for correlated subqueries run per row, TOP without ORDER BY, "
+            "and filters that block index use."
+            if targeted
+            else "3) Provide a rewritten query if it can reduce cost (CTEs/JOIN refactors/filters)."
+        )
 
         return f"""{dialect_context}
 
@@ -732,7 +760,7 @@ Heuristic suggestions already found:
 Tasks:
 1) Provide the most impactful performance improvements (prioritized).
 2) Recommend concrete indexes (include dialect-correct CREATE INDEX statements).
-3) Provide a rewritten query if it can reduce cost (CTEs/JOIN refactors/filters).
+{rewrite_task}
 4) Call out any risky assumptions (unknown cardinalities, missing schema).
 Keep it concise and actionable.
 """
@@ -742,6 +770,7 @@ Keep it concise and actionable.
         llm_provider: str,
         prompt: str,
         db_type: str = "postgresql",  # Issue #74 fix: pass to router
+        max_tokens: int | None = None,
     ) -> tuple[str | None, str | None, str | None]:
         """
         Bug fix: call_llm now returns a dict, not a tuple.
@@ -758,7 +787,7 @@ Keep it concise and actionable.
                 # response (long rewritten_query + multiple findings) can
                 # get cut off mid-generation, producing invalid JSON that
                 # the frontend then has no choice but to render as raw text.
-                max_tokens=_ai_output_budget(prompt),
+                max_tokens=max_tokens or _ai_output_budget(prompt),
             )
             text = result.get("text")
             model = result.get("model")

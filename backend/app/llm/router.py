@@ -104,7 +104,7 @@ async def _call_openai(prompt: str, max_tokens: int, db_type: str) -> dict:
             "Respond only with valid JSON as instructed. "
             "No markdown fences, no extra text outside the JSON. "
             "Use exactly these JSON keys: most_impactful_improvements, "
-            "recommended_indexes, rewritten_query, risky_assumptions. "
+            "recommended_indexes, rewritten_query, targeted_fixes, risky_assumptions. "
             "No other top-level keys. "
             f"{REWRITE_GUARDRAILS}"
         )

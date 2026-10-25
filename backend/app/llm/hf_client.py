@@ -83,7 +83,7 @@ async def _call_router(
         "Respond only with valid JSON as instructed. "
         "No markdown fences, no explanatory text outside the JSON. "
         "Use exactly these JSON keys: most_impactful_improvements, "
-        "recommended_indexes, rewritten_query, risky_assumptions. "
+        "recommended_indexes, rewritten_query, targeted_fixes, risky_assumptions. "
         "No other top-level keys. "
         f"{REWRITE_GUARDRAILS}"
     )
@@ -188,7 +188,7 @@ def _build_instruct_prompt(user_prompt: str, db_type: str = "postgresql") -> str
         "Respond only with valid JSON as instructed. "
         "No markdown fences, no extra text. "
         "Use exactly these JSON keys: most_impactful_improvements, "
-        "recommended_indexes, rewritten_query, risky_assumptions. "
+        "recommended_indexes, rewritten_query, targeted_fixes, risky_assumptions. "
         "No other top-level keys. "
         f"{REWRITE_GUARDRAILS}"
     )

@@ -59,8 +59,8 @@ export function TabPanel({ id, children }) {
   );
 }
 
-// Shown when the AI reply hit its length limit while writing the rewrite.
-export function AiCutOffNote({ extra }) {
+// Amber callout for AI output that was held back, with the reason and a next step.
+export function AiNote({ title, children }) {
   return (
     <div
       role="status"
@@ -73,13 +73,93 @@ export function AiCutOffNote({ extra }) {
       <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#fbbf24' }} />
       <div className="text-sm">
         <p className="font-semibold" style={{ color: '#fbbf24' }}>
-          AI rewrite incomplete — the reply hit its length limit
+          {title}
         </p>
         <p className="mt-1" style={{ color: '#cbd5e1' }}>
-          {extra ? `${extra} ` : ''}For a full rewrite, analyze a smaller piece — for example the
-          main SELECT on its own, without any DECLARE or temp-table setup around it.
+          {children}
         </p>
       </div>
+    </div>
+  );
+}
+
+// Shown when the AI reply hit its length limit while writing the rewrite.
+export function AiCutOffNote({ extra }) {
+  return (
+    <AiNote title="AI rewrite incomplete — the reply hit its length limit">
+      {extra ? `${extra} ` : ''}For a full rewrite, analyze a smaller piece — for example the main
+      SELECT on its own, without any DECLARE or temp-table setup around it.
+    </AiNote>
+  );
+}
+
+// Shown when the backend refused the AI's full rewrite (dropped a table or
+// column, or broken syntax).
+export function AiRejectedNote({ reason, extra }) {
+  return (
+    <AiNote title="AI rewrite not shown — it would change your results">
+      The model&apos;s rewrite was held back because {reason}. {extra || ''}
+    </AiNote>
+  );
+}
+
+// Before -> after snippets for long queries and batches.
+export function TargetedFixList({ fixes }) {
+  if (!fixes || fixes.length === 0) return null;
+  return (
+    <div className="space-y-3">
+      {fixes.map((f, i) => (
+        <div
+          key={i}
+          className="rounded-xl overflow-hidden"
+          style={{ background: '#1e293b', border: '1px solid #2d3f55' }}
+        >
+          <div className="px-4 py-3" style={{ borderBottom: '1px solid #2d3f55' }}>
+            <p className="text-sm font-semibold text-white">
+              {i + 1}. {f.title || 'Suggested change'}
+            </p>
+            {f.why && (
+              <p className="text-sm mt-1" style={{ color: '#94a3b8' }}>
+                {f.why}
+              </p>
+            )}
+          </div>
+          <FixSnippet label="Before" text={f.before} color="#cbd5e1" />
+          <FixSnippet label="After" text={f.after} color="#34d399" copy />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FixSnippet({ label, text, color, copy }) {
+  return (
+    <div className="px-4 py-3" style={{ borderTop: '1px solid #233247' }}>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs uppercase tracking-wider" style={{ color: '#4a6480' }}>
+          {label}
+        </span>
+        {copy && (
+          <button
+            type="button"
+            onClick={() => navigator.clipboard.writeText(text)}
+            className="text-xs text-slate-400 hover:text-white border border-slate-600 hover:border-slate-400 px-2 py-0.5 rounded transition-colors"
+          >
+            Copy
+          </button>
+        )}
+      </div>
+      <pre
+        className="whitespace-pre-wrap break-words text-xs leading-relaxed overflow-auto rounded p-3"
+        style={{
+          background: '#0f172a',
+          color,
+          fontFamily: "'JetBrains Mono', monospace",
+          maxHeight: '16rem',
+        }}
+      >
+        {text}
+      </pre>
     </div>
   );
 }
@@ -136,68 +216,88 @@ function CodePane({ title, badge, badgeColor, text, color, onCopy }) {
   );
 }
 
-// Rewritten SQL first (it is what people came for); the original sits below,
-// collapsed until asked for. Both panes scroll inside a fixed height.
+// Rewrite tab: the AI's targeted fixes (long queries/batches) or its full
+// rewrite when it passed the backend checks, else the safe rule-based
+// rewrite, else an explanation. The original query sits below, collapsed.
 export function RewriteView({
   original,
   rewrite,
   isAi,
   changed,
   aiCutOff,
+  aiRejected,
+  aiFixes,
   aiEnabled,
   onCopyRewrite,
   onCopyOriginal,
 }) {
   const [showOriginal, setShowOriginal] = useState(false);
-  if (!rewrite) {
-    return (
-      <div
-        className="rounded-xl p-4 text-sm"
-        style={{ background: '#1e293b', border: '1px solid #2d3f55', color: '#94a3b8' }}
-      >
-        <p className="font-semibold text-white">No safe automatic rewrite for this query</p>
-        <p className="mt-1">
-          QueryTuner only rewrites SQL when the result is guaranteed to stay the same. The Findings
-          tab lists what to change by hand.
-          {!aiCutOff && !aiEnabled
-            ? ' Enable "Use AI insights" and run again for a restructured query.'
-            : ''}
-        </p>
-        {aiCutOff && (
-          <div className="mt-3">
-            <AiCutOffNote />
-          </div>
-        )}
-      </div>
-    );
-  }
+  const fixes = aiFixes || [];
+  const fallback = rewrite ? 'The safe rewrite is shown below instead.' : '';
+
   return (
     <div className="space-y-4">
-      {aiCutOff && <AiCutOffNote extra="The safe rewrite is shown instead." />}
-      <CodePane
-        title="Rewritten"
-        badge={
-          isAi
-            ? '✓ AI rewrite · review before applying'
-            : 'Safe rewrite · same results · review before applying'
-        }
-        badgeColor="#34d399"
-        text={rewrite}
-        color="#34d399"
-        onCopy={onCopyRewrite}
-      />
+      {aiCutOff && <AiCutOffNote extra={fallback} />}
+      {aiRejected && <AiRejectedNote reason={aiRejected} extra={fallback} />}
+
+      {fixes.length > 0 && (
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-semibold text-white">AI targeted fixes</p>
+            <p className="text-xs mt-0.5" style={{ color: '#7fa3c4' }}>
+              Each change is shown on its own so you can apply and test it separately. Review before
+              applying.
+            </p>
+          </div>
+          <TargetedFixList fixes={fixes} />
+        </div>
+      )}
+
+      {rewrite ? (
+        <CodePane
+          title="Rewritten"
+          badge={
+            isAi
+              ? '✓ AI rewrite · review before applying'
+              : 'Safe rewrite · same results · review before applying'
+          }
+          badgeColor="#34d399"
+          text={rewrite}
+          color="#34d399"
+          onCopy={onCopyRewrite}
+        />
+      ) : (
+        fixes.length === 0 && (
+          <div
+            className="rounded-xl p-4 text-sm"
+            style={{ background: '#1e293b', border: '1px solid #2d3f55', color: '#94a3b8' }}
+          >
+            <p className="font-semibold text-white">No safe automatic rewrite for this query</p>
+            <p className="mt-1">
+              QueryTuner only rewrites SQL when the result is guaranteed to stay the same. The
+              Findings tab lists what to change by hand.
+              {!aiEnabled ? ' Enable "Use AI insights" and run again for AI fixes.' : ''}
+            </p>
+          </div>
+        )
+      )}
       {changed && <OptimizationComplete />}
-      <button
-        type="button"
-        onClick={() => setShowOriginal((o) => !o)}
-        aria-expanded={showOriginal}
-        className="text-sm"
-        style={{ color: '#7fa3c4' }}
-      >
-        {showOriginal ? '▾ Hide original query' : '▸ Compare with original query'}
-      </button>
-      {showOriginal && (
-        <CodePane title="Original" text={original} color="#cbd5e1" onCopy={onCopyOriginal} />
+
+      {original && (
+        <>
+          <button
+            type="button"
+            onClick={() => setShowOriginal((o) => !o)}
+            aria-expanded={showOriginal}
+            className="text-sm"
+            style={{ color: '#7fa3c4' }}
+          >
+            {showOriginal ? '▾ Hide original query' : '▸ Compare with original query'}
+          </button>
+          {showOriginal && (
+            <CodePane title="Original" text={original} color="#cbd5e1" onCopy={onCopyOriginal} />
+          )}
+        </>
       )}
     </div>
   );

@@ -138,6 +138,27 @@ export function isAiRewriteTruncated(content) {
   return Boolean(rewriteKey) && keys[keys.length - 1] === rewriteKey;
 }
 
+// Before -> after snippets the AI proposed for a long query or batch. The
+// backend already dropped any fix whose "before" text is not in the query.
+export function getAiTargetedFixes(content) {
+  const parsed = content && typeof content === 'object' ? content : safeParseAiJson(content);
+  const fixes = Array.isArray(parsed?.targeted_fixes) ? parsed.targeted_fixes : [];
+  return fixes
+    .filter((f) => f && typeof f.before === 'string' && typeof f.after === 'string')
+    .map((f) => ({
+      title: String(f.title || '').trim(),
+      before: f.before.trim(),
+      after: f.after.trim(),
+      why: String(f.why || '').trim(),
+    }));
+}
+
+// Why the backend refused to pass on the AI's full rewrite ('' if it didn't).
+export function getAiRewriteRejected(content) {
+  const parsed = content && typeof content === 'object' ? content : safeParseAiJson(content);
+  return typeof parsed?.rewrite_rejected === 'string' ? parsed.rewrite_rejected : '';
+}
+
 // SQL with comments/whitespace/case stripped, for "did the rewrite change
 // anything?" comparisons.
 export function normalizeSql(sql) {
