@@ -9,7 +9,7 @@ export function ResultTabs({ tabs, active, onChange }) {
     <div
       role="tablist"
       aria-label="Result sections"
-      className="flex gap-1 overflow-x-auto"
+      className="flex gap-1 overflow-x-auto overflow-y-hidden"
       style={{ borderBottom: '1px solid #2d3f55' }}
     >
       {visible.map((t) => {
