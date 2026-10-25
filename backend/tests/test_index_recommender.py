@@ -454,3 +454,39 @@ def test_partial_index_never_targets_a_made_up_id_column(analyzer, db_type):
     for s in run(analyzer, BRACKETED_JOIN, db_type=db_type):
         if s["type"] == "index_review_partial_index_candidate":
             assert "(id)" not in s["ddl_hint"] and ", id)" not in s["ddl_hint"], s["ddl_hint"]
+
+
+def test_commented_out_sql_produces_no_findings(analyzer):
+    q = (
+        "SELECT SH.No_ FROM [dbo].[Sales Header] SH INNER JOIN [dbo].[Sales Linkup] SL "
+        "ON SH.No_ = SL.[Document No] WHERE SH.[Order Status] = 10000 --and SL.[CSR Assign To] in ('RETURNS')\n"
+        "/* AND SL.[Hidden Col] = 1 */"
+    )
+    cols = [c for s in run(analyzer, q, db_type="sqlserver") for c in (s.get("columns") or [])]
+    assert not any("CSR Assign To" in c or "Hidden Col" in c for c in cols), cols
+
+
+def test_alias_in_later_statement_is_resolved(analyzer):
+    q = (
+        "DECLARE @t TABLE (id int);\n"
+        "SELECT sll.[Sales Order No], COUNT(*) FROM [Sales Line Link] sll WITH(NOLOCK) "
+        "LEFT JOIN [Scan History] bsh WITH(NOLOCK) ON bsh.[Order No] = sll.[Sales Order No] "
+        "GROUP BY sll.[Sales Order No]"
+    )
+    ddls = [s["ddl_hint"] for s in run(analyzer, q, db_type="sqlserver") if s.get("ddl_hint")]
+    assert ddls and not any("<sll_table>" in d for d in ddls), ddls
+
+
+def test_single_column_index_dropped_when_composite_leads_with_it(analyzer):
+    q = (
+        "SELECT o.id FROM orders o JOIN users u ON u.id = o.user_id "
+        "WHERE o.status = 'paid' AND o.user_id = 5 ORDER BY o.created_at"
+    )
+    sugg = run(analyzer, q)
+    leading = {s["columns"][0] for s in sugg if s["type"] == "index_review_composite_index"}
+    singles = {
+        s["columns"][0]
+        for s in sugg
+        if s["type"] in ("index_review_join_key", "index_review_where_filter", "index_review_order_by_index")
+    }
+    assert not (leading & singles), (leading, singles)

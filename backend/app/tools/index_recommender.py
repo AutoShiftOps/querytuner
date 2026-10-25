@@ -206,6 +206,32 @@ def _index_name(table: str | None, cols: list[str] | str, suffix: str = "") -> s
     return name[:_INDEX_NAME_MAX].rstrip("_")
 
 
+_SINGLE_COLUMN_TYPES = {
+    "index_review_join_key",
+    "index_review_where_filter",
+    "index_review_order_by_index",
+}
+_MULTI_COLUMN_TYPES = {"index_review_composite_index", "index_review_group_by_index"}
+
+
+def _drop_covered_single_column(suggestions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    A composite index (a, b) already serves lookups on a alone, so a separate
+    single-column index on a is redundant: one more index to maintain on every
+    write for no read benefit. Keep the composite, drop the single.
+    """
+    leading = {
+        s["columns"][0].lower()
+        for s in suggestions
+        if s.get("type") in _MULTI_COLUMN_TYPES and s.get("columns") and len(s["columns"]) > 1
+    }
+    return [
+        s
+        for s in suggestions
+        if not (s.get("type") in _SINGLE_COLUMN_TYPES and s.get("columns") and s["columns"][0].lower() in leading)
+    ]
+
+
 def _matching_paren_end(text: str, open_idx: int) -> int:
     """Index of the ')' matching the '(' at open_idx, or -1."""
     depth = 0
@@ -759,7 +785,7 @@ class IndexRecommender:
                 )
             )
 
-        return self._dedupe(suggestions)
+        return self._dedupe(_drop_covered_single_column(suggestions))
 
     # Issue #8: alias -> real table name resolution against a parsed schema
     # Issue: fall back to the query's own FROM/JOIN alias map

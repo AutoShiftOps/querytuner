@@ -14,7 +14,7 @@ from app.schemas.models import QueryRequest as QR
 from app.tools.execution_planner import collect_facts
 from app.tools.index_recommender import IndexRecommender
 from app.tools.plan_crossref import cross_reference_plan
-from app.tools.query_parser import QueryParser, parse_schema_ddl
+from app.tools.query_parser import QueryParser, parse_schema_ddl, strip_sql_comments
 from app.utils.config import settings
 from app.utils.dialect_config import get_llm_context
 
@@ -106,11 +106,15 @@ class SQLAnalyzerAgent:
         focus = (focus or "performance").strip().lower()
         llm_provider = (llm_provider or "huggingface").strip().lower()
 
-        parsed = self._safe_parse(query)
+        # Findings are computed on the code only: commented-out SQL
+        # (--and SL.[CSR Assign To] in (...)) used to produce index advice.
+        # Security checks and readability still look at the text as written.
+        code = strip_sql_comments(query)
+        parsed = self._safe_parse(code)
         security_issues = self._security_checks(query)
         readability_score = self._readability_score(query, parsed)
         suggestions = self._heuristic_suggestions(
-            query,
+            code,
             parsed,
             db_type=db_type,
             focus=focus,

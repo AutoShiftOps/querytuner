@@ -110,6 +110,103 @@ _JOIN_NAME_PART = r"(?:\[[^\]]+\]|\"[^\"]+\"|`[^`]+`|[@#]{0,2}[A-Za-z0-9_$]+)"
 _JOIN_TABLE_RE = _JOIN_NAME_PART + r"(?:\s*\.\s*" + _JOIN_NAME_PART + r")*"
 
 
+# Words that can follow a FROM table name without being its alias.
+_NOT_AN_ALIAS = frozenset(
+    {
+        "with",
+        "on",
+        "where",
+        "inner",
+        "left",
+        "right",
+        "full",
+        "cross",
+        "outer",
+        "join",
+        "group",
+        "order",
+        "having",
+        "union",
+        "except",
+        "intersect",
+        "limit",
+        "fetch",
+        "offset",
+        "for",
+        "option",
+        "select",
+        "insert",
+        "update",
+        "delete",
+        "set",
+        "declare",
+        "create",
+        "drop",
+        "alter",
+        "exec",
+        "execute",
+        "merge",
+        "into",
+        "values",
+        "as",
+        "natural",
+        "window",
+        "qualify",
+        "pivot",
+        "unpivot",
+        "go",
+    }
+)
+
+
+def _mask_quoted(sql: str) -> str:
+    """Same-length copy of sql with the insides of [..], '..', ".." and `..` replaced by x."""
+
+    def _blank(m: re.Match) -> str:
+        t = m.group(0)
+        return t[0] + "x" * (len(t) - 2) + t[-1]
+
+    return re.sub(r"\[[^\]]*\]|'[^']*'|\"[^\"]*\"|`[^`]*`", _blank, sql)
+
+
+def strip_sql_comments(sql: str) -> str:
+    """
+    Remove -- line comments and /* */ block comments, leaving string literals
+    ('it''s -- not a comment'), quoted identifiers ("a--b", [a--b], `a--b`)
+    and line breaks intact. Commented-out code must not produce findings.
+    """
+    out: list[str] = []
+    i, n = 0, len(sql or "")
+    closers = {"'": "'", '"': '"', "`": "`", "[": "]"}
+    while i < n:
+        ch = sql[i]
+        if ch in closers:
+            close = closers[ch]
+            j = i + 1
+            while j < n:
+                if sql[j] == close:
+                    # '' and ]] are escaped quotes, not the end
+                    if close in ("'", "]") and j + 1 < n and sql[j + 1] == close:
+                        j += 2
+                        continue
+                    break
+                j += 1
+            out.append(sql[i : j + 1])
+            i = j + 1
+        elif sql.startswith("--", i):
+            j = sql.find("\n", i)
+            i = n if j == -1 else j
+            out.append(" ")
+        elif sql.startswith("/*", i):
+            j = sql.find("*/", i + 2)
+            i = n if j == -1 else j + 2
+            out.append(" ")
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
 def _find_top_level_keyword_pos(sql: str, keyword: str, start_idx: int = 0) -> int:
     """
     Find the first top-level occurrence of `keyword` (case-insensitive),
@@ -457,6 +554,24 @@ class QueryParser:
             alias = re.sub(r"(?i)^as\s+", "", alias_part).strip()
             if alias and alias.lower() not in {"with", "on"}:
                 aliases[alias] = table
+
+        # Every other FROM in the text (later statements of a batch, FROMs
+        # inside subqueries): `FROM [Sales Line Link] sll` in a third
+        # statement used to stay unresolved, giving <sll_table> DDL.
+        from_pattern = re.compile(
+            r"\bfrom\s+([@#]{0,2}(?:\[[^\]]+\]|\"[^\"]+\"|[A-Za-z0-9_$]+)"
+            r"(?:\.(?:\[[^\]]+\]|\"[^\"]+\"|[A-Za-z0-9_$]+))*)"
+            r"(\s+(?:as\s+)?[A-Za-z_][A-Za-z0-9_]*)?",
+            re.IGNORECASE,
+        )
+        # Match on a copy with bracket/string contents blanked so text such
+        # as [Ship-from Post Code] is never read as "from Post"; slice the
+        # real names out of the original by position.
+        masked = _mask_quoted(q)
+        for m in from_pattern.finditer(masked):
+            alias = re.sub(r"(?i)^as\s+", "", q[m.start(2) : m.end(2)].strip() if m.group(2) else "").strip()
+            if alias and alias.lower() not in _NOT_AN_ALIAS:
+                aliases.setdefault(alias, q[m.start(1) : m.end(1)].strip())
 
         return aliases
 
