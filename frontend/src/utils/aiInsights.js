@@ -110,6 +110,34 @@ export function getAiRewrittenQuery(content) {
   return '';
 }
 
+// True when the AI reply was cut off (token limit) while it was still writing
+// the rewritten query. safeParseAiJson recovers truncated JSON, so without
+// this check a half-written rewrite would be shown as if it were complete.
+export function isAiRewriteTruncated(content) {
+  if (!content || typeof content !== 'string') return false;
+  const clean = content.replace(/```(?:json)?/gi, '').trim();
+  try {
+    JSON.parse(clean);
+    return false;
+  } catch {
+    // not strictly valid — check the brace-extracted slice next
+  }
+  const match = clean.match(/\{[\s\S]*\}/);
+  if (match) {
+    try {
+      JSON.parse(match[0]);
+      return false;
+    } catch {
+      // still invalid — the repair path was needed
+    }
+  }
+  const parsed = safeParseAiJson(content);
+  if (!parsed) return false;
+  const rewriteKey = AI_REWRITE_KEYS.find((k) => typeof parsed[k] === 'string');
+  const keys = Object.keys(parsed);
+  return Boolean(rewriteKey) && keys[keys.length - 1] === rewriteKey;
+}
+
 // SQL with comments/whitespace/case stripped, for "did the rewrite change
 // anything?" comparisons.
 export function normalizeSql(sql) {

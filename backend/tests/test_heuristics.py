@@ -487,3 +487,14 @@ def test_llm_rewrite_guardrails_cover_null_semantics_and_formatting():
     text = REWRITE_GUARDRAILS.lower()
     assert "coalesce" in text and "null" in text
     assert "multi-line" in text
+
+
+def test_ai_output_budget_scales_with_prompt_length():
+    from app.agents.sql_analyzer import AI_MAX_OUTPUT_TOKENS, _ai_output_budget
+    from app.utils.config import settings
+
+    # Short prompts keep the configured floor; long ones get more room for the
+    # full-query rewrite; the ceiling always holds.
+    assert _ai_output_budget("x" * 100) == settings.ai_max_tokens
+    assert _ai_output_budget("x" * 12_000) > settings.ai_max_tokens
+    assert _ai_output_budget("x" * 500_000) == AI_MAX_OUTPUT_TOKENS

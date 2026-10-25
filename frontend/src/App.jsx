@@ -5,11 +5,11 @@ import QueryDiagnosis from './components/QueryDiagnosis';
 import { AlertCircle, Zap, Shield } from 'lucide-react';
 import QueryInput from './components/QueryInput';
 import ResultsPanel from './components/ResultsPanel';
-import OptimizationSuggestions from './components/OptimizationSuggestions';
+import OptimizationSuggestions, { getDdlItems } from './components/OptimizationSuggestions';
 import QuizMode from './components/QuizMode';
 import { generateQuiz, isAiInsightsRevealed } from './utils/quiz';
 import ExecutionPlan from './components/ExecutionPlan';
-import OptimizationComplete from './components/OptimizationComplete';
+import { ResultTabs, TabPanel, RewriteView } from './components/ResultViews';
 import SampleQueries from './components/SampleQueries';
 import ResultFollowUp from './components/ResultFollowUp';
 import Header from './components/Header';
@@ -17,7 +17,12 @@ import Hero from './components/Hero';
 import Footer from './components/Footer';
 import UpgradeModal from './components/UpgradeModal';
 import { ToastContainer, useToast } from './components/Toast';
-import { getAiConfirmedTypes, getAiRewrittenQuery, normalizeSql } from './utils/aiInsights';
+import {
+  getAiConfirmedTypes,
+  getAiRewrittenQuery,
+  isAiRewriteTruncated,
+  normalizeSql,
+} from './utils/aiInsights';
 import { desanitize } from './utils/sanitizer';
 import {
   buildUrlWithoutUpgradedParam,
@@ -47,7 +52,7 @@ function formatDuration(ms) {
 }
 
 // Secondary detail, collapsed by default so the primary view is the three
-// result cards (Findings, Optimization Suggestions, Rewritten Query).
+// result tabs.
 function CollapsibleSection({ title, hint, children }) {
   const [open, setOpen] = useState(false);
   return (
@@ -447,13 +452,30 @@ function App() {
   // correlated subquery -> JOIN/CTE); fall back to the heuristic rewrite,
   // which only applies safe mechanical tweaks. "Optimization complete" is
   // shown only for an AI rewrite that actually differs from the input.
+  // An AI reply cut off mid-rewrite is never shown as a finished rewrite.
+  const aiRewriteCutOff = Boolean(
+    result?.used_ai && !result?.ai_error && isAiRewriteTruncated(result.ai_insights)
+  );
   const aiRewrite =
-    result?.used_ai && !result?.ai_error ? getAiRewrittenQuery(result.ai_insights) : '';
+    result?.used_ai && !result?.ai_error && !aiRewriteCutOff
+      ? getAiRewrittenQuery(result.ai_insights)
+      : '';
   // The backend only ever saw sanitized names; show the user's own.
   const rewriteRaw = aiRewrite || result?.optimized_query || '';
   const rewriteSql = substitutionMap ? desanitize(rewriteRaw, substitutionMap) : rewriteRaw;
   const rewriteIsAi = Boolean(aiRewrite);
   const rewriteChanged = rewriteIsAi && normalizeSql(rewriteSql) !== normalizeSql(query);
+
+  // Result tabs: Findings / Indexes / Rewrite / Details. Falls back to the
+  // first available tab if the chosen one has nothing to show.
+  const [activeTab, setActiveTab] = useState('findings');
+  useEffect(() => setActiveTab('findings'), [result]);
+  const ddlItems = useMemo(() => getDdlItems(result?.optimization_suggestions), [result]);
+  const securityIssues = Array.isArray(result?.security_issues) ? result.security_issues : [];
+  const shownTab =
+    (activeTab === 'indexes' && ddlItems.length === 0) || (activeTab === 'rewrite' && !rewriteSql)
+      ? 'findings'
+      : activeTab;
 
   // Quiz Mode questions for this result — [] when nothing in the
   // response is confident enough to quiz on (the evidence_level guard
@@ -668,163 +690,167 @@ function App() {
                   />
                 </div>
 
-                {/* Query Diagnosis — structured dark renderer, no prose plugin needed */}
-                {result.plain_explanation && (
-                  <CollapsibleSection
-                    title="Query details"
-                    hint="summary, complexity, maintenance commands"
-                  >
-                    <QueryDiagnosis content={result.plain_explanation} />
-                  </CollapsibleSection>
-                )}
-
                 {/* Quiz Mode gates the findings behind a few test-yourself
-                  questions; OptimizationSuggestions renders once revealed
-                  (or immediately if there was nothing confident enough to
-                  quiz on) — docs/querytuner-quiz-mode-issue.md */}
+                  questions; the result tabs render once revealed (or
+                  immediately if there was nothing confident enough to quiz
+                  on) — docs/querytuner-quiz-mode-issue.md */}
                 {quizQuestions.length > 0 && !quizRevealed ? (
                   <QuizMode questions={quizQuestions} onReveal={() => setQuizRevealed(true)} />
                 ) : (
-                  <OptimizationSuggestions
-                    suggestions={result.optimization_suggestions || []}
-                    aiConfirmedTypes={aiConfirmedTypes}
-                    substitutionMap={substitutionMap}
-                  />
-                )}
-
-                {/* AI error — graceful fallback, no raw error strings shown to user */}
-                {result.ai_error && (
-                  <div
-                    className="rounded-xl p-4 flex gap-3 items-start"
-                    style={{
-                      background: 'rgba(251,191,36,0.06)',
-                      border: '1px solid rgba(251,191,36,0.2)',
-                    }}
-                  >
-                    <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#fbbf24' }} />
-                    <div>
-                      <p className="text-sm font-medium" style={{ color: '#fbbf24' }}>
-                        AI insights unavailable
-                      </p>
-                      <p className="text-xs mt-1" style={{ color: '#7fa3c4' }}>
-                        The AI model is warming up (free tier cold start). Heuristic analysis above
-                        is complete. Toggle AI off and re-analyze, or try again in 30 seconds.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Optimized Query */}
-                {rewriteSql && (
-                  <div
-                    className="rounded-xl overflow-hidden"
-                    style={{ background: '#1e293b', border: '1px solid #2d3f55' }}
-                  >
-                    <div
-                      className="flex items-center justify-between px-4 py-2"
-                      style={{ background: 'rgba(0,0,0,0.25)', borderBottom: '1px solid #2d3f55' }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Zap className="w-4 h-4 text-blue-400" />
-                        <span className="text-sm font-semibold text-white">Rewritten Query</span>
+                  <>
+                    {/* AI error — graceful fallback, no raw error strings shown to user */}
+                    {result.ai_error && (
+                      <div
+                        className="rounded-xl p-4 flex gap-3 items-start"
+                        style={{
+                          background: 'rgba(251,191,36,0.06)',
+                          border: '1px solid rgba(251,191,36,0.2)',
+                        }}
+                      >
+                        <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#fbbf24' }} />
+                        <div>
+                          <p className="text-sm font-medium" style={{ color: '#fbbf24' }}>
+                            AI insights unavailable
+                          </p>
+                          <p className="text-xs mt-1" style={{ color: '#7fa3c4' }}>
+                            The AI model is warming up (free tier cold start). Heuristic analysis
+                            is complete. Toggle AI off and re-analyze, or try again in 30 seconds.
+                          </p>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span
-                          style={{
-                            fontSize: 10,
-                            color: '#34d399',
-                            fontFamily: 'monospace',
-                            fontWeight: 500,
-                          }}
-                        >
-                          {rewriteIsAi
-                            ? '✓ AI rewrite · review before applying'
-                            : 'Heuristic rewrite · review before applying'}
-                        </span>
-                        <button
-                          onClick={() => {
+                    )}
+
+                    <ResultTabs
+                      active={activeTab}
+                      onChange={setActiveTab}
+                      tabs={[
+                        {
+                          id: 'findings',
+                          label: 'Findings',
+                          count: (result.optimization_suggestions || []).length,
+                        },
+                        {
+                          id: 'indexes',
+                          label: 'Indexes',
+                          count: ddlItems.length,
+                          hidden: ddlItems.length === 0,
+                        },
+                        { id: 'rewrite', label: 'Rewrite', hidden: !rewriteSql },
+                        {
+                          id: 'details',
+                          label: 'Details',
+                          count: securityIssues.length || null,
+                        },
+                      ]}
+                    />
+
+                    {shownTab === 'findings' && (
+                      <TabPanel id="findings">
+                        <OptimizationSuggestions
+                          suggestions={result.optimization_suggestions || []}
+                          aiConfirmedTypes={aiConfirmedTypes}
+                          substitutionMap={substitutionMap}
+                          view="findings"
+                        />
+                      </TabPanel>
+                    )}
+
+                    {shownTab === 'indexes' && (
+                      <TabPanel id="indexes">
+                        <OptimizationSuggestions
+                          suggestions={result.optimization_suggestions || []}
+                          aiConfirmedTypes={aiConfirmedTypes}
+                          substitutionMap={substitutionMap}
+                          view="indexes"
+                        />
+                      </TabPanel>
+                    )}
+
+                    {shownTab === 'rewrite' && (
+                      <TabPanel id="rewrite">
+                        <RewriteView
+                          original={query}
+                          rewrite={rewriteSql}
+                          isAi={rewriteIsAi}
+                          changed={rewriteChanged}
+                          aiCutOff={aiRewriteCutOff}
+                          onCopyRewrite={() => {
                             navigator.clipboard.writeText(rewriteSql);
                             showToast('Optimized query copied', 'success');
                             trackOptimizedQueryCopied();
                           }}
-                          className="text-xs text-slate-400 hover:text-white border border-slate-600
-                                   hover:border-slate-400 px-3 py-1 rounded transition-colors"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </div>
-                    <pre
-                      className="whitespace-pre-wrap text-sm leading-relaxed overflow-x-auto p-4"
-                      style={{ color: '#34d399', fontFamily: "'JetBrains Mono', monospace" }}
-                    >
-                      {rewriteSql}
-                    </pre>
-                    {rewriteChanged && (
-                      <div className="p-3 pt-0">
-                        <OptimizationComplete />
-                      </div>
+                          onCopyOriginal={() => {
+                            navigator.clipboard.writeText(query);
+                            showToast('Original query copied', 'success');
+                          }}
+                        />
+                      </TabPanel>
                     )}
-                  </div>
-                )}
 
-                {/* AI Insights — gated behind the same quiz-then-reveal
-                  condition as OptimizationSuggestions above (bug fix: this
-                  panel's own DDL recommendations answer the exact question
-                  Quiz Mode just asked, so it previously leaked the answer
-                  by rendering unconditionally whenever AI insights was
-                  turned on — see isAiInsightsRevealed's own docstring).
-                  docs/querytuner-quiz-provider-fixes.md, Bug 1 */}
-                {isAiInsightsRevealed(quizQuestions, quizRevealed, result) && (
-                  <CollapsibleSection
-                    title="AI Insights — full report"
-                    hint="deeper reasoning from the model; the cards above are the summary"
-                  >
-                    <ResultsPanel
-                      title={`AI Insights${
-                        result.ai_provider
-                          ? ` (${result.ai_provider}${result.ai_model ? ` / ${result.ai_model}` : ''})`
-                          : ''
-                      }`}
-                      content={result.ai_insights}
-                      icon={Zap}
-                      aiConfirmedTypes={aiConfirmedTypes}
-                      substitutionMap={substitutionMap}
-                      showCompletion={false}
-                      onShare={() => {
-                        navigator.clipboard.writeText(result.ai_insights || '');
-                        showToast('AI insights copied to clipboard', 'success');
-                        trackAiInsightsCopied();
-                      }}
-                    />
-                  </CollapsibleSection>
-                )}
+                    {shownTab === 'details' && (
+                      <TabPanel id="details">
+                        <div className="space-y-4">
+                          {securityIssues.length > 0 && (
+                            <div
+                              className="rounded-xl p-5"
+                              style={{
+                                background: 'rgba(248,113,113,0.06)',
+                                border: '1px solid rgba(248,113,113,0.3)',
+                              }}
+                            >
+                              <div className="flex items-center gap-2 mb-3">
+                                <Shield className="w-4 h-4 text-red-400" />
+                                <h3 className="text-sm font-semibold text-white">Security Issues</h3>
+                              </div>
+                              <ul className="space-y-2">
+                                {securityIssues.map((issue, idx) => (
+                                  <li key={idx} className="text-sm text-red-200 flex gap-2">
+                                    <span style={{ color: '#f87171' }}>·</span>
+                                    {issue}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
 
-                {/* Execution Plan */}
-                {result.execution_plan && <ExecutionPlan plan={result.execution_plan} />}
+                          {result.plain_explanation && (
+                            <QueryDiagnosis content={result.plain_explanation} />
+                          )}
 
-                {/* Security Issues */}
-                {Array.isArray(result.security_issues) && result.security_issues.length > 0 && (
-                  <div
-                    className="rounded-xl p-5"
-                    style={{
-                      background: 'rgba(248,113,113,0.06)',
-                      border: '1px solid rgba(248,113,113,0.3)',
-                    }}
-                  >
-                    <div className="flex items-center gap-2 mb-3">
-                      <Shield className="w-4 h-4 text-red-400" />
-                      <h3 className="text-sm font-semibold text-white">Security Issues</h3>
-                    </div>
-                    <ul className="space-y-2">
-                      {result.security_issues.map((issue, idx) => (
-                        <li key={idx} className="text-sm text-red-200 flex gap-2">
-                          <span style={{ color: '#f87171' }}>·</span>
-                          {issue}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                          {/* Execution Plan */}
+                          {result.execution_plan && <ExecutionPlan plan={result.execution_plan} />}
+
+                          {/* AI Insights — only once the quiz (if any) is revealed:
+                            its DDL recommendations answer the exact question Quiz
+                            Mode asks. docs/querytuner-quiz-provider-fixes.md, Bug 1 */}
+                          {isAiInsightsRevealed(quizQuestions, quizRevealed, result) && (
+                            <CollapsibleSection
+                              title="AI Insights — full report"
+                              hint="deeper reasoning from the model; the tabs above are the summary"
+                            >
+                              <ResultsPanel
+                                title={`AI Insights${
+                                  result.ai_provider
+                                    ? ` (${result.ai_provider}${result.ai_model ? ` / ${result.ai_model}` : ''})`
+                                    : ''
+                                }`}
+                                content={result.ai_insights}
+                                icon={Zap}
+                                aiConfirmedTypes={aiConfirmedTypes}
+                                substitutionMap={substitutionMap}
+                                showCompletion={false}
+                                onShare={() => {
+                                  navigator.clipboard.writeText(result.ai_insights || '');
+                                  showToast('AI insights copied to clipboard', 'success');
+                                  trackAiInsightsCopied();
+                                }}
+                              />
+                            </CollapsibleSection>
+                          )}
+                        </div>
+                      </TabPanel>
+                    )}
+                  </>
                 )}
               </div>
             )}
