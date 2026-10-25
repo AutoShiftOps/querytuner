@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { shouldResetStaleOpenAiSelection, shouldAutoSelectOpenAiForPro } from './providerSelection';
+import {
+  shouldResetStaleAnthropicSelection,
+  shouldResetStaleOpenAiSelection,
+  shouldAutoSelectOpenAiForPro,
+} from './providerSelection';
 
 describe('shouldResetStaleOpenAiSelection — Bug 2(a) (docs/querytuner-quiz-provider-fixes.md)', () => {
   it('resets a stale "openai" selection once it is no longer allowed', () => {
@@ -34,5 +38,13 @@ describe('shouldAutoSelectOpenAiForPro — Bug 2(b)/(c)', () => {
     // auto-select already fired once (alreadySelected latched true) —
     // must not flip them back to openai against their own choice.
     expect(shouldAutoSelectOpenAiForPro('huggingface', true, true)).toBe(false);
+  });
+});
+
+describe('shouldResetStaleAnthropicSelection', () => {
+  it('resets anthropic when it is no longer allowed, and nothing else', () => {
+    expect(shouldResetStaleAnthropicSelection('anthropic', false)).toBe(true);
+    expect(shouldResetStaleAnthropicSelection('anthropic', true)).toBe(false);
+    expect(shouldResetStaleAnthropicSelection('openai', false)).toBe(false);
   });
 });

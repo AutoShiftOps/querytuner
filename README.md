@@ -181,6 +181,8 @@ it does not use Vite's default 5173)
 | `HF_API_KEY` | Yes (for AI) | — | HuggingFace API key |
 | `HF_MODEL` | No | `Qwen/Qwen2.5-Coder-3B-Instruct` | HuggingFace model ID |
 | `OPENAI_API_KEY` | No | — | Enables OpenAI provider |
+| `ANTHROPIC_API_KEY` | No | — | Enables Anthropic (Claude) provider (Pro) |
+| `ANTHROPIC_MODEL` | No | `claude-haiku-5-5` | Claude model ID used for AI insights |
 | `OPENAI_MODEL` | No | `gpt-4o-mini` | OpenAI model to use |
 | `DEFAULT_LLM_PROVIDER` | No | `huggingface` | Default AI provider |
 | `AI_MAX_TOKENS` | No | `1500` | Max tokens per LLM response |

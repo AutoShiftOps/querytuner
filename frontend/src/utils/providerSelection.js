@@ -35,3 +35,8 @@ export function shouldResetStaleOpenAiSelection(llmProvider, openaiEnabled) {
 export function shouldAutoSelectOpenAiForPro(llmProvider, openaiEnabled, alreadyAutoSelected) {
   return openaiEnabled && llmProvider === 'huggingface' && !alreadyAutoSelected;
 }
+
+/** Same reset rule for the Anthropic (Claude) option, also Pro-only. */
+export function shouldResetStaleAnthropicSelection(llmProvider, anthropicEnabled) {
+  return llmProvider === 'anthropic' && !anthropicEnabled;
+}
