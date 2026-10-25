@@ -7,7 +7,7 @@ import QueryInput from './components/QueryInput';
 import ResultsPanel from './components/ResultsPanel';
 import OptimizationSuggestions, { getDdlItems } from './components/OptimizationSuggestions';
 import QuizMode from './components/QuizMode';
-import { generateQuiz, isAiInsightsRevealed } from './utils/quiz';
+import { generateQuiz } from './utils/quiz';
 import ExecutionPlan from './components/ExecutionPlan';
 import { ResultTabs, TabPanel, RewriteView } from './components/ResultViews';
 import SampleQueries from './components/SampleQueries';
@@ -49,33 +49,6 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 function formatDuration(ms) {
   const n = Number(ms || 0);
   return n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`;
-}
-
-// Secondary detail, collapsed by default so the primary view is the three
-// result tabs.
-function CollapsibleSection({ title, hint, children }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="rounded-xl" style={{ border: '1px solid #2d3f55', background: '#172033' }}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="w-full flex items-center gap-2 px-4 py-3 text-left"
-      >
-        <span style={{ color: '#38bdf8' }}>{open ? '▾' : '▸'}</span>
-        <span className="text-sm font-semibold" style={{ color: '#e2e8f0' }}>
-          {title}
-        </span>
-        {hint && (
-          <span className="text-xs" style={{ color: '#4a6480' }}>
-            {hint}
-          </span>
-        )}
-      </button>
-      {open && <div className="px-3 pb-3">{children}</div>}
-    </div>
-  );
 }
 
 function App() {
@@ -736,6 +709,7 @@ function App() {
                           hidden: ddlItems.length === 0,
                         },
                         { id: 'rewrite', label: 'Rewrite', hidden: !rewriteSql },
+                        { id: 'ai', label: 'AI Insights' },
                         {
                           id: 'details',
                           label: 'Details',
@@ -819,35 +793,50 @@ function App() {
 
                           {/* Execution Plan */}
                           {result.execution_plan && <ExecutionPlan plan={result.execution_plan} />}
-
-                          {/* AI Insights — only once the quiz (if any) is revealed:
-                            its DDL recommendations answer the exact question Quiz
-                            Mode asks. docs/querytuner-quiz-provider-fixes.md, Bug 1 */}
-                          {isAiInsightsRevealed(quizQuestions, quizRevealed, result) && (
-                            <CollapsibleSection
-                              title="AI Insights — full report"
-                              hint="deeper reasoning from the model; the tabs above are the summary"
-                            >
-                              <ResultsPanel
-                                title={`AI Insights${
-                                  result.ai_provider
-                                    ? ` (${result.ai_provider}${result.ai_model ? ` / ${result.ai_model}` : ''})`
-                                    : ''
-                                }`}
-                                content={result.ai_insights}
-                                icon={Zap}
-                                aiConfirmedTypes={aiConfirmedTypes}
-                                substitutionMap={substitutionMap}
-                                showCompletion={false}
-                                onShare={() => {
-                                  navigator.clipboard.writeText(result.ai_insights || '');
-                                  showToast('AI insights copied to clipboard', 'success');
-                                  trackAiInsightsCopied();
-                                }}
-                              />
-                            </CollapsibleSection>
-                          )}
                         </div>
+                      </TabPanel>
+                    )}
+
+                    {shownTab === 'ai' && (
+                      <TabPanel id="ai">
+                        {result.used_ai && !result.ai_error ? (
+                          <ResultsPanel
+                            title={`AI Insights${
+                              result.ai_provider
+                                ? ` (${result.ai_provider}${result.ai_model ? ` / ${result.ai_model}` : ''})`
+                                : ''
+                            }`}
+                            content={result.ai_insights}
+                            icon={Zap}
+                            aiConfirmedTypes={aiConfirmedTypes}
+                            substitutionMap={substitutionMap}
+                            showCompletion={false}
+                            onShare={() => {
+                              navigator.clipboard.writeText(result.ai_insights || '');
+                              showToast('AI insights copied to clipboard', 'success');
+                              trackAiInsightsCopied();
+                            }}
+                          />
+                        ) : (
+                          <div
+                            className="rounded-xl p-5 flex gap-3 items-start"
+                            style={{ background: '#1e293b', border: '1px solid #2d3f55' }}
+                          >
+                            <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#38bdf8' }} />
+                            <div>
+                              <p className="text-sm font-semibold text-white">
+                                {result.ai_attempted
+                                  ? 'AI insights were unavailable for this run'
+                                  : 'AI insights are turned off'}
+                              </p>
+                              <p className="text-sm mt-1" style={{ color: '#94a3b8' }}>
+                                {result.ai_attempted
+                                  ? 'Try again in a moment. The heuristic findings are complete.'
+                                  : 'Enable "Use AI insights" and run the diagnosis again to get AI reasoning, a deeper rewrite and index recommendations.'}
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </TabPanel>
                     )}
                   </>

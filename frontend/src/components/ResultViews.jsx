@@ -23,10 +23,12 @@ export function ResultTabs({ tabs, active, onChange }) {
             aria-selected={selected}
             aria-controls={`result-panel-${t.id}`}
             onClick={() => onChange(t.id)}
-            className="px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors"
+            className="px-4 py-2.5 text-sm whitespace-nowrap transition-colors rounded-t-lg hover:text-white"
             style={{
-              color: selected ? '#e2e8f0' : '#7fa3c4',
-              borderBottom: selected ? '2px solid #38bdf8' : '2px solid transparent',
+              color: selected ? '#ffffff' : '#7fa3c4',
+              fontWeight: selected ? 600 : 500,
+              background: selected ? 'rgba(56,189,248,0.14)' : 'transparent',
+              borderBottom: selected ? '3px solid #38bdf8' : '3px solid transparent',
               marginBottom: -1,
             }}
           >
