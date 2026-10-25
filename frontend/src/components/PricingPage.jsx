@@ -73,14 +73,24 @@ const T = {
 // file's own module docstring for the specific things that turned out
 // NOT to be gated (schema-aware analysis, EXPLAIN cross-referencing).
 const FEATURE_ROWS = [
-  { label: 'Analyses', free: '10 / month', pro: 'Unlimited' },
+  // Signed out: ANONYMOUS_DAILY_LIMIT per IP per day (main.py). Signed in:
+  // no cap on heuristic analyses.
+  { label: 'Analyses', free: 'Unlimited (5 / day signed out)', pro: 'Unlimited' },
   { label: 'Max query length', free: '8,000 characters', pro: '32,000 characters' },
   { label: 'Heuristic engine (24 checks, evidence-tiered)', free: true, pro: true },
   { label: 'Schema-aware index recommendations', free: true, pro: true },
   { label: 'EXPLAIN plan cross-referencing', free: true, pro: true },
   { label: 'Quiz Mode', free: true, pro: true },
   { label: 'Shareable report links', free: true, pro: true },
-  { label: 'AI Insights provider', free: 'Hugging Face', pro: 'Hugging Face + OpenAI GPT-4o-mini' },
+  // Free AI: Claude Haiku, capped per day by main.py's
+  // _check_free_ai_daily_limit (settings.free_ai_daily_limit) and still
+  // inside the monthly analysis cap above. Pro: Claude or OpenAI under the
+  // combined pro_openai_daily_limit fair-use ceiling.
+  {
+    label: 'AI Insights (findings, index advice, rewrite / targeted fixes)',
+    free: 'Claude Haiku, 3 / day',
+    pro: 'Claude or OpenAI GPT-4o-mini, up to 200 / day',
+  },
   { label: 'Query history', free: false, pro: true },
   // BatchAnalysisPage.jsx (/batch, linked from the header nav) closed the
   // gap PR #167's caveat note flagged here — #115/#120 shipped backend-only
@@ -293,8 +303,8 @@ export default function PricingPage() {
         <div className="qt-pricing-hero">
           <h1 className="qt-pricing-title">Simple, transparent pricing</h1>
           <p className="qt-pricing-subtitle">
-            Start free. Upgrade when you need unlimited analyses, query history, and OpenAI-powered
-            insights.
+            Start free: unlimited analyses and 3 Claude AI analyses a day. Pro adds more AI, longer
+            queries, query history, batch analysis and a choice of Claude or OpenAI.
           </p>
         </div>
 
@@ -302,7 +312,10 @@ export default function PricingPage() {
           {/* ── Free ── */}
           <div className="qt-pricing-card">
             <div className="qt-pricing-card-tier">Free</div>
-            <p className="qt-pricing-card-blurb">For trying QueryTuner out or occasional use.</p>
+            <p className="qt-pricing-card-blurb">
+              For trying QueryTuner out or occasional use. Includes 3 AI analyses a day with Claude
+              Haiku when signed in.
+            </p>
             <div className="qt-pricing-card-price">
               <span className="qt-pricing-card-price-amount">$0</span>
               <span className="qt-pricing-card-price-period">/month</span>
@@ -321,8 +334,17 @@ export default function PricingPage() {
               {!CHECKOUT_ENABLED && 'Free during early access.'}
             </p>
             <div className="qt-pricing-card-price">
-              <span className="qt-pricing-card-price-amount">$19</span>
-              <span className="qt-pricing-card-price-period">/month</span>
+              {CHECKOUT_ENABLED ? (
+                <>
+                  <span className="qt-pricing-card-price-amount">$19</span>
+                  <span className="qt-pricing-card-price-period">/month</span>
+                </>
+              ) : (
+                <>
+                  <span className="qt-pricing-card-price-amount">$0</span>
+                  <span className="qt-pricing-card-price-period">early access, by request</span>
+                </>
+              )}
             </div>
 
             {isPro ? (
@@ -375,7 +397,7 @@ export default function PricingPage() {
             ) : (
               <SignUpButton mode="modal">
                 <button className="qt-pricing-card-cta qt-pricing-card-cta-primary">
-                  Sign up to upgrade →
+                  {CHECKOUT_ENABLED ? 'Sign up to upgrade →' : 'Sign up, then request Pro →'}
                 </button>
               </SignUpButton>
             )}

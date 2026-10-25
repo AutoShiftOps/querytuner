@@ -2,7 +2,7 @@ import logging
 
 import httpx
 
-from app.llm.hf_client import call_hf, safe_parse_json
+from app.llm.json_utils import safe_parse_json
 from app.llm.prompts import REWRITE_GUARDRAILS
 from app.utils.config import settings
 
@@ -20,13 +20,15 @@ async def call_llm(
     provider: str | None = None,
     max_tokens: int = 600,
     db_type: str = "postgresql",  # Issue #74: added db_type parameter
+    model: str | None = None,
 ) -> dict:
     """
     Call the configured LLM provider.
 
     Args:
         prompt:    The user/task prompt.
-        provider:  "huggingface" | "openai" | "anthropic" | None (uses default from config).
+        provider:  "anthropic" | "openai" | None (uses default from config).
+        model:     Anthropic model ID override (free tier uses a cheaper model).
         max_tokens: Max tokens to generate.
         db_type:   Database dialect — injects dialect-specific context into
                    the system prompt so the model never hallucinates wrong syntax.
@@ -39,48 +41,13 @@ async def call_llm(
             "model":    str | None,
         }
     """
-    resolved_provider = provider or settings.default_llm_provider or "huggingface"
+    resolved_provider = provider or settings.default_llm_provider or "anthropic"
 
     if resolved_provider == "openai":
         return await _call_openai(prompt, max_tokens, db_type)
-    if resolved_provider == "anthropic":
-        return await _call_anthropic(prompt, max_tokens, db_type)
-    else:
-        return await _call_hf(prompt, max_tokens, db_type)
-
-
-# ── HuggingFace ───────────────────────────────────────────────────────────────
-
-
-async def _call_hf(prompt: str, max_tokens: int, db_type: str) -> dict:
-    """
-    Issue #74: db_type is passed to call_hf so the dialect context
-    can be injected into the instruct prompt in hf_client.py.
-    """
-    try:
-        text = await call_hf(prompt, max_tokens=max_tokens, db_type=db_type)
-        return {
-            "text": text,
-            "error": None,
-            "provider": "huggingface",
-            "model": settings.hf_model or "Qwen/Qwen2.5-Coder",
-        }
-    except RuntimeError as e:
-        logger.warning("HF LLM failed: %s", e)
-        return {
-            "text": None,
-            "error": str(e),
-            "provider": "huggingface",
-            "model": None,
-        }
-    except Exception as e:
-        logger.error("HF LLM unexpected error: %s", e, exc_info=True)
-        return {
-            "text": None,
-            "error": "AI model unavailable — heuristic analysis is complete above.",
-            "provider": "huggingface",
-            "model": None,
-        }
+    # Anthropic is the default; "huggingface" from older API clients lands
+    # here too (that provider was removed).
+    return await _call_anthropic(prompt, max_tokens, db_type, model=model)
 
 
 # ── OpenAI ────────────────────────────────────────────────────────────────────
@@ -184,12 +151,12 @@ def _anthropic_error_message(resp: httpx.Response, model: str) -> str:
     return msg
 
 
-async def _call_anthropic(prompt: str, max_tokens: int, db_type: str) -> dict:
+async def _call_anthropic(prompt: str, max_tokens: int, db_type: str, model: str | None = None) -> dict:
     """
     Messages API over plain httpx (no SDK dependency). No temperature/top_p:
     current Claude models reject sampling parameters with a 400.
     """
-    model = settings.anthropic_model or "claude-haiku-5-5"
+    model = model or settings.anthropic_model or "claude-haiku-5-5"
     if not settings.anthropic_api_key:
         return {
             "text": None,

@@ -37,9 +37,12 @@ honestly is part of the engineering discipline behind this project.
 
 ## LLM layer
 
-- AI provider: OpenAI gpt-4o-mini is the recommended default. HuggingFace is available
-  as an alternative via the provider dropdown but is unreliable on the free tier
-  (402 Payment Required errors as of July 2026).
+- AI providers: Anthropic Claude (default; free signed-in users get 3 AI analyses per
+  rolling 24h on FREE_AI_MODEL) and OpenAI gpt-4o-mini (Pro). Hugging Face was removed in
+  Oct 2026 after repeated 402 (out of credits) failures; "huggingface" in API requests is
+  treated as "anthropic".
+- The free-tier AI cap and the Pro daily ceiling are in-memory: they reset when the API
+  restarts and are per instance.
 - LLM output structure (JSON) is not guaranteed — the fallback renders plain text
   when JSON parsing fails.
 - The LLM does not have access to the database schema unless `schema_info` is

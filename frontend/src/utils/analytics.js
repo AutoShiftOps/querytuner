@@ -54,7 +54,7 @@ export function trackPageView(path, title) {
  * @param {object} params
  * @param {string} params.db_type          - 'postgresql' | 'mysql' | 'oracle' | 'sqlserver' | 'sqlite'
  * @param {boolean} params.use_llm         - whether AI was enabled
- * @param {string} params.llm_provider     - 'huggingface' | 'openai'
+ * @param {string} params.llm_provider     - 'anthropic' | 'openai'
  * @param {number} params.query_length     - character count of the input query
  */
 export function trackAnalysisRun({ db_type, use_llm, llm_provider, query_length }) {
@@ -169,7 +169,7 @@ export function trackDbTypeChanged(db_type) {
  * Fired when user toggles AI insights on or off.
  *
  * @param {boolean} enabled
- * @param {string} provider - 'huggingface' | 'openai'
+ * @param {string} provider - 'anthropic' | 'openai'
  */
 export function trackAiToggle(enabled, provider) {
   gtag('event', 'ai_toggle', {
