@@ -119,6 +119,7 @@ export function RewriteView({
   isAi,
   changed,
   aiCutOff,
+  aiEnabled,
   onCopyRewrite,
   onCopyOriginal,
 }) {
@@ -129,7 +130,16 @@ export function RewriteView({
         className="rounded-xl p-4 text-sm"
         style={{ background: '#1e293b', border: '1px solid #2d3f55', color: '#94a3b8' }}
       >
-        No rewrite was produced for this query.
+        <p className="font-semibold text-white">No safe automatic rewrite for this query</p>
+        <p className="mt-1">
+          QueryTuner only rewrites SQL when the result is guaranteed to stay the same. The Findings
+          tab lists what to change by hand.
+          {aiCutOff
+            ? ' The AI rewrite was cut off because the query is long, so it is not shown.'
+            : !aiEnabled
+              ? ' Enable "Use AI insights" and run again for a restructured query.'
+              : ''}
+        </p>
       </div>
     );
   }
@@ -146,15 +156,15 @@ export function RewriteView({
         >
           <Zap className="w-4 h-4 flex-shrink-0" />
           <span>
-            The AI rewrite was cut off because the query is long, so it is not shown. The
-            heuristic rewrite is shown instead — re-run with a shorter query for a full AI rewrite.
+            The AI rewrite was cut off because the query is long, so it is not shown. The safe
+            rewrite is shown instead.
           </span>
         </div>
       )}
       <CodePane
         title="Rewritten"
         badge={
-          isAi ? '✓ AI rewrite · review before applying' : 'Heuristic rewrite · review before applying'
+          isAi ? '✓ AI rewrite · review before applying' : 'Safe rewrite · same results · review before applying'
         }
         badgeColor="#34d399"
         text={rewrite}

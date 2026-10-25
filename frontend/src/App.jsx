@@ -446,7 +446,7 @@ function App() {
   const ddlItems = useMemo(() => getDdlItems(result?.optimization_suggestions), [result]);
   const securityIssues = Array.isArray(result?.security_issues) ? result.security_issues : [];
   const shownTab =
-    (activeTab === 'indexes' && ddlItems.length === 0) || (activeTab === 'rewrite' && !rewriteSql)
+    activeTab === 'indexes' && ddlItems.length === 0
       ? 'findings'
       : activeTab;
 
@@ -708,7 +708,7 @@ function App() {
                           count: ddlItems.length,
                           hidden: ddlItems.length === 0,
                         },
-                        { id: 'rewrite', label: 'Rewrite', hidden: !rewriteSql },
+                        { id: 'rewrite', label: 'Rewrite' },
                         { id: 'ai', label: 'AI Insights' },
                         {
                           id: 'details',
@@ -748,6 +748,7 @@ function App() {
                           isAi={rewriteIsAi}
                           changed={rewriteChanged}
                           aiCutOff={aiRewriteCutOff}
+                          aiEnabled={Boolean(result.ai_attempted)}
                           onCopyRewrite={() => {
                             navigator.clipboard.writeText(rewriteSql);
                             showToast('Optimized query copied', 'success');

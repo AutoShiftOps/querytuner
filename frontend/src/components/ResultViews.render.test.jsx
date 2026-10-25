@@ -42,6 +42,7 @@ describe('RewriteView', () => {
 
   it('handles a missing rewrite', () => {
     render(<RewriteView {...base} rewrite="" />);
-    expect(screen.getByText(/No rewrite was produced/)).toBeInTheDocument();
+    expect(screen.getByText(/No safe automatic rewrite/)).toBeInTheDocument();
+    expect(screen.getByText(/Enable "Use AI insights"/)).toBeInTheDocument();
   });
 });

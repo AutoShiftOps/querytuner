@@ -463,14 +463,18 @@ def test_year_rewrite_is_half_open():
     assert "BETWEEN" not in out
 
 
-def test_month_rewrite_is_half_open_including_december():
+def test_heuristic_rewrite_only_emits_runnable_same_result_sql():
     from app.agents.optimizer import QueryOptimizer
 
-    agent = QueryOptimizer()
-    mar = agent._rewrite_month_function("WHERE MONTH(d) = 3")[0]
-    assert "d >= 'YYYY-03-01' AND d < 'YYYY-04-01'" in mar
-    dec = agent._rewrite_month_function("WHERE MONTH(d) = 12")[0]
-    assert "<YYYY+1>-01-01" in dec
+    opt = QueryOptimizer()
+    # Nothing safe to change -> no rewrite (no placeholders, no appended LIMIT).
+    q = "SELECT * FROM orders WHERE MONTH(d) = 3 AND name LIKE '%x' ORDER BY id"
+    assert opt.rewrite(q, [], "postgresql") == ""
+    # YEAR() is rewritten; the rest of the query is left exactly as written.
+    out = opt.rewrite("SELECT * FROM orders WHERE YEAR(d) = 2024 ORDER BY id", [], "postgresql")
+    assert "(d >= '2024-01-01' AND d < '2025-01-01')" in out
+    assert out.endswith("SELECT * FROM orders WHERE (d >= '2024-01-01' AND d < '2025-01-01') ORDER BY id")
+    assert "TODO" not in out and "LIMIT" not in out
 
 
 def test_llm_rewrite_guardrails_cover_fanout_and_filters():
