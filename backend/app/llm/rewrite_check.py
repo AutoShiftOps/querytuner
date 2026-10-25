@@ -54,7 +54,8 @@ def _mask(sql: str) -> str:
         t = m.group(0)
         return t[0] + " " * (len(t) - 2) + t[-1]
 
-    return re.sub(r"'(?:[^']|'')*'|\[[^\]]*\]|\"[^\"]*\"|`[^`]*`", _blank, sql)
+    # [^\[\]] keeps this linear on input like "[[[[...".
+    return re.sub(r"'(?:[^']|'')*'|\[[^\[\]]*\]|\"[^\"]*\"|`[^`]*`", _blank, sql)
 
 
 def _depth_at(sql: str, pos: int) -> int:

@@ -168,7 +168,8 @@ def _mask_quoted(sql: str) -> str:
         t = m.group(0)
         return t[0] + "x" * (len(t) - 2) + t[-1]
 
-    return re.sub(r"\[[^\]]*\]|'[^']*'|\"[^\"]*\"|`[^`]*`", _blank, sql)
+    # [^\[\]] (not just [^\]]) keeps this linear on input like "[[[[...".
+    return re.sub(r"\[[^\[\]]*\]|'[^']*'|\"[^\"]*\"|`[^`]*`", _blank, sql)
 
 
 def strip_sql_comments(sql: str, hash_comments: bool = False) -> str:
