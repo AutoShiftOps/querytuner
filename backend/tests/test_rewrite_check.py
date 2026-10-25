@@ -52,7 +52,31 @@ def test_review_removes_rejected_rewrite_and_records_why():
     reply = json.dumps({"recommended_indexes": [], "rewritten_query": "SELECT 1 FROM [dbo].[Sales Header] SH,"})
     out = json.loads(review_ai_output(ORIGINAL, reply))
     assert out["rewritten_query"] == "" and out["rewrite_rejected"]
-    assert review_ai_output(ORIGINAL, '{"rewritten_query": "SELECT ISNULL(') == '{"rewritten_query": "SELECT ISNULL('
+    assert review_ai_output(ORIGINAL, "not json at all") == "not json at all"
+
+
+def test_cut_off_reply_is_repaired_and_the_unfinished_part_dropped():
+    cut_rewrite = json.loads(
+        review_ai_output(ORIGINAL, '{"recommended_indexes": [], "rewritten_query": "SELECT ISNULL(')
+    )
+    assert cut_rewrite["rewritten_query"] == "" and cut_rewrite["rewrite_cut_off"] is True
+    assert cut_rewrite["output_truncated"] is True
+
+    ok_fix = '{"title": "t", "before": "select top 1 [PickupHub] from @Data", "after": "select top (1) [PickupHub] from @Data"}'
+    cut = (
+        '{"most_impactful_improvements": [], "targeted_fixes": ['
+        + ok_fix
+        + ", "
+        + ok_fix
+        + ', {"title": "half", "before": "SH.No'
+    )
+    out = json.loads(review_ai_output(ORIGINAL, cut))
+    assert out["output_truncated"] is True
+    assert [f["title"] for f in out["targeted_fixes"]] == ["t", "t"]
+    assert out["targeted_fixes_dropped"] == 1
+
+    mid_key = json.loads(review_ai_output(ORIGINAL, '{"targeted_fixes": [' + ok_fix + '], "risky_ass'))
+    assert len(mid_key["targeted_fixes"]) == 1
 
 
 def test_targeted_mode_for_batches_and_long_queries_only():

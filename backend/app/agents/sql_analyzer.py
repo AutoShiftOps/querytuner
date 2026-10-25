@@ -61,8 +61,9 @@ AI_QUERY_TRUNCATE_CHARS = 8000
 # plus findings and index DDL, so a fixed 1500-token budget cuts long queries
 # off mid-rewrite. Scale the output budget with the prompt, within a ceiling.
 AI_MAX_OUTPUT_TOKENS = 6000
-# Targeted fixes are short snippets, so they need far less room than a rewrite.
-TARGETED_OUTPUT_TOKENS = 2500
+# Targeted fixes are snippets, but a batch can still need several plus
+# findings and index DDL: 2500 was cut off in production on a 10k-char batch.
+TARGETED_OUTPUT_TOKENS = 6000
 
 
 def _ai_output_budget(prompt: str) -> int:
@@ -740,7 +741,9 @@ class SQLAnalyzerAgent:
             '"before" must be copied exactly, character for character, from the SQL above (one contiguous '
             'snippet, ideally under 400 characters); "after" is its replacement. Every fix must keep the same '
             "rows and output columns. Prefer fixes for correlated subqueries run per row, TOP without ORDER BY, "
-            "and filters that block index use."
+            "and filters that block index use. Keep it brief so the reply fits: at most 4 "
+            "most_impactful_improvements and 4 recommended_indexes, one or two sentences each; put "
+            "targeted_fixes before risky_assumptions."
             if targeted
             else "3) Provide a rewritten query if it can reduce cost (CTEs/JOIN refactors/filters)."
         )
