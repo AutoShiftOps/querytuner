@@ -151,6 +151,37 @@ def _anthropic_error_message(resp: httpx.Response, model: str) -> str:
     return msg
 
 
+def _thinking_params(model: str) -> dict:
+    """
+    Current Claude models think by default, and thinking counts against
+    max_tokens: on a large batch the whole budget went to thinking and the
+    reply had no text. This task is a structured JSON report, so keep
+    thinking off or minimal. Per Anthropic's thinking docs: Haiku accepts
+    thinking "disabled", Sonnet skips up-front thinking with "between_tools"
+    (both need effort high or lower), Opus can't disable it, so only effort
+    is lowered there.
+    """
+    m = model.lower()
+    params: dict = {"output_config": {"effort": "low"}}
+    if "haiku" in m:
+        params["thinking"] = {"type": "disabled"}
+    elif "sonnet" in m:
+        params["thinking"] = {"type": "between_tools"}
+    return params
+
+
+async def _post_messages(client: httpx.AsyncClient, body: dict) -> httpx.Response:
+    return await client.post(
+        ANTHROPIC_MESSAGES_URL,
+        headers={
+            "x-api-key": settings.anthropic_api_key,
+            "anthropic-version": ANTHROPIC_VERSION,
+            "content-type": "application/json",
+        },
+        json=body,
+    )
+
+
 async def _call_anthropic(prompt: str, max_tokens: int, db_type: str, model: str | None = None) -> dict:
     """
     Messages API over plain httpx (no SDK dependency). No temperature/top_p:
@@ -164,22 +195,21 @@ async def _call_anthropic(prompt: str, max_tokens: int, db_type: str, model: str
             "provider": "anthropic",
             "model": None,
         }
+    body = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": _system_prompt(db_type),
+        "messages": [{"role": "user", "content": prompt}],
+    }
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(
-                ANTHROPIC_MESSAGES_URL,
-                headers={
-                    "x-api-key": settings.anthropic_api_key,
-                    "anthropic-version": ANTHROPIC_VERSION,
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "max_tokens": max_tokens,
-                    "system": _system_prompt(db_type),
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
+            thinking = _thinking_params(model)
+            resp = await _post_messages(client, {**body, **thinking})
+            if resp.status_code == 400 and thinking:
+                # A model that doesn't accept these settings: retry once
+                # without them rather than failing the analysis.
+                logger.warning("Anthropic rejected thinking/effort settings for %s: %s", model, resp.text[:300])
+                resp = await _post_messages(client, body)
         if resp.status_code != 200:
             logger.error("Anthropic LLM error %s: %s", resp.status_code, resp.text[:500])
             return {
@@ -189,9 +219,27 @@ async def _call_anthropic(prompt: str, max_tokens: int, db_type: str, model: str
                 "model": model,
             }
         data = resp.json()
-        text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+        blocks = data.get("content", [])
+        text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+        usage = data.get("usage") or {}
+        thinking_tokens = (usage.get("output_tokens_details") or {}).get("thinking_tokens")
         if data.get("stop_reason") == "max_tokens":
-            logger.warning("Anthropic reply hit max_tokens (%s)", max_tokens)
+            logger.warning(
+                "Anthropic reply hit max_tokens (%s); output_tokens=%s thinking_tokens=%s",
+                max_tokens,
+                usage.get("output_tokens"),
+                thinking_tokens,
+            )
+            if not text:
+                return {
+                    "text": None,
+                    "error": (
+                        f"Claude ({model}) used its whole {max_tokens}-token output budget thinking and "
+                        "wrote no answer. Try a smaller piece of the query."
+                    ),
+                    "provider": "anthropic",
+                    "model": data.get("model") or model,
+                }
         return {"text": text or None, "error": None, "provider": "anthropic", "model": data.get("model") or model}
     except Exception as e:
         logger.error("Anthropic LLM error: %s", e, exc_info=True)

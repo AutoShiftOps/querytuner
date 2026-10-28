@@ -9,6 +9,7 @@ import OptimizationSuggestions, { getDdlItems } from './components/OptimizationS
 import QuizMode from './components/QuizMode';
 import { generateQuiz } from './utils/quiz';
 import { isServiceUnavailable, UNAVAILABLE_MESSAGE } from './utils/serviceStatus';
+import { buildProRequestMailto } from './utils/proWaitlist';
 import { readAiPreference, writeAiPreference, shouldDefaultAiOn } from './utils/aiPreference';
 import ExecutionPlan from './components/ExecutionPlan';
 import { ResultTabs, TabPanel, RewriteView } from './components/ResultViews';
@@ -89,7 +90,10 @@ function App() {
   const aiDefaultAppliedRef = useRef(false);
 
   // ── Phase 4: Clerk auth + usage tracking ─────────────────────────────────
-  const { isSignedIn } = useUser();
+  const { isSignedIn, user } = useUser();
+  // True after a run fell back to heuristic-only because today's free AI
+  // analyses were used up: the AI Insights tab then offers Pro by email.
+  const [aiCapHit, setAiCapHit] = useState(false);
   const { getToken } = useAuth();
   const [usageCount, setUsageCount] = useState(0);
   const [isPro, setIsPro] = useState(false);
@@ -228,6 +232,7 @@ function App() {
       // Called as an onClick handler too, so only trust our own plain options object.
       const forceHeuristic = opts?.forceHeuristic === true;
       const llmNow = useLlm && !forceHeuristic;
+      if (!forceHeuristic) setAiCapHit(false);
       // Empty editor: say what to do instead of silently doing nothing.
       if (!query.trim()) {
         trackEmptyRunClicked();
@@ -324,6 +329,7 @@ function App() {
         // AI off for the rest of the session and re-run without it.
         if (isFreeAiLimitReached && llmNow && isSignedIn) {
           setUseLlm(false);
+          setAiCapHit(true);
           showToast(
             "Today's free AI analyses are used up — showing the heuristic analysis",
             'info'
@@ -463,12 +469,19 @@ function App() {
   }, [handleAnalyze]);
 
   // ── AI toggle toast + analytics ─────────────────────────────────────────
-  useEffect(() => {
-    if (useLlm) {
-      showToast('AI insights enabled', 'info');
-      trackAiToggle(true, llmProvider);
-    }
-  }, [useLlm, showToast, llmProvider]);
+  // Only for the visitor's own click: AI also turns on automatically for
+  // signed-in users and the provider changes on load, and neither should toast.
+  const handleUserAiToggle = useCallback(
+    (enabled) => {
+      setUseLlm(enabled);
+      writeAiPreference(enabled);
+      if (enabled) {
+        showToast('AI insights enabled', 'info');
+        trackAiToggle(true, llmProvider);
+      }
+    },
+    [showToast, llmProvider]
+  );
 
   // ── Fetch backend capabilities ──────────────────────────────────────────
   useEffect(() => {
@@ -609,10 +622,7 @@ function App() {
               onAnalyze={handleAnalyze}
               loading={loading}
               useLlm={useLlm}
-              setUseLlm={(v) => {
-                setUseLlm(v);
-                writeAiPreference(v);
-              }}
+              setUseLlm={handleUserAiToggle}
               llmProvider={llmProvider}
               setLlmProvider={setLlmProvider}
               caps={caps}
@@ -916,15 +926,31 @@ function App() {
                         />
                         <div>
                           <p className="text-sm font-semibold text-white">
-                            {aiAttempted
-                              ? 'AI insights were unavailable for this run'
-                              : 'AI insights are turned off'}
+                            {aiCapHit
+                              ? "Today's free AI analyses are used up"
+                              : aiAttempted
+                                ? 'AI insights were unavailable for this run'
+                                : 'AI insights are turned off'}
                           </p>
                           <p className="text-sm mt-1" style={{ color: '#94a3b8' }}>
-                            {aiAttempted
-                              ? aiErrorText
-                              : 'Enable "Use AI insights" and run the diagnosis again to get AI reasoning, a deeper rewrite and index recommendations.'}
+                            {aiCapHit
+                              ? 'The heuristic analysis is complete. AI insights come back within 24 hours, or Pro (free during early access) gives you more.'
+                              : aiAttempted
+                                ? aiErrorText
+                                : 'Enable "Use AI insights" and run the diagnosis again to get AI reasoning, a deeper rewrite and index recommendations.'}
                           </p>
+                          {aiCapHit && (
+                            <a
+                              href={buildProRequestMailto({
+                                email: user?.primaryEmailAddress?.emailAddress || null,
+                                userId: user?.id || null,
+                              })}
+                              className="inline-block mt-3 text-sm font-medium px-3 py-1.5 rounded"
+                              style={{ background: '#38bdf8', color: '#0f172a' }}
+                            >
+                              Request Pro by email →
+                            </a>
+                          )}
                         </div>
                       </div>
                     )}

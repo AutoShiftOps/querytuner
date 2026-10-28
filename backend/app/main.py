@@ -558,7 +558,15 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
                 query=request.query,
                 db_type=request.db_type,
                 provider=llm_provider_key,
-                model=settings.free_ai_model if not is_pro else None,
+                # The model actually used, so changing ANTHROPIC_MODEL / OPENAI_MODEL
+                # never serves the previous model's stored answer.
+                model=(
+                    settings.free_ai_model
+                    if not is_pro
+                    else settings.openai_model
+                    if llm_provider_key == "openai"
+                    else settings.anthropic_model
+                ),
                 focus=request.focus,
                 schema_info=request.schema_info,
                 explain_plan=request.explain_plan,
@@ -627,7 +635,13 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
             llm_model=llm_model,
             cached_ai=cached_ai,
         )
-        if ai_cache_key and not cached_ai and result.get("used_ai") and not result.get("ai_error"):
+        if (
+            ai_cache_key
+            and not cached_ai
+            and result.get("used_ai")
+            and not result.get("ai_error")
+            and ai_cache.is_cacheable(result.get("ai_insights"))
+        ):
             ai_cache.put(ai_cache_key, {"ai_insights": result.get("ai_insights"), "ai_model": result.get("ai_model")})
         elif cached_ai:
             logger.info("Served sample-query AI output from cache")

@@ -87,8 +87,8 @@ export function AiNote({ title, children }) {
 export function AiCutOffNote({ extra }) {
   return (
     <AiNote title="AI rewrite incomplete — the reply hit its length limit">
-      {extra ? `${extra} ` : ''}For a full rewrite, analyze a smaller piece — for example the main
-      SELECT on its own, without any DECLARE or temp-table setup around it.
+      {extra ? `${extra} ` : ''}Run it again. If it keeps happening on a long script, analyze a
+      smaller piece, such as the main SELECT on its own.
     </AiNote>
   );
 }
