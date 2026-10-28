@@ -33,7 +33,7 @@ from .schemas.models import (  # noqa: E402
 from .tools.batch_parsers import parse_batch_export, rank_top_n  # noqa: E402
 from .tools.batch_reconciler import reconcile_index_suggestions  # noqa: E402
 from .tools.index_recommender import IndexRecommender  # noqa: E402
-from .tools.query_parser import QueryParser, parse_schema_ddl  # noqa: E402
+from .tools.query_parser import QueryParser, looks_like_sql, parse_schema_ddl  # noqa: E402
 from .utils import ai_cache  # noqa: E402
 from .utils.config import settings  # noqa: E402
 from .utils.database import (  # noqa: E402
@@ -424,6 +424,18 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
         # Validate query
         if not request.query or len(request.query.strip()) < 5:
             raise HTTPException(status_code=400, detail="Query too short")
+        db_name = str(getattr(request.db_type, "value", request.db_type)).lower()
+        if not looks_like_sql(request.query, hash_comments=db_name == "mysql"):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "not_sql",
+                    "message": (
+                        "This doesn't look like a SQL query. Paste a statement that starts with "
+                        "SELECT, WITH, INSERT, UPDATE, DELETE or a script (DECLARE, CREATE, ...)."
+                    ),
+                },
+            )
 
         # Phase 4: resolve tier once — drives both the per-query character
         # limit below and the monthly analysis-count limit further down.

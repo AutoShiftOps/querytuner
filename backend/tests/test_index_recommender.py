@@ -526,3 +526,36 @@ def test_single_table_query_names_the_table(analyzer):
         if s.get("ddl_hint")
     ]
     assert ddls and not any("<table_name>" in d for d in ddls), ddls
+
+
+YEAR_SAMPLE = "SELECT id, user_id, total\nFROM orders\nWHERE YEAR(created_at) = 2024\n  AND status = 'completed';"
+
+
+@pytest.mark.parametrize("db_type", ["postgresql", "mysql", "sqlserver", "oracle", "sqlite"])
+def test_year_filter_plus_equality_gives_one_composite(analyzer, db_type):
+    """After the YEAR() -> range rewrite, the index a DBA adds is (status, created_at):
+    equality column first, then the range column. Single-column suggestions for
+    the same two filter columns are redundant next to it."""
+    idx = [s for s in run(analyzer, YEAR_SAMPLE, db_type=db_type) if s["type"].startswith("index_review_")]
+    assert [s["columns"] for s in idx] == [["status", "created_at"]], idx
+    assert idx[0]["type"] == "index_review_composite_index"
+    assert "idx_orders_status_created_at" in idx[0]["ddl_hint"]
+    assert "idx_orders_status_created_at" in idx[0]["rollback_ddl"]
+
+
+def test_unqualified_columns_on_a_join_are_not_guessed_into_a_composite(analyzer):
+    q = "SELECT * FROM orders o JOIN users u ON u.id = o.user_id WHERE status = 'paid' AND created_at > '2024-01-01'"
+    composites = [s for s in run(analyzer, q) if s["type"] == "index_review_composite_index"]
+    assert not any("status" in s["columns"] and "created_at" in s["columns"] for s in composites)
+
+
+@pytest.mark.parametrize(
+    "db_type,partial", [("mysql", False), ("oracle", False), ("postgresql", True), ("sqlserver", True)]
+)
+def test_only_real_partial_indexes_are_named_partial(analyzer, db_type, partial):
+    s = [
+        x
+        for x in run(analyzer, "SELECT id FROM orders WHERE status = 'paid'", db_type=db_type)
+        if x["type"] == "index_review_partial_index_candidate"
+    ][0]
+    assert ("_partial" in s["ddl_hint"]) is partial, s["ddl_hint"]
