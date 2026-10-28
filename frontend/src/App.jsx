@@ -17,6 +17,7 @@ import SampleQueries from './components/SampleQueries';
 import ResultFollowUp from './components/ResultFollowUp';
 import Header from './components/Header';
 import Hero from './components/Hero';
+import EmptyResults from './components/EmptyResults';
 import Footer from './components/Footer';
 import UpgradeModal from './components/UpgradeModal';
 import { ToastContainer, useToast } from './components/Toast';
@@ -90,7 +91,7 @@ function App() {
   const aiDefaultAppliedRef = useRef(false);
 
   // ── Phase 4: Clerk auth + usage tracking ─────────────────────────────────
-  const { isSignedIn, user } = useUser();
+  const { isSignedIn, isLoaded: userLoaded, user } = useUser();
   // True after a run fell back to heuristic-only because today's free AI
   // analyses were used up: the AI Insights tab then offers Pro by email.
   const [aiCapHit, setAiCapHit] = useState(false);
@@ -593,7 +594,9 @@ function App() {
         subtitle={upgradeModalCopy?.subtitle}
       />
       <Header isPro={isPro} showToast={showToast} />
-      <Hero />
+      {/* Signed-in users came to use the tool: no pitch, the workspace starts
+          under the header. Nothing until Clerk has loaded, so it never flashes. */}
+      {userLoaded && !isSignedIn && <Hero />}
 
       {/* ── Main two-column grid ── */}
       <div className="flex-grow w-full mx-auto px-4 py-8" style={{ maxWidth: 1280 }}>
@@ -688,24 +691,7 @@ function App() {
               </div>
             )}
 
-            {!result && !loading && (
-              <div
-                className="rounded-xl text-center py-16 px-6"
-                style={{ background: '#1e293b', border: '1px dashed #2d3f55', color: '#4a6480' }}
-              >
-                <p className="text-sm">
-                  Paste a query and press{' '}
-                  <kbd
-                    className="px-2 py-0.5 rounded text-xs font-mono"
-                    style={{ background: '#0f172a', border: '1px solid #2d3f55', color: '#7fa3c4' }}
-                  >
-                    ⌘ Enter
-                  </kbd>{' '}
-                  or <strong style={{ color: '#7fa3c4' }}>Run Diagnostics</strong> to see findings,
-                  index recommendations and a rewritten query here.
-                </p>
-              </div>
-            )}
+            {!result && !loading && <EmptyResults />}
 
             {result && (
               <div className="space-y-4 min-w-0">
