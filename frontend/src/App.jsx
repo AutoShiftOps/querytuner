@@ -8,6 +8,7 @@ import ResultsPanel from './components/ResultsPanel';
 import OptimizationSuggestions, { getDdlItems } from './components/OptimizationSuggestions';
 import QuizMode from './components/QuizMode';
 import { generateQuiz } from './utils/quiz';
+import { isServiceUnavailable, UNAVAILABLE_MESSAGE } from './utils/serviceStatus';
 import { readAiPreference, writeAiPreference, shouldDefaultAiOn } from './utils/aiPreference';
 import ExecutionPlan from './components/ExecutionPlan';
 import { ResultTabs, TabPanel, RewriteView } from './components/ResultViews';
@@ -340,9 +341,12 @@ function App() {
         // smaller per-query character limit — that's Pro's actual pitch, so
         // show the upgrade modal instead of a toast the user just dismisses.
         const upgradeAvailable = isQueryTooLarge && err.response?.data?.upgrade_available === true;
+        const serviceUnavailable = !hasStructuredError && isServiceUnavailable(err);
         const detail = hasStructuredError
           ? err.response.data.message
-          : err.response?.data?.detail || 'Analysis failed';
+          : serviceUnavailable
+            ? UNAVAILABLE_MESSAGE
+            : err.response?.data?.detail || 'Analysis failed';
         setError(detail);
         if (upgradeAvailable) {
           setUpgradeModalCopy({
@@ -376,7 +380,10 @@ function App() {
         } else if (isQueryTooLarge) {
           showToast(detail, 'warning');
         } else {
-          showToast('Analysis failed — please check your query', 'error');
+          showToast(
+            serviceUnavailable ? UNAVAILABLE_MESSAGE : 'Analysis failed — please check your query',
+            'error'
+          );
         }
         trackAnalysisError(
           errorCode || (err.response ? `http_${err.response.status}` : 'network'),
