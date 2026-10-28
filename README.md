@@ -41,7 +41,7 @@ QueryTuner analyzes SQL queries in two layers:
 ## Features
 
 - 🗄️ **5 Database Dialects** — PostgreSQL, MySQL, Oracle, SQL Server, SQLite
-- ⚡ **Heuristic Engine** — 12 deterministic rules, always available, no external API calls required
+- ⚡ **Heuristic Engine** — 17 deterministic rules, always available, no external API calls required
 - 🗂️ **Schema-Aware Analysis** — paste `CREATE TABLE` DDL and index recommendations upgrade from
   estimated to **confirmed**, resolved against your real table and column names
 - 🔧 **Dialect-Correct Index DDL** — `CREATE INDEX CONCURRENTLY` (PostgreSQL),
@@ -49,7 +49,11 @@ QueryTuner analyzes SQL queries in two layers:
 - 🤖 **Dual AI Provider** — Anthropic Claude (default; 3 free AI analyses/day when signed in) or OpenAI (Pro), with structured JSON output
   (falls back to readable plain text if the model doesn't return JSON)
 - 🔍 **Severity-Ranked Findings** — Critical → High → Medium → Low
-- 📋 **Optimized Query Output** — rewritten SQL you can copy and run
+- 📋 **Rewritten Query / Targeted Fixes** — a full AI rewrite for smaller, single-statement
+  queries; individually-verifiable before/after "Targeted Fixes" for large (>3000 char) or
+  multi-statement queries, where a single rewritten block risks silently changing results.
+  A separate deterministic "Annotated Query" always adds safe inline comments only — it
+  never restructures the query, and is intentionally not labeled as a rewrite
 - 🔗 **Shareable Reports** — every analysis gets a permanent `/report/:id` URL
 - 📈 **Analytics** — Google Analytics 4 event tracking on every user action
 - 🛡️ **Security Scanning** — detects SQL injection patterns and unsafe constructs
@@ -134,6 +138,8 @@ querytuner.com (Vercel)          api.querytuner.com (Render)
                                     │   ┌────────▼───────────┐ │
                                     │   │    LLM Router      │ │  ← optional
                                     │   │  Claude │ OpenAI   │ │
+                                    │   │  (Hugging Face     │ │
+                                    │   │   removed Oct 2026)│ │
                                     │   └────────────────────┘ │
                                     └──────────────────────────┘
 ```
@@ -203,22 +209,31 @@ sql-query-analyzer/
 │   ├── app/
 │   │   ├── agents/
 │   │   │   ├── sql_analyzer.py    # Main analyzer agent (heuristics + LLM orchestration)
-│   │   │   ├── optimizer.py       # Query rewrite engine
+│   │   │   ├── optimizer.py       # Deterministic "Annotated Query" comment pass (never rewrites)
 │   │   │   └── explainer.py       # Plain-English explanation layer
 │   │   ├── llm/
-│   │   │   └── router.py          # Dual-provider LLM router (HF + OpenAI)
+│   │   │   ├── router.py          # Dual-provider LLM router (Claude + OpenAI; HF removed Oct 2026)
+│   │   │   ├── rewrite_check.py   # Verifies/filters AI rewrites + targeted fixes before they reach the UI
+│   │   │   └── json_utils.py      # LLM JSON-response parsing helpers
 │   │   ├── schemas/
 │   │   │   └── models.py          # Pydantic request/response models
 │   │   ├── tools/
 │   │   │   ├── query_parser.py    # SQL structure extractor + heuristic rules
 │   │   │   ├── execution_planner.py
-│   │   │   └── index_recommender.py
+│   │   │   ├── index_recommender.py
+│   │   │   ├── batch_parsers.py   # Batch analysis: splits a pasted batch into queries
+│   │   │   ├── batch_reconciler.py
+│   │   │   ├── tabular_parse.py
+│   │   │   ├── plan_crossref.py
+│   │   │   ├── plan_parsers/      # EXPLAIN plan parsers (Postgres, MySQL)
+│   │   │   └── collectors/        # Per-dialect EXPLAIN collection helpers (5 dialects)
 │   │   ├── utils/
 │   │   │   ├── config.py
 │   │   │   ├── database.py          # Supabase persistence — save/fetch analyses
 │   │   │   ├── dialect_config.py    # Dialect-specific DDL, rewrites, LLM prompts (Phase 1.7)
-│   │   │   └── db_connectors.py
-│   │   └── main.py                # FastAPI app, routes, rate limiting
+│   │   │   ├── db_connectors.py
+│   │   │   └── ai_cache.py          # Caches AI output for the built-in sample queries
+│   │   └── main.py                # FastAPI app, routes, rate limiting, Clerk auth, Stripe webhook
 │   ├── migrations/                # Versioned Supabase schema (001_initial_schema.sql, ...)
 │   ├── LIMITATIONS.md             # Known gaps and scope boundaries
 │   ├── requirements.txt
@@ -230,6 +245,8 @@ sql-query-analyzer/
 │   │   │   ├── OptimizationSuggestions.jsx
 │   │   │   ├── ExecutionPlan.jsx
 │   │   │   ├── ResultsPanel.jsx
+│   │   │   ├── ResultViews.jsx      # Tabbed result layout (Findings/AI Insights/Rewrite/etc.)
+│   │   │   ├── ResultFollowUp.jsx
 │   │   │   ├── SampleQueries.jsx    # Pre-built example queries
 │   │   │   ├── Header.jsx           # Sticky enterprise nav
 │   │   │   ├── Hero.jsx             # Value proposition strip
@@ -238,12 +255,22 @@ sql-query-analyzer/
 │   │   │   ├── ShareButton.jsx      # Share analysis URL
 │   │   │   ├── QueryDiagnosis.jsx   # Structured plain-explanation renderer
 │   │   │   ├── ReportPage.jsx       # Shareable /report/:id read-only page
-│   │   │   └── SanitizerPanel.jsx   # Three-state sanitizer UI
+│   │   │   ├── SanitizerPanel.jsx   # Three-state sanitizer UI
+│   │   │   ├── BatchAnalysisPage.jsx  # /batch — paste-box batch analysis UI
+│   │   │   ├── HistoryPage.jsx        # /history — signed-in analysis history
+│   │   │   ├── PricingPage.jsx        # /pricing — Free vs Pro comparison
+│   │   │   ├── UpgradeModal.jsx       # Pro upgrade CTA (checkout gated — see Roadmap)
+│   │   │   ├── OptimizationComplete.jsx
+│   │   │   └── QuizMode.jsx
 │   │   ├── utils/
 │   │   │   ├── analytics.js         # GA4 event tracking
 │   │   │   ├── aiInsights.js        # Shared AI-JSON parsing (App.jsx + ResultsPanel.jsx)
-│   │   │   └── sanitizer.js         # Client-side query sanitizer (substitution map,
-│   │   │                            #   sanitize/desanitize/buildDiff)
+│   │   │   ├── sanitizer.js         # Client-side query sanitizer (substitution map,
+│   │   │   │                        #   sanitize/desanitize/buildDiff)
+│   │   │   ├── aiPreference.js
+│   │   │   ├── providerSelection.js
+│   │   │   ├── serviceStatus.js
+│   │   │   └── proWaitlist.js       # mailto: "Pro coming soon" flow (checkout gated)
 │   │   └── App.jsx
 │   └── package.json
 ├── docs/
@@ -262,9 +289,15 @@ sql-query-analyzer/
 * [x] Google Analytics 4 event tracking — Phase 1.6 ✅
 * [x] Dialect-aware DDL, rewrites, and LLM prompts (5 DB types) — Phase 1.7 ✅
 * [x] Schema-aware analysis — paste DDL for confirmed (not just estimated) index suggestions — Phase 2 ✅
+* [x] Heuristic engine grown to 17 rules across 5 dialects — ongoing
+* [x] Batch workload analysis (`/batch`) + EXPLAIN plan collectors for all 5 dialects — Phase 3 ✅
 * [ ] LangGraph agentic pipeline — Phase 3 ⏭ (deferred post-revenue)
-* [ ] API key auth + usage metering — Phase 4 🔜
-* [ ] Stripe payments — Free / Pro / Team tiers — Phase 4 🔜
+* [x] User auth (Clerk, JWT-verified) + AI usage metering (daily caps per user/IP) — Phase 4 ✅
+* [~] Stripe payments — backend integration (webhook, billing portal) and the Pro upgrade UI
+  are built, but checkout is **intentionally disabled by default**
+  (`VITE_PRO_CHECKOUT_ENABLED` must be explicitly set) while ensuring running a paid SaaS is
+  compatible with a Canadian closed/employer-specific work permit. Signed-in users currently
+  get Pro free on request instead — see `docs/pro-checkout-coming-soon.md` — Phase 4
 * [ ] GitHub Action: `querytuner-analyze` for CI/CD pipelines — Phase 5 🔜
 * [ ] Cross-database execution plan risk normalizer (UEPN) — Phase 5 🔜
 * [ ] Live DB connection mode — Phase 5 🔜
@@ -274,8 +307,10 @@ sql-query-analyzer/
 ## Known Limitations
 
 See [LIMITATIONS.md](backend/LIMITATIONS.md) for the full list. Key limitations: no live DB
-connection, stateless analysis (no query history across runs), AI insights depend on the
-Anthropic/OpenAI APIs being reachable, and LATERAL join correlated-column detection is not yet supported.
+connection, AI insights depend on the Anthropic/OpenAI APIs being reachable, LATERAL join
+correlated-column detection is not yet supported, and DDL-hint alias resolution
+(`_extract_table_aliases`) is scoped to a multi-statement batch's first statement even though
+the rest of the heuristic engine analyzes the whole batch.
 
 ---
 
