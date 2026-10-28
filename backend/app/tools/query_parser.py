@@ -172,6 +172,58 @@ def _mask_quoted(sql: str) -> str:
     return re.sub(r"\[[^\[\]]*\]|'[^']*'|\"[^\"]*\"|`[^`]*`", _blank, sql)
 
 
+# First keyword of anything QueryTuner can analyze: single statements, CTEs,
+# and T-SQL / MySQL / Oracle / PostgreSQL batches and scripts.
+_STATEMENT_STARTS = frozenset(
+    {
+        "select",
+        "with",
+        "insert",
+        "update",
+        "delete",
+        "merge",
+        "upsert",
+        "replace",
+        "create",
+        "alter",
+        "drop",
+        "truncate",
+        "declare",
+        "set",
+        "exec",
+        "execute",
+        "call",
+        "begin",
+        "use",
+        "go",
+        "if",
+        "explain",
+        "values",
+        "table",
+        "show",
+        "describe",
+        "desc",
+        "grant",
+        "revoke",
+        "commit",
+        "rollback",
+        "do",
+        "copy",
+    }
+)
+
+
+def looks_like_sql(query: str, hash_comments: bool = False) -> bool:
+    """
+    True when the text (comments removed) starts with a SQL statement keyword.
+    Plain prose ("hello world, please make my database fast") used to be
+    analyzed and come back with 0 issues, which reads like a clean bill of health.
+    """
+    code = strip_sql_comments(query or "", hash_comments=hash_comments).lstrip(" \t\r\n(;")
+    m = re.match(r"[A-Za-z_]+", code)
+    return bool(m) and m.group(0).lower() in _STATEMENT_STARTS
+
+
 def strip_sql_comments(sql: str, hash_comments: bool = False) -> str:
     """
     Remove -- line comments and /* */ block comments, leaving string literals

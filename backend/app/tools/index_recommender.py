@@ -117,6 +117,18 @@ def _extract_where_columns(where_clause: str) -> list[tuple[str | None, str, str
             if qc:
                 cols.append((*qc, "equality"))
             continue
+        # YEAR(col) = N / DATE(col) >= ...: the fix QueryTuner recommends turns
+        # these into a range on col, so col belongs in the index as a range column.
+        fn_m = re.match(
+            r"^(?:YEAR|DATE)\s*\(\s*(" + _COL_REF + r")\s*\)\s*(?:=|>=|<=|<|>|\bBETWEEN\b)",
+            cond,
+            re.IGNORECASE,
+        )
+        if fn_m:
+            qc = _qualified_col(fn_m.group(1))
+            if qc:
+                cols.append((*qc, "range"))
+            continue
         m = re.match(
             r"^(" + _COL_REF + r")\s*" r"(=|!=|<>|<=|>=|<|>|\bI?LIKE\b|\bNOT\s+IN\b|\bIN\b|\bBETWEEN\b)",
             cond,
@@ -217,25 +229,42 @@ _SINGLE_COLUMN_TYPES = {
     "index_review_where_filter",
     "index_review_order_by_index",
 }
+_WHERE_SINGLE_TYPES = {"index_review_where_filter", "index_review_partial_index_candidate"}
 _MULTI_COLUMN_TYPES = {"index_review_composite_index", "index_review_group_by_index"}
 
 
 def _drop_covered_single_column(suggestions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
-    A composite index (a, b) already serves lookups on a alone, so a separate
-    single-column index on a is redundant: one more index to maintain on every
-    write for no read benefit. Keep the composite, drop the single.
+    Drop single-column suggestions a composite already covers:
+    - A composite (a, b) serves lookups on a alone, so a separate index on a
+      is redundant: one more index to maintain on every write.
+    - When a composite is built only from this query's WHERE columns
+      (WHERE status = 'x' AND created_at >= ...: (status, created_at)), that one
+      index serves the whole filter, so the per-column WHERE and partial-index
+      suggestions for its columns are dropped too. A composite that also
+      carries JOIN/ORDER BY columns leaves them, since a small partial index
+      can then be the better choice.
     """
-    leading = {
-        s["columns"][0].lower()
+    multi = [
+        [c.lower() for c in s["columns"]]
         for s in suggestions
         if s.get("type") in _MULTI_COLUMN_TYPES and s.get("columns") and len(s["columns"]) > 1
-    }
-    return [
-        s
-        for s in suggestions
-        if not (s.get("type") in _SINGLE_COLUMN_TYPES and s.get("columns") and s["columns"][0].lower() in leading)
     ]
+    leading = {cols[0] for cols in multi}
+    where_single = {
+        s["columns"][0].lower() for s in suggestions if s.get("type") in _WHERE_SINGLE_TYPES and s.get("columns")
+    }
+    where_only_cols = {c for cols in multi if set(cols) <= where_single for c in cols}
+
+    def covered(s: dict[str, Any]) -> bool:
+        if not s.get("columns"):
+            return False
+        col = s["columns"][0].lower()
+        if s.get("type") in _SINGLE_COLUMN_TYPES and col in leading:
+            return True
+        return s.get("type") in _WHERE_SINGLE_TYPES and col in where_only_cols
+
+    return [s for s in suggestions if not covered(s)]
 
 
 def _matching_paren_end(text: str, open_idx: int) -> int:
@@ -391,7 +420,14 @@ def _detect_composite_opportunity(
     order_by_alias: dict[str, list[str]] = defaultdict(list)
 
     def _add(bucket: dict[str, list[str]], alias: str | None, col: str) -> None:
-        if alias and not _is_primary_key(col) and col not in bucket[alias]:
+        # Unqualified columns (WHERE status = 'x') belong to the query's only
+        # table, which table_aliases records under "" for single-table queries;
+        # on multi-table queries they are ambiguous and stay out.
+        if not alias:
+            if "" not in table_aliases:
+                return
+            alias = ""
+        if not _is_primary_key(col) and col not in bucket[alias]:
             bucket[alias].append(col)
 
     for alias, col, predicate_type in where_cols:
@@ -783,7 +819,7 @@ class IndexRecommender:
                 self._make(
                     index_type="composite_index",
                     severity="high",
-                    columns=[f"{alias}.{c}" for c in cols],
+                    columns=[f"{alias}.{c}" if alias else c for c in cols],
                     suggestion=comp["suggestion"],
                     reason="A composite index covering multiple query columns is more efficient than separate single-column indexes — one index scan satisfies JOIN, filter, and sort in a single pass.",
                     estimated="Often the highest-ROI index change for multi-column queries",
@@ -855,7 +891,9 @@ class IndexRecommender:
         real_table = self._real_table(alias, schema, table_aliases)
         schema_verified = real_table is not None and col in schema.get(real_table, {})
         table_ph = real_table if real_table else (f"<{alias}_table>" if alias else "<table_name>")
-        idx = _index_name(real_table or alias, col, "partial")
+        # Only PostgreSQL and SQL Server build a real partial/filtered index;
+        # the MySQL/Oracle fallback is a plain index and is named like one.
+        idx = _index_name(real_table or alias, col, "partial" if db_type in ("postgresql", "sqlserver") else "")
         cfg = get_dialect(db_type)
 
         if db_type == "postgresql":

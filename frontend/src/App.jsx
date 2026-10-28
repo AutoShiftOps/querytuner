@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { useUser, useAuth } from '@clerk/clerk-react';
+import { useUser, useAuth, SignInButton } from '@clerk/clerk-react';
 import ShareButton from './components/ShareButton';
 import QueryDiagnosis from './components/QueryDiagnosis';
 import { AlertCircle, Zap, Shield } from 'lucide-react';
@@ -324,6 +324,7 @@ function App() {
         const isAnonymousLimitReached = errorCode === 'anonymous_limit_reached';
         const isFreeAiLimitReached = errorCode === 'free_ai_daily_limit_reached';
         const isProRequired = errorCode === 'pro_required';
+        const isNotSql = errorCode === 'not_sql';
         // AI now defaults on for signed-in visitors, so hitting the daily free-AI
         // cap must not cost them the (free, unlimited) heuristic result: switch
         // AI off for the rest of the session and re-run without it.
@@ -342,7 +343,8 @@ function App() {
           isSignInRequired ||
           isAnonymousLimitReached ||
           isFreeAiLimitReached ||
-          isProRequired;
+          isProRequired ||
+          isNotSql;
         // upgrade_available is only true for free/anonymous users who hit the
         // smaller per-query character limit — that's Pro's actual pitch, so
         // show the upgrade modal instead of a toast the user just dismisses.
@@ -383,7 +385,7 @@ function App() {
           setShowUpgradeModal(true);
         } else if (isSignInRequired) {
           showToast(detail, 'info');
-        } else if (isQueryTooLarge) {
+        } else if (isQueryTooLarge || isNotSql) {
           showToast(detail, 'warning');
         } else {
           showToast(
@@ -930,15 +932,30 @@ function App() {
                               ? "Today's free AI analyses are used up"
                               : aiAttempted
                                 ? 'AI insights were unavailable for this run'
-                                : 'AI insights are turned off'}
+                                : !isSignedIn
+                                  ? 'Sign in to use AI insights'
+                                  : 'AI insights are turned off'}
                           </p>
                           <p className="text-sm mt-1" style={{ color: '#94a3b8' }}>
                             {aiCapHit
                               ? 'The heuristic analysis is complete. AI insights come back within 24 hours, or Pro (free during early access) gives you more.'
                               : aiAttempted
                                 ? aiErrorText
-                                : 'Enable "Use AI insights" and run the diagnosis again to get AI reasoning, a deeper rewrite and index recommendations.'}
+                                : !isSignedIn
+                                  ? 'A free account includes 3 Claude AI analyses a day: AI reasoning, a deeper rewrite and index recommendations. The heuristic analysis is complete without one.'
+                                  : 'Enable "Use AI insights" and run the diagnosis again to get AI reasoning, a deeper rewrite and index recommendations.'}
                           </p>
+                          {!isSignedIn && !aiAttempted && (
+                            <SignInButton mode="modal">
+                              <button
+                                type="button"
+                                className="mt-3 text-sm font-medium px-3 py-1.5 rounded"
+                                style={{ background: '#38bdf8', color: '#0f172a' }}
+                              >
+                                Sign in free →
+                              </button>
+                            </SignInButton>
+                          )}
                           {aiCapHit && (
                             <a
                               href={buildProRequestMailto({

@@ -148,6 +148,7 @@ export default function Header({ isPro = false, showToast } = {}) {
           padding: 5px 12px; border-radius: 6px;
           cursor: pointer; font-family: 'IBM Plex Sans', system-ui, sans-serif;
           transition: all 0.15s; border: none;
+          white-space: nowrap; flex-shrink: 0;
         }
         .qt-header-signin {
           background: transparent;
