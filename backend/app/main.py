@@ -34,6 +34,7 @@ from .tools.batch_parsers import parse_batch_export, rank_top_n  # noqa: E402
 from .tools.batch_reconciler import reconcile_index_suggestions  # noqa: E402
 from .tools.index_recommender import IndexRecommender  # noqa: E402
 from .tools.query_parser import QueryParser, parse_schema_ddl  # noqa: E402
+from .utils import ai_cache  # noqa: E402
 from .utils.config import settings  # noqa: E402
 from .utils.database import (  # noqa: E402
     check_database_health,
@@ -544,10 +545,30 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
                 },
             )
 
+        # Built-in sample queries: reuse the stored AI output (see utils/ai_cache.py)
+        # instead of calling the LLM. A cache hit costs nothing, so it is not
+        # counted against the visitor's free/Pro daily AI limits below.
+        ai_cache_key = None
+        cached_ai = None
+        if request.use_llm:
+            llm_provider_key = (
+                request.llm_provider.value if hasattr(request.llm_provider, "value") else str(request.llm_provider)
+            )
+            ai_cache_key = ai_cache.cache_key(
+                query=request.query,
+                db_type=request.db_type,
+                provider=llm_provider_key,
+                model=settings.free_ai_model if not is_pro else None,
+                focus=request.focus,
+                schema_info=request.schema_info,
+                explain_plan=request.explain_plan,
+            )
+            cached_ai = ai_cache.get(ai_cache_key)
+
         # Free tier: Claude on the cheaper free_ai_model, capped per user per
         # rolling 24h. Counted only when an AI call is actually requested.
         if request.use_llm and not is_pro:
-            if not _check_free_ai_daily_limit(user_id):
+            if not cached_ai and not _check_free_ai_daily_limit(user_id):
                 return JSONResponse(
                     status_code=429,
                     content={
@@ -568,7 +589,7 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
         # daily ceiling on AI-provider calls — see
         # settings.pro_openai_daily_limit's own docstring for why. Heuristic-
         # only analysis stays uncapped for Pro.
-        if request.use_llm and paid_provider and is_pro:
+        if request.use_llm and paid_provider and is_pro and not cached_ai:
             if not _check_pro_openai_daily_limit(user_id):
                 return JSONResponse(
                     status_code=429,
@@ -604,7 +625,12 @@ async def analyze_query(request: QueryRequest, http_request: Request, user_id: s
             llm_provider=llm_provider_str,
             focus=request.focus,
             llm_model=llm_model,
+            cached_ai=cached_ai,
         )
+        if ai_cache_key and not cached_ai and result.get("used_ai") and not result.get("ai_error"):
+            ai_cache.put(ai_cache_key, {"ai_insights": result.get("ai_insights"), "ai_model": result.get("ai_model")})
+        elif cached_ai:
+            logger.info("Served sample-query AI output from cache")
 
         analysis_time = (time.time() - start_time) * 1000
 

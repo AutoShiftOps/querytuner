@@ -98,6 +98,7 @@ class SQLAnalyzerAgent:
         focus: str = "performance",
         explain_plan: str | None = None,  # Issue #60: EXPLAIN plan paste-in
         llm_model: str | None = None,  # Anthropic model override (free tier)
+        cached_ai: dict[str, Any] | None = None,  # reuse stored AI output instead of calling the LLM
     ) -> dict[str, Any]:
         query = (query or "").strip()
         if not query:
@@ -185,7 +186,14 @@ class SQLAnalyzerAgent:
         used_ai = False
         ai_truncated = False
 
-        if use_llm:
+        if use_llm and cached_ai and cached_ai.get("ai_insights"):
+            # Built-in sample query already answered by the LLM: reuse that output.
+            ai_attempted = True
+            ai_insights = cached_ai["ai_insights"]
+            ai_model = cached_ai.get("ai_model")
+            ai_insights = review_ai_output(query, ai_insights)
+            used_ai = bool(ai_insights and str(ai_insights).strip())
+        elif use_llm:
             ai_attempted = True
             llm_query = query
             if len(query) > AI_QUERY_TRUNCATE_CHARS:
