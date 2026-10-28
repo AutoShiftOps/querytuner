@@ -247,6 +247,16 @@ export function trackFollowUpSurveyAnswer(answer_id) {
   gtag('event', 'followup_survey_answer', { event_category: 'funnel', answer_id });
 }
 
+/** Visitor opted in to Quiz Mode (it is no longer shown ahead of the findings). */
+export function trackQuizOpened(question_count) {
+  gtag('event', 'quiz_opened', { event_category: 'funnel', question_count });
+}
+
+/** Run Diagnostics clicked with an empty editor — measures the "nothing happened" dead end. */
+export function trackEmptyRunClicked() {
+  gtag('event', 'empty_run_clicked', { event_category: 'funnel' });
+}
+
 // ── Bucketing helpers (keeps GA4 reports readable) ───────────────────────────
 
 function _lengthBucket(chars) {

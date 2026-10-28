@@ -78,14 +78,38 @@ function QuestionCard({ question, index, total }) {
   );
 }
 
-// Gates OptimizationSuggestions behind 2-3 test-yourself questions drawn
-// from this query's own high-confidence findings — see
-// docs/querytuner-quiz-mode-issue.md. `onReveal` is the single action
-// both the top-right skip link and the bottom CTA call; neither answering
-// nor finishing every question is required to reach it (item 3: "Don't
-// block access to the real analysis behind answering").
-export default function QuizMode({ questions, onReveal }) {
+// Opt-in "test yourself" card shown UNDER the findings (it used to gate
+// them — visitors who came for the diagnosis had to answer or skip first).
+// Collapsed by default; `onOpen` fires once when a visitor expands it, so the
+// quiz-open rate can be measured in GA4. Questions are drawn from this
+// query's own high-confidence findings — see docs/querytuner-quiz-mode-issue.md.
+export default function QuizMode({ questions, onOpen }) {
+  const [open, setOpen] = useState(false);
   if (!Array.isArray(questions) || questions.length === 0) return null;
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(true);
+          onOpen?.();
+        }}
+        className="w-full text-left rounded-lg p-4 border border-slate-700 bg-slate-800 hover:border-slate-500 transition-colors flex items-center justify-between gap-3"
+      >
+        <span className="flex items-center gap-2">
+          <HelpCircle className="w-3.5 h-3.5" style={{ color: '#38bdf8' }} />
+          <span className="text-sm font-medium" style={{ color: '#e2e8f0' }}>
+            Test yourself: spot what&rsquo;s wrong with this query
+          </span>
+          <span className="text-xs" style={{ color: '#4a6480' }}>
+            optional
+          </span>
+        </span>
+        <ChevronRight className="w-4 h-4" style={{ color: '#7fa3c4' }} />
+      </button>
+    );
+  }
 
   return (
     <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
@@ -104,11 +128,9 @@ export default function QuizMode({ questions, onReveal }) {
             Quiz Mode
           </span>
         </div>
-        {/* Doc item 4: a visible skip control from the first render — a
-            lot of real usage is "I need this answer now." */}
         <button
           type="button"
-          onClick={onReveal}
+          onClick={() => setOpen(false)}
           className="text-xs font-medium"
           style={{
             color: '#7fa3c4',
@@ -118,11 +140,11 @@ export default function QuizMode({ questions, onReveal }) {
             padding: 0,
           }}
         >
-          Skip quiz, show me the analysis →
+          Close
         </button>
       </div>
       <p className="text-xs mb-4" style={{ color: '#4a6480' }}>
-        Before we reveal the analysis — what do you think is wrong with this query?
+        What do you think is wrong with this query? The findings above show the answer.
       </p>
 
       <div className="space-y-3">
@@ -130,16 +152,6 @@ export default function QuizMode({ questions, onReveal }) {
           <QuestionCard key={q.id} question={q} index={i} total={questions.length} />
         ))}
       </div>
-
-      <button
-        type="button"
-        onClick={onReveal}
-        className="mt-4 w-full text-sm font-semibold px-4 py-2.5 rounded transition-colors flex items-center justify-center gap-1.5 hover:opacity-90"
-        style={{ background: '#38bdf8', color: '#0f172a' }}
-      >
-        Show full analysis
-        <ChevronRight className="w-4 h-4" />
-      </button>
     </div>
   );
 }

@@ -44,6 +44,8 @@ import {
   trackUpgradeConversion,
   trackOptimizedQueryCopied,
   trackAiInsightsCopied,
+  trackQuizOpened,
+  trackEmptyRunClicked,
 } from './utils/analytics';
 import axios from 'axios';
 
@@ -77,15 +79,9 @@ function App() {
   const [pendingAutoRun, setPendingAutoRun] = useState(false);
   const [resultFromSample, setResultFromSample] = useState(false);
 
-  // ── Quiz Mode (docs/querytuner-quiz-mode-issue.md) ───────────────────────
-  // Gates OptimizationSuggestions behind a few test-yourself questions
-  // drawn from this result's own high-confidence findings. Free-tier, no
-  // Pro gate (per the doc's explicit recommendation — this is an
-  // engagement layer on output every tier already gets, not withheld
-  // analysis). quizRevealed resets to false in handleAnalyze whenever a
-  // new result lands, so a second analysis doesn't stay revealed from the
-  // previous one.
-  const [quizRevealed, setQuizRevealed] = useState(false);
+  // Right column wrapper — on single-column (mobile/tablet) layouts the
+  // results stack under the editor, so we scroll to it when a result lands.
+  const resultsRef = useRef(null);
 
   // ── Phase 4: Clerk auth + usage tracking ─────────────────────────────────
   const { isSignedIn } = useUser();
@@ -223,6 +219,12 @@ function App() {
 
   // ── Analyze — defined first so useEffects below can reference it ────────
   const handleAnalyze = useCallback(async () => {
+    // Empty editor: say what to do instead of silently doing nothing.
+    if (!query.trim()) {
+      trackEmptyRunClicked();
+      showToast('Paste a SQL query, or pick a sample above to get started', 'info');
+      return;
+    }
     if (!canAnalyze()) {
       if (!isSignedIn && useLlm) {
         showToast(
@@ -278,7 +280,6 @@ function App() {
 
       const data = response.data;
       setResult(data);
-      setQuizRevealed(false);
       showToast('Analysis complete · share link ready', 'success');
 
       if (isSignedIn && !isPro) {
@@ -383,6 +384,16 @@ function App() {
     setResultFromSample(true);
     handleAnalyze();
   }, [pendingAutoRun, handleAnalyze]);
+
+  // Single-column layouts (below Tailwind's lg breakpoint) stack the results
+  // under the editor, off-screen after a run. Bring them into view. The
+  // side-by-side desktop layout already shows them, so it is left alone.
+  useEffect(() => {
+    if (!result) return;
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    if (!window.matchMedia('(max-width: 1023px)').matches) return;
+    resultsRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [result]);
 
   // ── Cmd/Ctrl + Enter shortcut ───────────────────────────────────────────
   useEffect(() => {
@@ -566,7 +577,7 @@ function App() {
           </div>
 
           {/* ── RIGHT COLUMN — Analysis Results: empty → running → results ── */}
-          <div className="space-y-4 min-w-0">
+          <div ref={resultsRef} className="space-y-4 min-w-0 scroll-mt-16">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold" style={{ color: '#94a3b8' }}>
                 Analysis Results
@@ -628,23 +639,6 @@ function App() {
 
             {result && (
               <div className="space-y-4 min-w-0">
-                {resultFromSample && (
-                  <ResultFollowUp
-                    onTryOwn={() => {
-                      setQuery('');
-                      setResult(null);
-                      setResultFromSample(false);
-                      setTimeout(
-                        () =>
-                          analyzeBtnRef.current?.scrollIntoView({
-                            behavior: 'smooth',
-                            block: 'center',
-                          }),
-                        50
-                      );
-                    }}
-                  />
-                )}
                 {/* Stat strip */}
                 <div
                   className="grid grid-cols-4 rounded-xl overflow-hidden"
@@ -704,194 +698,208 @@ function App() {
                   />
                 </div>
 
-                {/* Quiz Mode gates the findings behind a few test-yourself
-                  questions; the result tabs render once revealed (or
-                  immediately if there was nothing confident enough to quiz
-                  on) — docs/querytuner-quiz-mode-issue.md */}
-                {quizQuestions.length > 0 && !quizRevealed ? (
-                  <QuizMode questions={quizQuestions} onReveal={() => setQuizRevealed(true)} />
-                ) : (
-                  <>
-                    {/* AI error — graceful fallback, no raw error strings shown to user */}
-                    {result.ai_error && (
-                      <div
-                        className="rounded-xl p-4 flex gap-3 items-start"
-                        style={{
-                          background: 'rgba(251,191,36,0.06)',
-                          border: '1px solid rgba(251,191,36,0.2)',
+                {/* AI error — graceful fallback, no raw error strings shown to user */}
+                {result.ai_error && (
+                  <div
+                    className="rounded-xl p-4 flex gap-3 items-start"
+                    style={{
+                      background: 'rgba(251,191,36,0.06)',
+                      border: '1px solid rgba(251,191,36,0.2)',
+                    }}
+                  >
+                    <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#fbbf24' }} />
+                    <div>
+                      <p className="text-sm font-medium" style={{ color: '#fbbf24' }}>
+                        AI insights unavailable
+                      </p>
+                      <p className="text-xs mt-1" style={{ color: '#7fa3c4' }}>
+                        {aiErrorText}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <ResultTabs
+                  active={activeTab}
+                  onChange={setActiveTab}
+                  tabs={[
+                    {
+                      id: 'findings',
+                      label: 'Findings',
+                      count: (result.optimization_suggestions || []).length,
+                    },
+                    {
+                      id: 'indexes',
+                      label: 'Indexes',
+                      count: ddlItems.length,
+                      hidden: ddlItems.length === 0,
+                    },
+                    { id: 'rewrite', label: 'Rewrite', count: aiFixes.length || null },
+                    { id: 'ai', label: 'AI Insights' },
+                    {
+                      id: 'details',
+                      label: 'Details',
+                      count: securityIssues.length || null,
+                    },
+                  ]}
+                />
+
+                {shownTab === 'findings' && (
+                  <TabPanel id="findings">
+                    <OptimizationSuggestions
+                      suggestions={result.optimization_suggestions || []}
+                      aiConfirmedTypes={aiConfirmedTypes}
+                      substitutionMap={substitutionMap}
+                      view="findings"
+                    />
+                  </TabPanel>
+                )}
+
+                {shownTab === 'indexes' && (
+                  <TabPanel id="indexes">
+                    <OptimizationSuggestions
+                      suggestions={result.optimization_suggestions || []}
+                      aiConfirmedTypes={aiConfirmedTypes}
+                      substitutionMap={substitutionMap}
+                      view="indexes"
+                    />
+                  </TabPanel>
+                )}
+
+                {shownTab === 'rewrite' && (
+                  <TabPanel id="rewrite">
+                    <RewriteView
+                      original={query}
+                      rewrite={rewriteSql}
+                      isAi={rewriteIsAi}
+                      changed={rewriteChanged}
+                      aiCutOff={aiRewriteCutOff}
+                      aiRejected={aiRewriteRejected}
+                      aiFixes={aiFixes}
+                      aiFixCutOff={aiFixCutOff}
+                      aiEnabled={aiAttempted}
+                      onCopyRewrite={() => {
+                        navigator.clipboard.writeText(rewriteSql);
+                        showToast('Optimized query copied', 'success');
+                        trackOptimizedQueryCopied();
+                      }}
+                      onCopyOriginal={() => {
+                        navigator.clipboard.writeText(query);
+                        showToast('Original query copied', 'success');
+                      }}
+                    />
+                  </TabPanel>
+                )}
+
+                {shownTab === 'details' && (
+                  <TabPanel id="details">
+                    <div className="space-y-4">
+                      {securityIssues.length > 0 && (
+                        <div
+                          className="rounded-xl p-5"
+                          style={{
+                            background: 'rgba(248,113,113,0.06)',
+                            border: '1px solid rgba(248,113,113,0.3)',
+                          }}
+                        >
+                          <div className="flex items-center gap-2 mb-3">
+                            <Shield className="w-4 h-4 text-red-400" />
+                            <h3 className="text-sm font-semibold text-white">Security Issues</h3>
+                          </div>
+                          <ul className="space-y-2">
+                            {securityIssues.map((issue, idx) => (
+                              <li key={idx} className="text-sm text-red-200 flex gap-2">
+                                <span style={{ color: '#f87171' }}>·</span>
+                                {issue}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {result.plain_explanation && (
+                        <QueryDiagnosis content={result.plain_explanation} />
+                      )}
+
+                      {/* Execution Plan */}
+                      {result.execution_plan && <ExecutionPlan plan={result.execution_plan} />}
+                    </div>
+                  </TabPanel>
+                )}
+
+                {shownTab === 'ai' && (
+                  <TabPanel id="ai">
+                    {result.used_ai && !result.ai_error ? (
+                      <ResultsPanel
+                        title={`AI Insights${
+                          result.ai_provider
+                            ? ` (${result.ai_provider}${result.ai_model ? ` / ${result.ai_model}` : ''})`
+                            : ''
+                        }`}
+                        content={result.ai_insights}
+                        icon={Zap}
+                        aiConfirmedTypes={aiConfirmedTypes}
+                        substitutionMap={substitutionMap}
+                        showCompletion={false}
+                        onShare={() => {
+                          navigator.clipboard.writeText(result.ai_insights || '');
+                          showToast('AI insights copied to clipboard', 'success');
+                          trackAiInsightsCopied();
                         }}
+                      />
+                    ) : (
+                      <div
+                        className="rounded-xl p-5 flex gap-3 items-start"
+                        style={{ background: '#1e293b', border: '1px solid #2d3f55' }}
                       >
                         <Zap
                           className="w-4 h-4 mt-0.5 flex-shrink-0"
-                          style={{ color: '#fbbf24' }}
+                          style={{ color: '#38bdf8' }}
                         />
                         <div>
-                          <p className="text-sm font-medium" style={{ color: '#fbbf24' }}>
-                            AI insights unavailable
+                          <p className="text-sm font-semibold text-white">
+                            {aiAttempted
+                              ? 'AI insights were unavailable for this run'
+                              : 'AI insights are turned off'}
                           </p>
-                          <p className="text-xs mt-1" style={{ color: '#7fa3c4' }}>
-                            {aiErrorText}
+                          <p className="text-sm mt-1" style={{ color: '#94a3b8' }}>
+                            {aiAttempted
+                              ? aiErrorText
+                              : 'Enable "Use AI insights" and run the diagnosis again to get AI reasoning, a deeper rewrite and index recommendations.'}
                           </p>
                         </div>
                       </div>
                     )}
+                  </TabPanel>
+                )}
 
-                    <ResultTabs
-                      active={activeTab}
-                      onChange={setActiveTab}
-                      tabs={[
-                        {
-                          id: 'findings',
-                          label: 'Findings',
-                          count: (result.optimization_suggestions || []).length,
-                        },
-                        {
-                          id: 'indexes',
-                          label: 'Indexes',
-                          count: ddlItems.length,
-                          hidden: ddlItems.length === 0,
-                        },
-                        { id: 'rewrite', label: 'Rewrite', count: aiFixes.length || null },
-                        { id: 'ai', label: 'AI Insights' },
-                        {
-                          id: 'details',
-                          label: 'Details',
-                          count: securityIssues.length || null,
-                        },
-                      ]}
-                    />
-
-                    {shownTab === 'findings' && (
-                      <TabPanel id="findings">
-                        <OptimizationSuggestions
-                          suggestions={result.optimization_suggestions || []}
-                          aiConfirmedTypes={aiConfirmedTypes}
-                          substitutionMap={substitutionMap}
-                          view="findings"
-                        />
-                      </TabPanel>
-                    )}
-
-                    {shownTab === 'indexes' && (
-                      <TabPanel id="indexes">
-                        <OptimizationSuggestions
-                          suggestions={result.optimization_suggestions || []}
-                          aiConfirmedTypes={aiConfirmedTypes}
-                          substitutionMap={substitutionMap}
-                          view="indexes"
-                        />
-                      </TabPanel>
-                    )}
-
-                    {shownTab === 'rewrite' && (
-                      <TabPanel id="rewrite">
-                        <RewriteView
-                          original={query}
-                          rewrite={rewriteSql}
-                          isAi={rewriteIsAi}
-                          changed={rewriteChanged}
-                          aiCutOff={aiRewriteCutOff}
-                          aiRejected={aiRewriteRejected}
-                          aiFixes={aiFixes}
-                          aiFixCutOff={aiFixCutOff}
-                          aiEnabled={aiAttempted}
-                          onCopyRewrite={() => {
-                            navigator.clipboard.writeText(rewriteSql);
-                            showToast('Optimized query copied', 'success');
-                            trackOptimizedQueryCopied();
-                          }}
-                          onCopyOriginal={() => {
-                            navigator.clipboard.writeText(query);
-                            showToast('Original query copied', 'success');
-                          }}
-                        />
-                      </TabPanel>
-                    )}
-
-                    {shownTab === 'details' && (
-                      <TabPanel id="details">
-                        <div className="space-y-4">
-                          {securityIssues.length > 0 && (
-                            <div
-                              className="rounded-xl p-5"
-                              style={{
-                                background: 'rgba(248,113,113,0.06)',
-                                border: '1px solid rgba(248,113,113,0.3)',
-                              }}
-                            >
-                              <div className="flex items-center gap-2 mb-3">
-                                <Shield className="w-4 h-4 text-red-400" />
-                                <h3 className="text-sm font-semibold text-white">
-                                  Security Issues
-                                </h3>
-                              </div>
-                              <ul className="space-y-2">
-                                {securityIssues.map((issue, idx) => (
-                                  <li key={idx} className="text-sm text-red-200 flex gap-2">
-                                    <span style={{ color: '#f87171' }}>·</span>
-                                    {issue}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-
-                          {result.plain_explanation && (
-                            <QueryDiagnosis content={result.plain_explanation} />
-                          )}
-
-                          {/* Execution Plan */}
-                          {result.execution_plan && <ExecutionPlan plan={result.execution_plan} />}
-                        </div>
-                      </TabPanel>
-                    )}
-
-                    {shownTab === 'ai' && (
-                      <TabPanel id="ai">
-                        {result.used_ai && !result.ai_error ? (
-                          <ResultsPanel
-                            title={`AI Insights${
-                              result.ai_provider
-                                ? ` (${result.ai_provider}${result.ai_model ? ` / ${result.ai_model}` : ''})`
-                                : ''
-                            }`}
-                            content={result.ai_insights}
-                            icon={Zap}
-                            aiConfirmedTypes={aiConfirmedTypes}
-                            substitutionMap={substitutionMap}
-                            showCompletion={false}
-                            onShare={() => {
-                              navigator.clipboard.writeText(result.ai_insights || '');
-                              showToast('AI insights copied to clipboard', 'success');
-                              trackAiInsightsCopied();
-                            }}
-                          />
-                        ) : (
-                          <div
-                            className="rounded-xl p-5 flex gap-3 items-start"
-                            style={{ background: '#1e293b', border: '1px solid #2d3f55' }}
-                          >
-                            <Zap
-                              className="w-4 h-4 mt-0.5 flex-shrink-0"
-                              style={{ color: '#38bdf8' }}
-                            />
-                            <div>
-                              <p className="text-sm font-semibold text-white">
-                                {aiAttempted
-                                  ? 'AI insights were unavailable for this run'
-                                  : 'AI insights are turned off'}
-                              </p>
-                              <p className="text-sm mt-1" style={{ color: '#94a3b8' }}>
-                                {aiAttempted
-                                  ? aiErrorText
-                                  : 'Enable "Use AI insights" and run the diagnosis again to get AI reasoning, a deeper rewrite and index recommendations.'}
-                              </p>
-                            </div>
-                          </div>
-                        )}
-                      </TabPanel>
-                    )}
-                  </>
+                {/* Findings come first. These two follow them, one prompt at a time:
+                    opt-in Quiz Mode (Findings tab only), then the "try your own
+                    query" card (sample runs only; its survey appears after a delay). */}
+                {shownTab === 'findings' && quizQuestions.length > 0 && (
+                  <QuizMode
+                    key={`quiz-${result.analysis_id ?? ''}`}
+                    questions={quizQuestions}
+                    onOpen={() => trackQuizOpened(quizQuestions.length)}
+                  />
+                )}
+                {resultFromSample && (
+                  <ResultFollowUp
+                    key={`followup-${result.analysis_id ?? ''}`}
+                    onTryOwn={() => {
+                      setQuery('');
+                      setResult(null);
+                      setResultFromSample(false);
+                      setTimeout(
+                        () =>
+                          analyzeBtnRef.current?.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'center',
+                          }),
+                        50
+                      );
+                    }}
+                  />
                 )}
               </div>
             )}
