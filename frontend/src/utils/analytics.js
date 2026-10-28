@@ -106,11 +106,12 @@ export function trackAnalysisSuccess({
  * @param {string} error_type - 'network' | 'validation' | 'llm' | 'unknown'
  * @param {string} db_type
  */
-export function trackAnalysisError(error_type, db_type) {
+export function trackAnalysisError(error_type, db_type, http_status) {
   gtag('event', 'analysis_error', {
     event_category: 'core',
     error_type,
     db_type,
+    http_status: http_status ?? undefined,
   });
 }
 

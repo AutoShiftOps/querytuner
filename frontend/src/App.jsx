@@ -8,6 +8,7 @@ import ResultsPanel from './components/ResultsPanel';
 import OptimizationSuggestions, { getDdlItems } from './components/OptimizationSuggestions';
 import QuizMode from './components/QuizMode';
 import { generateQuiz } from './utils/quiz';
+import { readAiPreference, writeAiPreference, shouldDefaultAiOn } from './utils/aiPreference';
 import ExecutionPlan from './components/ExecutionPlan';
 import { ResultTabs, TabPanel, RewriteView } from './components/ResultViews';
 import SampleQueries from './components/SampleQueries';
@@ -82,6 +83,9 @@ function App() {
   // Right column wrapper — on single-column (mobile/tablet) layouts the
   // results stack under the editor, so we scroll to it when a result lands.
   const resultsRef = useRef(null);
+  // Lets handleAnalyze re-invoke itself (heuristic-only retry) without a stale closure.
+  const handleAnalyzeRef = useRef(null);
+  const aiDefaultAppliedRef = useRef(false);
 
   // ── Phase 4: Clerk auth + usage tracking ─────────────────────────────────
   const { isSignedIn } = useUser();
@@ -218,164 +222,208 @@ function App() {
   }, [isSignedIn]);
 
   // ── Analyze — defined first so useEffects below can reference it ────────
-  const handleAnalyze = useCallback(async () => {
-    // Empty editor: say what to do instead of silently doing nothing.
-    if (!query.trim()) {
-      trackEmptyRunClicked();
-      showToast('Paste a SQL query, or pick a sample above to get started', 'info');
-      return;
-    }
-    if (!canAnalyze()) {
-      if (!isSignedIn && useLlm) {
-        showToast(
-          'Sign in to use AI insights. Heuristic analysis is available without an account.',
-          'info'
-        );
+  const handleAnalyze = useCallback(
+    async (opts) => {
+      // Called as an onClick handler too, so only trust our own plain options object.
+      const forceHeuristic = opts?.forceHeuristic === true;
+      const llmNow = useLlm && !forceHeuristic;
+      // Empty editor: say what to do instead of silently doing nothing.
+      if (!query.trim()) {
+        trackEmptyRunClicked();
+        showToast('Paste a SQL query, or pick a sample above to get started', 'info');
         return;
       }
-      if (!isSignedIn) {
-        setUpgradeModalCopy({
-          title: "You've used today's free limit",
-          subtitle: 'Sign in for unlimited analyses and 3 free AI analyses a day.',
-        });
+      if (!canAnalyze()) {
+        if (!isSignedIn && llmNow) {
+          showToast(
+            'Sign in to use AI insights. Heuristic analysis is available without an account.',
+            'info'
+          );
+          return;
+        }
+        if (!isSignedIn) {
+          setUpgradeModalCopy({
+            title: "You've used today's free limit",
+            subtitle: 'Sign in for unlimited analyses and 3 free AI analyses a day.',
+          });
+          setShowUpgradeModal(true);
+          return;
+        }
+        showToast('Free limit reached — upgrade to Pro for unlimited analyses', 'warning');
+        setUpgradeModalCopy(null);
         setShowUpgradeModal(true);
         return;
       }
-      showToast('Free limit reached — upgrade to Pro for unlimited analyses', 'warning');
-      setUpgradeModalCopy(null);
-      setShowUpgradeModal(true);
-      return;
-    }
 
-    // Track intent before the API call
-    trackAnalysisRun({
-      db_type: dbType,
-      use_llm: useLlm,
-      llm_provider: llmProvider,
-      query_length: query.length,
-    });
-
-    try {
-      setLoading(true);
-      setError(null);
-      const token = isSignedIn ? await getToken() : null;
-      const response = await axios.post(
-        `${API_BASE_URL}/analyze`,
-        {
-          query,
-          db_type: dbType,
-          llm_provider: llmProvider,
-          use_llm: useLlm,
-          focus: 'performance',
-          explain_plan: explainPlan,
-          schema_info: schemaDdl || null,
-          // Issue #124: self-reported so History can show a sanitized
-          // indicator/filter — substitutionMap is only ever non-null once
-          // the user has actually applied sanitization (SanitizerPanel),
-          // so its presence is exactly the signal needed here.
-          was_sanitized: !!substitutionMap,
-        },
-        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
-      );
-
-      const data = response.data;
-      setResult(data);
-      showToast('Analysis complete · share link ready', 'success');
-
-      if (isSignedIn && !isPro) {
-        setUsageCount((prev) => prev + 1);
-      } else if (!isSignedIn) {
-        setAnonymousCount((prev) => prev + 1);
-      }
-
-      // Track successful result with outcome metrics
-      trackAnalysisSuccess({
+      // Track intent before the API call
+      trackAnalysisRun({
         db_type: dbType,
-        issue_count: data.optimization_suggestions?.length ?? 0,
-        severity: data.severity,
-        analysis_time_ms: data.analysis_time_ms,
-        has_optimized_query: !!data.optimized_query,
-        has_ai_insights: !!data.ai_insights,
-        analysis_id: data.analysis_id,
+        use_llm: llmNow,
+        llm_provider: llmProvider,
+        query_length: query.length,
       });
-    } catch (err) {
-      setResult(null);
-      // query_too_large, sign_in_required, and anonymous_limit_reached all
-      // share a {error, message, ...} shape (not the usual {detail}
-      // FastAPI HTTPException shape) — a structured, toast/modal-friendly
-      // body rather than a generic 401/429 the frontend can't act on.
-      const errorCode = err.response?.data?.error;
-      const isQueryTooLarge = errorCode === 'query_too_large';
-      const isSignInRequired = errorCode === 'sign_in_required';
-      const isAnonymousLimitReached = errorCode === 'anonymous_limit_reached';
-      const isFreeAiLimitReached = errorCode === 'free_ai_daily_limit_reached';
-      const isProRequired = errorCode === 'pro_required';
-      const hasStructuredError =
-        isQueryTooLarge ||
-        isSignInRequired ||
-        isAnonymousLimitReached ||
-        isFreeAiLimitReached ||
-        isProRequired;
-      // upgrade_available is only true for free/anonymous users who hit the
-      // smaller per-query character limit — that's Pro's actual pitch, so
-      // show the upgrade modal instead of a toast the user just dismisses.
-      const upgradeAvailable = isQueryTooLarge && err.response?.data?.upgrade_available === true;
-      const detail = hasStructuredError
-        ? err.response.data.message
-        : err.response?.data?.detail || 'Analysis failed';
-      setError(detail);
-      if (upgradeAvailable) {
-        setUpgradeModalCopy({
-          title: 'Your query is too large for the free tier',
-          subtitle:
-            'QueryTuner Pro supports queries up to 32,000 characters — covering real production SQL.',
+
+      try {
+        setLoading(true);
+        setError(null);
+        const token = isSignedIn ? await getToken() : null;
+        const response = await axios.post(
+          `${API_BASE_URL}/analyze`,
+          {
+            query,
+            db_type: dbType,
+            llm_provider: llmProvider,
+            use_llm: llmNow,
+            focus: 'performance',
+            explain_plan: explainPlan,
+            schema_info: schemaDdl || null,
+            // Issue #124: self-reported so History can show a sanitized
+            // indicator/filter — substitutionMap is only ever non-null once
+            // the user has actually applied sanitization (SanitizerPanel),
+            // so its presence is exactly the signal needed here.
+            was_sanitized: !!substitutionMap,
+          },
+          { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+        );
+
+        const data = response.data;
+        setResult(data);
+        showToast('Analysis complete · share link ready', 'success');
+
+        if (isSignedIn && !isPro) {
+          setUsageCount((prev) => prev + 1);
+        } else if (!isSignedIn) {
+          setAnonymousCount((prev) => prev + 1);
+        }
+
+        // Track successful result with outcome metrics
+        trackAnalysisSuccess({
+          db_type: dbType,
+          issue_count: data.optimization_suggestions?.length ?? 0,
+          severity: data.severity,
+          analysis_time_ms: data.analysis_time_ms,
+          has_optimized_query: !!data.optimized_query,
+          has_ai_insights: !!data.ai_insights,
+          analysis_id: data.analysis_id,
         });
-        setShowUpgradeModal(true);
-      } else if (isFreeAiLimitReached) {
-        const n = err.response?.data?.daily_limit || 3;
-        setUpgradeModalCopy({
-          title: `You've used your ${n} free AI analyses today`,
-          subtitle:
-            'Heuristic analysis is still unlimited. Pro (more AI analyses, OpenAI and Claude) is available on request by email.',
-        });
-        setShowUpgradeModal(true);
-      } else if (isProRequired) {
-        setUpgradeModalCopy({
-          title: 'That AI provider is part of Pro',
-          subtitle: detail,
-        });
-        setShowUpgradeModal(true);
-      } else if (isAnonymousLimitReached) {
-        setUpgradeModalCopy({
-          title: "You've used today's free limit",
-          subtitle: 'Sign in for unlimited analyses and 3 free AI analyses a day.',
-        });
-        setShowUpgradeModal(true);
-      } else if (isSignInRequired) {
-        showToast(detail, 'info');
-      } else if (isQueryTooLarge) {
-        showToast(detail, 'warning');
-      } else {
-        showToast('Analysis failed — please check your query', 'error');
+      } catch (err) {
+        setResult(null);
+        // query_too_large, sign_in_required, and anonymous_limit_reached all
+        // share a {error, message, ...} shape (not the usual {detail}
+        // FastAPI HTTPException shape) — a structured, toast/modal-friendly
+        // body rather than a generic 401/429 the frontend can't act on.
+        const errorCode = err.response?.data?.error;
+        const isQueryTooLarge = errorCode === 'query_too_large';
+        const isSignInRequired = errorCode === 'sign_in_required';
+        const isAnonymousLimitReached = errorCode === 'anonymous_limit_reached';
+        const isFreeAiLimitReached = errorCode === 'free_ai_daily_limit_reached';
+        const isProRequired = errorCode === 'pro_required';
+        // AI now defaults on for signed-in visitors, so hitting the daily free-AI
+        // cap must not cost them the (free, unlimited) heuristic result: switch
+        // AI off for the rest of the session and re-run without it.
+        if (isFreeAiLimitReached && llmNow && isSignedIn) {
+          setUseLlm(false);
+          showToast(
+            "Today's free AI analyses are used up — showing the heuristic analysis",
+            'info'
+          );
+          trackAnalysisError('free_ai_daily_limit_reached', dbType, err.response?.status);
+          return handleAnalyzeRef.current?.({ forceHeuristic: true });
+        }
+        const hasStructuredError =
+          isQueryTooLarge ||
+          isSignInRequired ||
+          isAnonymousLimitReached ||
+          isFreeAiLimitReached ||
+          isProRequired;
+        // upgrade_available is only true for free/anonymous users who hit the
+        // smaller per-query character limit — that's Pro's actual pitch, so
+        // show the upgrade modal instead of a toast the user just dismisses.
+        const upgradeAvailable = isQueryTooLarge && err.response?.data?.upgrade_available === true;
+        const detail = hasStructuredError
+          ? err.response.data.message
+          : err.response?.data?.detail || 'Analysis failed';
+        setError(detail);
+        if (upgradeAvailable) {
+          setUpgradeModalCopy({
+            title: 'Your query is too large for the free tier',
+            subtitle:
+              'QueryTuner Pro supports queries up to 32,000 characters — covering real production SQL.',
+          });
+          setShowUpgradeModal(true);
+        } else if (isFreeAiLimitReached) {
+          const n = err.response?.data?.daily_limit || 3;
+          setUpgradeModalCopy({
+            title: `You've used your ${n} free AI analyses today`,
+            subtitle:
+              'Heuristic analysis is still unlimited. Pro (more AI analyses, OpenAI and Claude) is available on request by email.',
+          });
+          setShowUpgradeModal(true);
+        } else if (isProRequired) {
+          setUpgradeModalCopy({
+            title: 'That AI provider is part of Pro',
+            subtitle: detail,
+          });
+          setShowUpgradeModal(true);
+        } else if (isAnonymousLimitReached) {
+          setUpgradeModalCopy({
+            title: "You've used today's free limit",
+            subtitle: 'Sign in for unlimited analyses and 3 free AI analyses a day.',
+          });
+          setShowUpgradeModal(true);
+        } else if (isSignInRequired) {
+          showToast(detail, 'info');
+        } else if (isQueryTooLarge) {
+          showToast(detail, 'warning');
+        } else {
+          showToast('Analysis failed — please check your query', 'error');
+        }
+        trackAnalysisError(
+          errorCode || (err.response ? `http_${err.response.status}` : 'network'),
+          dbType,
+          err.response?.status
+        );
+      } finally {
+        setLoading(false);
       }
-      trackAnalysisError(err.response ? 'backend' : 'network', dbType);
-    } finally {
-      setLoading(false);
+    },
+    [
+      query,
+      dbType,
+      llmProvider,
+      useLlm,
+      explainPlan,
+      schemaDdl,
+      substitutionMap,
+      showToast,
+      canAnalyze,
+      isSignedIn,
+      isPro,
+      getToken,
+    ]
+  );
+
+  useEffect(() => {
+    handleAnalyzeRef.current = handleAnalyze;
+  }, [handleAnalyze]);
+
+  // Signed-in visitors get AI Insights on by default (their first run, often a
+  // sample, would otherwise be a wasted chance to see the AI output). Applied
+  // once per page load, and never if they previously unchecked it themselves.
+  useEffect(() => {
+    if (aiDefaultAppliedRef.current) return;
+    if (!isSignedIn || !caps) return;
+    aiDefaultAppliedRef.current = true;
+    if (
+      shouldDefaultAiOn({
+        isSignedIn,
+        aiAvailable: !!caps?.providers?.anthropic,
+        preference: readAiPreference(),
+      })
+    ) {
+      setUseLlm(true);
     }
-  }, [
-    query,
-    dbType,
-    llmProvider,
-    useLlm,
-    explainPlan,
-    schemaDdl,
-    substitutionMap,
-    showToast,
-    canAnalyze,
-    isSignedIn,
-    isPro,
-    getToken,
-  ]);
+  }, [isSignedIn, caps]);
 
   // One-click sample: run once the sample text has landed in state.
   useEffect(() => {
@@ -554,7 +602,10 @@ function App() {
               onAnalyze={handleAnalyze}
               loading={loading}
               useLlm={useLlm}
-              setUseLlm={setUseLlm}
+              setUseLlm={(v) => {
+                setUseLlm(v);
+                writeAiPreference(v);
+              }}
               llmProvider={llmProvider}
               setLlmProvider={setLlmProvider}
               caps={caps}
