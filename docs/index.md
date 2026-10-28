@@ -1,3 +1,10 @@
+> **Historical document.** This is the original 14-day learning/build plan from this
+> project's tutorial-stage origin. It does not describe QueryTuner's current state —
+> e.g. it predates both the OpenAI provider addition and the later removal of Hugging
+> Face, and several features it schedules as future "Day N" work have long since shipped
+> differently than planned. Kept for historical/educational reference only; see the root
+> `README.md` and `backend/LIMITATIONS.md` for current behavior.
+
 # SQL Query Analyzer — 14-Day Learning Plan (Build + Understand)
 
 This plan is designed for “I deployed it by copy-paste, now I want to truly understand and be able to write it myself.”
@@ -8,7 +15,7 @@ You will rebuild the project *intentionally* as a pipeline:
 3) Rule-based analysis (heuristics)
 4) Optional LLM enhancement (Hugging Face, later OpenAI)
 
-FastAPI encourages organizing larger projects into multiple files/routers (“Bigger Applications”), which we’ll adopt by Day 3.  
+FastAPI encourages organizing larger projects into multiple files/routers (“Bigger Applications”), which we’ll adopt by Day 3.
 Hugging Face chat completion uses a messages array (`role`, `content`), which matches our LLM interface.
 
 ---
