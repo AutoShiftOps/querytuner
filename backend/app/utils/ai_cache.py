@@ -70,6 +70,23 @@ def cache_key(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+# Set by app.llm.rewrite_check.review_ai_output when the reply was cut off by
+# the token limit or the full rewrite failed its checks. Such a reply is fine
+# to show once, with a note, but must not be served to every later visitor.
+_NOT_CACHEABLE_FLAGS = ("output_truncated", "rewrite_cut_off", "rewrite_rejected")
+
+
+def is_cacheable(ai_insights: str | None) -> bool:
+    """False for empty, non-JSON, cut-off or rejected AI replies."""
+    if not ai_insights:
+        return False
+    try:
+        data = json.loads(ai_insights)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(data, dict) and not any(data.get(flag) for flag in _NOT_CACHEABLE_FLAGS)
+
+
 def get(key: str | None) -> dict[str, Any] | None:
     if not key:
         return None

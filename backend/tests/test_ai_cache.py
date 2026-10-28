@@ -139,3 +139,42 @@ def test_failed_or_empty_ai_output_is_not_cached():
     key = ai_cache.cache_key(SAMPLE["sql"], SAMPLE["db_type"], "anthropic", "m", "performance", None, None)
     ai_cache.put(key, {"ai_insights": "", "ai_model": "m"})
     assert ai_cache.get(key) is None
+
+
+def test_cut_off_or_rejected_ai_output_is_not_cached(monkeypatch):
+    """A reply that hit the token limit (or whose rewrite failed the checks) is
+    shown once with a note, but must not be served to every later visitor."""
+
+    async def _cut_off(prompt, provider=None, max_tokens=600, db_type="postgresql", model=None):
+        LLM_CALLS.append({"provider": provider, "model": model})
+        return {
+            "text": '{"most_impactful_improvements": [], "rewritten_query": "SELECT 1 FROM',
+            "model": "m",
+            "error": None,
+        }
+
+    monkeypatch.setattr("app.agents.sql_analyzer.call_llm", _cut_off)
+    client = TestClient(app)
+    first = client.post("/analyze", json=_body())
+    assert json.loads(first.json()["ai_insights"])["output_truncated"] is True
+    client.post("/analyze", json=_body())
+    assert len(LLM_CALLS) == 2  # not served from cache
+
+    assert ai_cache.is_cacheable('{"most_impactful_improvements": []}')
+    for flag in ("output_truncated", "rewrite_cut_off", "rewrite_rejected"):
+        assert not ai_cache.is_cacheable(json.dumps({flag: True}))
+    assert not ai_cache.is_cacheable("not json")
+
+
+def test_pro_cache_key_follows_the_configured_model(monkeypatch):
+    async def _pro_usage(user_id, month):
+        return {"count": 0, "is_pro": True, "limit": 10}
+
+    monkeypatch.setattr("app.main.get_user_usage", _pro_usage)
+    client = TestClient(app)
+    monkeypatch.setattr(settings, "anthropic_model", "claude-sonnet-5-5")
+    client.post("/analyze", json=_body())
+    client.post("/analyze", json=_body())
+    monkeypatch.setattr(settings, "anthropic_model", "claude-opus-5-5")
+    client.post("/analyze", json=_body())
+    assert len(LLM_CALLS) == 2  # second call cached; model change is a new entry
