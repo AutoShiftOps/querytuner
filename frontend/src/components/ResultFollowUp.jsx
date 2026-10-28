@@ -1,5 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { trackOwnQueryNudgeClicked, trackFollowUpSurveyAnswer } from '../utils/analytics';
+
+// The survey waits this long so the visitor reads the findings first; the
+// "try your own query" card is shown straight away.
+const SURVEY_DELAY_MS = 15000;
 
 const OPTIONS = [
   { id: 'privacy', label: "I wasn't sure it was safe to paste a real query" },
@@ -17,6 +21,12 @@ const OPTIONS = [
  */
 export default function ResultFollowUp({ onTryOwn }) {
   const [answered, setAnswered] = useState(false);
+  const [surveyReady, setSurveyReady] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setSurveyReady(true), SURVEY_DELAY_MS);
+    return () => clearTimeout(t);
+  }, []);
 
   const answer = (id) => {
     trackFollowUpSurveyAnswer(id);
@@ -33,9 +43,9 @@ export default function ResultFollowUp({ onTryOwn }) {
           Now try your own slowest query
         </p>
         <p className="text-xs mt-1" style={{ color: '#94a3b8' }}>
-          Paste the query that hurts most. Once it is in the box, a &ldquo;Sanitize before analyzing&rdquo;
-          button appears underneath. It swaps your table and column names for generic ones first.
-          Analysis runs without connecting to your database.
+          Paste the query that hurts most. Once it is in the box, a &ldquo;Sanitize before
+          analyzing&rdquo; button appears underneath. It swaps your table and column names for
+          generic ones first. Analysis runs without connecting to your database.
         </p>
         <button
           type="button"
@@ -50,32 +60,34 @@ export default function ResultFollowUp({ onTryOwn }) {
         </button>
       </div>
 
-      <div className="pt-3" style={{ borderTop: '1px solid #2d3f55' }}>
-        {answered ? (
-          <p className="text-xs" style={{ color: '#7fa3c4' }}>
-            Thanks, that helps us improve QueryTuner.
-          </p>
-        ) : (
-          <>
-            <p className="text-xs mb-2" style={{ color: '#94a3b8' }}>
-              Quick question: what would stop you from running your own query here?
+      {surveyReady && (
+        <div className="pt-3" style={{ borderTop: '1px solid #2d3f55' }}>
+          {answered ? (
+            <p className="text-xs" style={{ color: '#7fa3c4' }}>
+              Thanks, that helps us improve QueryTuner.
             </p>
-            <div className="flex flex-wrap gap-2">
-              {OPTIONS.map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  onClick={() => answer(o.id)}
-                  className="text-xs px-2.5 py-1 rounded-full"
-                  style={{ background: '#0f172a', border: '1px solid #2d3f55', color: '#cbd5e1' }}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
+          ) : (
+            <>
+              <p className="text-xs mb-2" style={{ color: '#94a3b8' }}>
+                Quick question: what would stop you from running your own query here?
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {OPTIONS.map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => answer(o.id)}
+                    className="text-xs px-2.5 py-1 rounded-full"
+                    style={{ background: '#0f172a', border: '1px solid #2d3f55', color: '#cbd5e1' }}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
