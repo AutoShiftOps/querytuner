@@ -1,0 +1,47 @@
+[
+  {
+    "label": "SELECT * — Column Selection",
+    "db_type": "postgresql",
+    "sql": "SELECT *\nFROM users;"
+  },
+  {
+    "label": "Missing WHERE Clause",
+    "db_type": "mysql",
+    "sql": "SELECT id, email, created_at\nFROM orders;"
+  },
+  {
+    "label": "Simple Indexed Lookup",
+    "db_type": "postgresql",
+    "sql": "SELECT id, name, email\nFROM users\nWHERE id = 42;"
+  },
+  {
+    "label": "LIKE with Leading Wildcard",
+    "db_type": "postgresql",
+    "sql": "SELECT id, name\nFROM products\nWHERE name LIKE '%phone';"
+  },
+  {
+    "label": "Function in WHERE Clause",
+    "db_type": "mysql",
+    "sql": "SELECT id, user_id, total\nFROM orders\nWHERE YEAR(created_at) = 2024\n  AND status = 'completed';"
+  },
+  {
+    "label": "ORDER BY Without LIMIT",
+    "db_type": "postgresql",
+    "sql": "SELECT u.id, u.name, COUNT(o.id) AS order_count\nFROM users u\nJOIN orders o ON o.user_id = u.id\nGROUP BY u.id, u.name\nORDER BY order_count DESC;"
+  },
+  {
+    "label": "Multi-Join with Subquery",
+    "db_type": "postgresql",
+    "sql": "SELECT\n  u.id,\n  u.name,\n  u.email,\n  recent.last_order_date,\n  COUNT(oi.id) AS total_items\nFROM users u\nJOIN orders o ON o.user_id = u.id\nJOIN order_items oi ON oi.order_id = o.id\nJOIN (\n  SELECT user_id, MAX(created_at) AS last_order_date\n  FROM orders\n  GROUP BY user_id\n) recent ON recent.user_id = u.id\nWHERE YEAR(o.created_at) = 2024\n  AND u.status = 'active'\nGROUP BY u.id, u.name, u.email, recent.last_order_date\nORDER BY total_items DESC;"
+  },
+  {
+    "label": "N+1 Pattern (Correlated Subquery)",
+    "db_type": "postgresql",
+    "sql": "SELECT\n  p.id,\n  p.name,\n  p.price,\n  (SELECT COUNT(*) FROM order_items oi WHERE oi.product_id = p.id) AS times_ordered,\n  (SELECT AVG(r.rating) FROM reviews r WHERE r.product_id = p.id) AS avg_rating\nFROM products p\nWHERE p.category = 'electronics'\nORDER BY times_ordered DESC;"
+  },
+  {
+    "label": "SQL Injection Risk",
+    "db_type": "mysql",
+    "sql": "SELECT id, username, email\nFROM users\nWHERE username = 'admin' -- '\n  OR 1=1\nUNION SELECT table_name, null, null\nFROM information_schema.tables;"
+  }
+]

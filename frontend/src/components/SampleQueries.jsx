@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, FlaskConical } from 'lucide-react';
 
-const SAMPLE_QUERIES = [
+export const SAMPLE_QUERIES = [
   {
     category: 'Beginner',
     color: 'emerald',
