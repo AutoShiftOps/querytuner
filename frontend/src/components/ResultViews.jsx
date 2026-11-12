@@ -103,6 +103,21 @@ export function AiRejectedNote({ reason, extra }) {
   );
 }
 
+// Shown when the backend removed AI index suggestions that named a table or
+// column the query doesn't use.
+export function AiIndexesDroppedNote({ reasons }) {
+  if (!reasons || reasons.length === 0) return null;
+  const unique = [...new Set(reasons)];
+  return (
+    <AiNote
+      title={`${reasons.length} AI index suggestion${reasons.length === 1 ? '' : 's'} not shown`}
+    >
+      Each index is checked against your query before it is shown, and its DDL is written by
+      QueryTuner, not the AI. Removed because: {unique.join('; ')}.
+    </AiNote>
+  );
+}
+
 // Before -> after snippets for long queries and batches.
 export function TargetedFixList({ fixes }) {
   if (!fixes || fixes.length === 0) return null;

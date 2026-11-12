@@ -19,6 +19,7 @@ import json
 import re
 from typing import Any
 
+from app.llm.index_check import check_ai_indexes
 from app.llm.json_utils import parse_json_lenient
 from app.tools.query_parser import strip_sql_comments
 
@@ -176,9 +177,22 @@ def check_targeted_fixes(original: str, fixes: Any) -> tuple[list[dict[str, str]
     return kept, dropped
 
 
-def review_ai_output(original: str, ai_text: str | None) -> str | None:
+# Key names models have used for the index list (the prompt asks for the first).
+_INDEX_KEYS = ("recommended_indexes", "indexes", "index_recommendations", "missing_indexes")
+
+
+def review_ai_output(
+    original: str,
+    ai_text: str | None,
+    *,
+    db_type: str | None = None,
+    parsed: dict[str, Any] | None = None,
+    schema_info: str | None = None,
+) -> str | None:
     """
-    Apply both checks to the model's JSON reply and return it re-serialized.
+    Apply the checks to the model's JSON reply and return it re-serialized.
+    With db_type, index suggestions are also checked against the query and
+    their DDL rebuilt here (see app.llm.index_check).
     A reply cut off by the token limit is repaired first; whatever was being
     written when it stopped is dropped (an incomplete rewrite or the last,
     possibly half-written targeted fix), and output_truncated is set.
@@ -213,5 +227,15 @@ def review_ai_output(original: str, ai_text: str | None) -> str | None:
         data["targeted_fixes"] = kept
         if dropped + already:
             data["targeted_fixes_dropped"] = dropped + already
+
+    if db_type:
+        for key in _INDEX_KEYS:
+            if key in data:
+                kept, reasons = check_ai_indexes(
+                    original, data[key], db_type=db_type, parsed=parsed, schema_info=schema_info
+                )
+                data[key] = kept
+                if reasons:
+                    data["indexes_dropped"] = data.get("indexes_dropped", []) + reasons
 
     return json.dumps(data, ensure_ascii=False)

@@ -82,3 +82,29 @@ describe('ResultsPanel — AI Insights empty-state copy', () => {
     ).not.toBeInTheDocument();
   });
 });
+
+describe('ResultsPanel — AI index suggestions checked server-side', () => {
+  it('shows the server-built DDL and says why other suggestions were removed', () => {
+    const content = JSON.stringify({
+      recommended_indexes: [
+        {
+          suggestion: 'Index on orders (status)',
+          ddl: 'CREATE INDEX CONCURRENTLY idx_orders_status ON orders(status);',
+        },
+      ],
+      indexes_dropped: ['table `payments` is not used in this query'],
+    });
+
+    render(<ResultsPanel title="AI Insights" content={content} icon={Zap} />);
+
+    expect(screen.getByText(/idx_orders_status ON orders\(status\)/)).toBeInTheDocument();
+    expect(screen.getByText(/1 AI index suggestion not shown/i)).toBeInTheDocument();
+    expect(screen.getByText(/payments/)).toBeInTheDocument();
+  });
+
+  it('shows no removal note when nothing was dropped', () => {
+    const content = JSON.stringify({ recommended_indexes: [] });
+    render(<ResultsPanel title="AI Insights" content={content} icon={Zap} />);
+    expect(screen.queryByText(/index suggestion.* not shown/i)).not.toBeInTheDocument();
+  });
+});

@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import {
+  getAiIndexesDropped,
   getAiRewriteRejected,
   getAiTargetedFixes,
   isAiRewriteTruncated,
   safeParseAiJson,
 } from '../utils/aiInsights';
-import { AiCutOffNote, AiRejectedNote, TargetedFixList } from './ResultViews';
+import { AiCutOffNote, AiIndexesDroppedNote, AiRejectedNote, TargetedFixList } from './ResultViews';
 import { desanitize } from '../utils/sanitizer';
 import OptimizationComplete from './OptimizationComplete';
 
@@ -387,6 +388,7 @@ function StructuredInsights({ data, aiConfirmedTypes, showCompletion, rewriteCut
           ))}
         </div>
       )}
+      <AiIndexesDroppedNote reasons={getAiIndexesDropped(data)} />
 
       {getAiTargetedFixes(data).length > 0 && (
         <div>

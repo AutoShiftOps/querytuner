@@ -168,6 +168,14 @@ export function getAiRewriteRejected(content) {
   return typeof parsed?.rewrite_rejected === 'string' ? parsed.rewrite_rejected : '';
 }
 
+// Reasons the backend removed AI index suggestions (unknown table/column,
+// CTE, expression). The kept ones carry DDL the backend generated itself.
+export function getAiIndexesDropped(content) {
+  const parsed = content && typeof content === 'object' ? content : safeParseAiJson(content);
+  const reasons = parsed?.indexes_dropped;
+  return Array.isArray(reasons) ? reasons.filter((r) => typeof r === 'string' && r) : [];
+}
+
 // SQL with comments/whitespace/case stripped, for "did the rewrite change
 // anything?" comparisons.
 export function normalizeSql(sql) {

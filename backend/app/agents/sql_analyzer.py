@@ -191,7 +191,7 @@ class SQLAnalyzerAgent:
             ai_attempted = True
             ai_insights = cached_ai["ai_insights"]
             ai_model = cached_ai.get("ai_model")
-            ai_insights = review_ai_output(query, ai_insights)
+            ai_insights = review_ai_output(query, ai_insights, db_type=db_type, parsed=parsed, schema_info=schema_info)
             used_ai = bool(ai_insights and str(ai_insights).strip())
         elif use_llm:
             ai_attempted = True
@@ -227,7 +227,7 @@ class SQLAnalyzerAgent:
             )
             # Never pass on a rewrite that drops tables/columns or a fix
             # whose "before" text is not in the query.
-            ai_insights = review_ai_output(query, ai_insights)
+            ai_insights = review_ai_output(query, ai_insights, db_type=db_type, parsed=parsed, schema_info=schema_info)
             used_ai = bool(ai_insights and str(ai_insights).strip())
 
         return {
@@ -774,7 +774,10 @@ Heuristic suggestions already found:
 
 Tasks:
 1) Provide the most impactful performance improvements (prioritized).
-2) Recommend concrete indexes (include dialect-correct CREATE INDEX statements).
+2) Recommend concrete indexes as recommended_indexes: objects {{"table", "columns", "include", "why", "severity"}}.
+   "table" and every column must be a real base table/column used in the SQL above (never a CTE, derived
+   table or SELECT alias); "columns" are the key columns in order, "include" optional covering columns.
+   Do not write CREATE INDEX statements: the server builds dialect-correct DDL from these fields.
 {rewrite_task}
 4) Call out any risky assumptions (unknown cardinalities, missing schema).
 Keep it concise and actionable.

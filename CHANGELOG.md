@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- AI index suggestions are checked before they are shown. The model now
+  returns `{table, columns, include, why}`; the server resolves aliases,
+  rejects tables/columns the query doesn't use (or that the pasted schema
+  doesn't have), CTEs, SELECT aliases and expressions, and writes the
+  CREATE INDEX and rollback DDL itself with the dialect templates. The
+  model's own DDL is never passed on. Removed suggestions are listed in an
+  AI Insights note (`indexes_dropped`). New `app/llm/index_check.py`.
+  Idea from AI SQL Tuner's MIT-licensed index tuner, which never runs the
+  model's script.
+- Partial/filtered index DDL uses the query's own filter
+  (`WHERE Status = 10000`, `type IN (1, 2)`, `deleted_at IS NULL`) instead
+  of the `'<active_value>'` placeholder. The placeholder stays only when the
+  query passes a parameter or the WHERE uses OR (a partial index on one
+  branch of an OR would not be used).
 - Dedicated `/pricing` route — Free vs Pro feature comparison table + pricing cards,
   linked from the main nav. The Phase 4 audit's only real ("not just wording") gap
   (#51, PR #162, `e2709f1f`)
