@@ -502,6 +502,45 @@ def _is_low_cardinality(col_name: str) -> bool:
     return bool(_LOW_CARDINALITY_PATTERNS.search(col_name))
 
 
+# A constant the query compares a column with: 'x' / N'x' (with '' escapes),
+# a number, or TRUE/FALSE. Parameters (?, $1, :name, @p) are not literals.
+_LITERAL = r"(?:N?'(?:[^']|'')*'|-?\d+(?:\.\d+)?|TRUE|FALSE)"
+
+
+def _filter_predicate(where_clause: str, alias: str | None, col: str) -> str | None:
+    """
+    The query's own filter on `col`, written for a partial/filtered index
+    (`status = 'active'`, `type IN (1, 2)`, `deleted_at IS NULL`), or None.
+
+    Only a top-level AND-ed equality, IN-list or IS [NOT] NULL test against
+    constants qualifies: the index predicate must be implied by the query's
+    WHERE for the planner to use it. A WHERE with OR, or a parameter
+    instead of a constant, returns None.
+    """
+    if not where_clause:
+        return None
+    normalised = re.sub(r"\s+", " ", where_clause).strip()
+    if re.search(r"\bOR\b", normalised, re.IGNORECASE):
+        return None
+    alias_re = rf"(?:{re.escape(alias)}\.)?" if alias else r"(?:[A-Za-z_]\w*\.)?"
+    col_re = alias_re + re.escape(col)
+    for cond in re.split(r"\bAND\b", normalised, flags=re.IGNORECASE):
+        cond = cond.strip()
+        while cond.startswith("(") and cond.endswith(")") and _matching_paren_end(cond, 0) == len(cond) - 1:
+            cond = cond[1:-1].strip()
+        m = re.fullmatch(col_re + rf"\s*=\s*({_LITERAL})", cond, re.IGNORECASE)
+        if m:
+            return f"{col} = {m.group(1)}"
+        m = re.fullmatch(col_re + rf"\s+IN\s*\(\s*({_LITERAL}(?:\s*,\s*{_LITERAL})*)\s*\)", cond, re.IGNORECASE)
+        if m:
+            values = ", ".join(re.findall(_LITERAL, m.group(1), re.IGNORECASE))
+            return f"{col} IN ({values})"
+        m = re.fullmatch(col_re + r"\s+IS\s+(NOT\s+)?NULL", cond, re.IGNORECASE)
+        if m:
+            return f"{col} IS {'NOT ' if m.group(1) else ''}NULL"
+    return None
+
+
 # Issue #118: write/storage cost estimate — the counterpart to
 # estimated_improvement, which only ever states the read-side benefit.
 # Heuristic-only, v1: no live DB access means no real row counts or
@@ -673,15 +712,33 @@ class IndexRecommender:
                 continue
             label = f"`{alias}.{col}`" if alias else f"`{col}`"
             if _is_low_cardinality(col):
-                ddl, schema_verified, table_ph = self._ddl_partial_hint(alias, col, db_type, schema, table_aliases)
+                predicate = _filter_predicate(where_clause, alias, col)
+                ddl, schema_verified, table_ph = self._ddl_partial_hint(
+                    alias, col, db_type, schema, table_aliases, predicate=predicate
+                )
+                if predicate:
+                    suggestion_text = (
+                        f"WHERE column {label} looks low-cardinality (status/flag/type). A partial index "
+                        f"on `{predicate}` may be more efficient than a full index"
+                    )
+                    estimated_text = f"Significant if rows matching `{predicate}` are a small share of the table"
+                else:
+                    suggestion_text = (
+                        f"WHERE column {label} looks low-cardinality (status/flag/type). "
+                        "A partial index may be more efficient than a full index"
+                    )
+                    estimated_text = "Significant if the filtered rows are a small share of the table"
                 suggestions.append(
                     self._make(
                         index_type="partial_index_candidate",
                         severity="medium",
                         columns=[key],
-                        suggestion=f"WHERE column {label} looks low-cardinality (status/flag/type). A partial index may be more efficient than a full index",
-                        reason="Low-cardinality columns have poor selectivity for full indexes. A partial index (WHERE status = 'active') is smaller and faster.",
-                        estimated="Significant if active rows are a small subset of the table",
+                        suggestion=suggestion_text,
+                        reason=(
+                            "Low-cardinality columns have poor selectivity for full indexes. A partial index "
+                            "that covers only the rows this query asks for is smaller and faster."
+                        ),
+                        estimated=estimated_text,
                         ddl_hint=ddl,
                         ddl_note=get_dialect(db_type).index_ddl_note(),
                         schema_verified=schema_verified,
@@ -885,8 +942,14 @@ class IndexRecommender:
         db_type: str,
         schema=None,
         table_aliases: dict[str, str] | None = None,
+        predicate: str | None = None,
     ) -> tuple[str, bool, str]:
-        """Dialect-correct partial/filtered index DDL. Returns (ddl, schema_verified, table_ph)."""
+        """
+        Dialect-correct partial/filtered index DDL. Returns (ddl, schema_verified, table_ph).
+
+        `predicate` is the query's own filter (see _filter_predicate). Without
+        one (the query passes a parameter), the value stays a placeholder.
+        """
         schema = schema or {}
         real_table = self._real_table(alias, schema, table_aliases)
         schema_verified = real_table is not None and col in schema.get(real_table, {})
@@ -895,12 +958,10 @@ class IndexRecommender:
         # the MySQL/Oracle fallback is a plain index and is named like one.
         idx = _index_name(real_table or alias, col, "partial" if db_type in ("postgresql", "sqlserver") else "")
         cfg = get_dialect(db_type)
+        where = predicate or f"{col} = '<active_value>'"
 
         if db_type == "postgresql":
-            ddl = (
-                f"CREATE INDEX CONCURRENTLY {idx} ON {table_ph}({col}) "
-                f"WHERE {col} = '<active_value>';  -- {cfg.index_ddl_note()}"
-            )
+            ddl = f"CREATE INDEX CONCURRENTLY {idx} ON {table_ph}({col}) WHERE {where};  -- {cfg.index_ddl_note()}"
         elif db_type == "mysql":
             ddl = (
                 f"-- MySQL has no native partial indexes.\n"
@@ -908,9 +969,7 @@ class IndexRecommender:
                 f"-- Option B: partition the table by {col} value."
             )
         elif db_type == "sqlserver":
-            ddl = (
-                f"CREATE NONCLUSTERED INDEX {idx} ON {table_ph}({col}) WHERE {col} = '<active_value>' WITH (ONLINE=ON);"
-            )
+            ddl = f"CREATE NONCLUSTERED INDEX {idx} ON {table_ph}({col}) WHERE {where} WITH (ONLINE=ON);"
         elif db_type == "oracle":
             ddl = (
                 f"-- Oracle has no partial indexes: index the column itself, or use list partitioning on {col}.\n"
